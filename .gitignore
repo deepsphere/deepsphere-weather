@@ -1,0 +1,7 @@
+# Don't track these files
+
+*~
+.DS_Store
+
+#IPython checkpoints
+.ipynb_checkpoints/
