@@ -1,4 +1,5 @@
 import pygsp
+import numpy as np
 
 import torch
 from torch.nn import functional as F
@@ -15,7 +16,7 @@ def compute_laplacian(nodes, ratio, laplacian_type="normalized"):
 
     G = pygsp.graphs.SphereEquiangular(bandwidth=bw, sampling="SOFT")
     G.compute_laplacian(laplacian_type)
-    laplacian = layers.prepare_laplacian(G.L)
+    laplacian = layers.prepare_laplacian(G.L.astype(np.float32))
     
     return laplacian
 
@@ -36,7 +37,8 @@ class SphericalCNN(torch.nn.Module):
         super().__init__()
         
         self.kernel_size = kernel_size
-        self.laplacian = compute_laplacian(N, ratio)
+        laplacian = compute_laplacian(N, ratio)
+        self.register_buffer(f'laplacian', laplacian)
         
         self.conv1 = layers.ChebConv(in_channels, 64, self.kernel_size)
         self.conv2 = layers.ChebConv(64, 64, self.kernel_size)
@@ -55,12 +57,12 @@ class SphericalCNN(torch.nn.Module):
         Returns:
             :obj:`torch.Tensor`: output
         """
-        
+    
         x = F.elu(self.conv1(self.laplacian, x))
         x = F.elu(self.conv2(self.laplacian, x))
         x = F.elu(self.conv3(self.laplacian, x))
         x = F.elu(self.conv4(self.laplacian, x))
-        x = self.conv5(x)
+        x = self.conv5(self.laplacian, x)
         
         return x
     
