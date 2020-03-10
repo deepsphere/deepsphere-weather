@@ -75,8 +75,8 @@ class Weather_Dataset(Dataset):
 
     def __getitem__(self, idx):
         idxs = self.idxs[idx]
-        X = torch.Tensor(self.data.isel(time=idxs).values).view((self.features, self.nodes))
-        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values).view((self.features, self.nodes))
+        X = torch.Tensor(self.data.isel(time=idxs).values).view((self.nodes, self.features))
+        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values).view((self.nodes, self.features))
 
         return X, y
 
@@ -121,8 +121,8 @@ class Dataset_WeatherBench_1D(Dataset):
 
     def __getitem__(self, idx):
         idxs = self.idxs[idx]
-        X = torch.Tensor(self.data.isel(time=idxs).values).view((self.features, self.nodes))
-        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values).view((self.features, self.nodes))
+        X = torch.Tensor(self.data.isel(time=idxs).values).view((self.nodes, self.features))
+        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values).view((self.nodes, self.features))
 
         return X, y
 
