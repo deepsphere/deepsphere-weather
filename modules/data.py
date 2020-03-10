@@ -1,8 +1,9 @@
 import xarray as xr
+import numpy as np
 
 import torch
 from torch import nn, optim 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 
 # Test data
@@ -106,7 +107,7 @@ class Dataset_WeatherBench_1D(Dataset):
         
         # Stack
         self.data = self.data.stack(nodes=('lat', 'lon')).transpose('time', 'nodes', 'level')
-        self.nodes = len(ds['nodes'])
+        self.nodes = len(self.data['nodes'])
         
         self.n_samples = self.data.isel(time=slice(0, -lead_time)).shape[0]
         self.idxs = np.arange(self.n_samples)

@@ -5,7 +5,7 @@ from torch.nn import functional as F
 
 from deepsphere.utils.samplings import equiangular_dimension_unpack
 
-import layers
+import modules.layers as layers
 
 
 def compute_laplacian(nodes, ratio, laplacian_type="normalized"):
@@ -18,7 +18,6 @@ def compute_laplacian(nodes, ratio, laplacian_type="normalized"):
     laplacian = layers.prepare_laplacian(G.L)
     
     return laplacian
-
 
 
 class SphericalCNN(torch.nn.Module):
@@ -39,11 +38,11 @@ class SphericalCNN(torch.nn.Module):
         self.kernel_size = kernel_size
         self.laplacian = compute_laplacian(N, ratio)
         
-        self.conv1 = layers.ChebConv(channels_in, 64, self.kernel_size)
+        self.conv1 = layers.ChebConv(in_channels, 64, self.kernel_size)
         self.conv2 = layers.ChebConv(64, 64, self.kernel_size)
         self.conv3 = layers.ChebConv(64, 64, self.kernel_size)
         self.conv4 = layers.ChebConv(64, 64, self.kernel_size)
-        self.conv5 = layers.ChebConv(64, channels_out, self.kernel_size)
+        self.conv5 = layers.ChebConv(64, out_channels, self.kernel_size)
         
         for m in self.modules():
             if isinstance(m, layers.ChebConv):
