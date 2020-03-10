@@ -16,7 +16,7 @@ import torch
 from deepsphere.utils.samplings import equiangular_dimension_unpack
 
 # Vanilla CNN layers
-class PeriodicConv2D(nn.Module):
+class PeriodicConv2D(torch.nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size):
         super().__init__()
         
@@ -25,8 +25,8 @@ class PeriodicConv2D(nn.Module):
         
         self.conv = nn.Conv2d(in_channels, out_channels, self.kernel_size, padding=0)
         
-        nn.init.xavier_uniform_(self.conv.weight)
-        nn.init.zeros_(self.conv.bias)
+        torch.nn.init.xavier_uniform_(self.conv.weight)
+        torch.nn.init.zeros_(self.conv.bias)
     
     def pad(self, x):
         padded = torch.cat((x[:, :, :, -self.pad_width:], x, x[:, :, :, :self.pad_width]), dim=3)
@@ -86,7 +86,7 @@ def cheb_conv(laplacian, x, weight):
     # Fin = nb input features
     # Fout = nb output features
     # K = order of Chebyshev polynomials (kenel size)
-
+    
     # transform to Chebyshev basis
     x0 = x.permute(1, 2, 0).contiguous()  # V x Fin x B
     x0 = x0.view([V, Fin*B])              # V x Fin*B
@@ -253,6 +253,7 @@ class ChebConv(torch.nn.Module):
         inputs : tensor of shape n_signals x n_vertices x n_features
             Data, i.e., features on the vertices.
         """
+        
         outputs = self._conv(laplacian, inputs, self.weight)
         if self.bias is not None:
             outputs += self.bias
