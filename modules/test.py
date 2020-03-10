@@ -1,6 +1,44 @@
 import xarray as xr
 
 
+# Predict
+def create_predictions(model, dg, dim1, dim2, mean, std):
+    """Create non-iterative predictions"""
+    
+    outputs = []
+    for i, (sample, _) in enumerate(dg):
+        sample = sample.to(device)
+        output = model(sample).detach().cpu().clone().numpy().reshape((-1, dim1, dim2, 2))
+        outputs.append(output)
+    preds = np.concatenate(outputs)
+    
+    # Unnormalize
+    preds = preds * std.values + mean.values
+    das = []
+    lev_idx = 0
+    for var, levels in dg.dataset.var_dict.items():
+        if levels is None:
+            das.append(xr.DataArray(
+                preds[:, :, :, lev_idx],
+                dims=['time', 'lat', 'lon'],
+                coords={'time': dg.dataset.valid_time, 'lat': dg.dataset.data.lat, 'lon': dg.dataset.data.lon},
+                name=var
+            ))
+            lev_idx += 1
+        else:
+            nlevs = len(levels)
+            das.append(xr.DataArray(
+                preds[:, :, :, lev_idx:lev_idx+nlevs],
+                dims=['time', 'lat', 'lon', 'level'],
+                coords={'time': dg.dataset.valid_time, 'lat': dg.dataset.data.lat, 'lon': dg.dataset.data.lon, 'level': levels},
+                name=var
+            ))
+            lev_idx += nlevs
+    return xr.merge(das)
+
+
+
+# Metrics
 def compute_weighted_rmse(da_fc, da_true, mean_dims=xr.ALL_DIMS):
     """
     Compute the RMSE with latitude weighting from two xr.DataArrays.
