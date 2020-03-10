@@ -6,7 +6,6 @@ Copyright 2018 Michaël Defferrard.
 Released under the terms of the MIT license.
 """
 
-
 import math
 
 import numpy as np
@@ -14,7 +13,36 @@ from scipy import sparse
 import scipy.sparse.linalg
 import torch
 
+from deepsphere.utils.samplings import equiangular_dimension_unpack
 
+# Vanilla CNN layers
+class PeriodicConv2D(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size):
+        super().__init__()
+        
+        self.kernel_size = kernel_size
+        self.pad_width = int((self.kernel_size - 1)/2)
+        
+        self.conv = nn.Conv2d(in_channels, out_channels, self.kernel_size, padding=0)
+        
+        nn.init.xavier_uniform_(self.conv.weight)
+        nn.init.zeros_(self.conv.bias)
+    
+    def pad(self, x):
+        padded = torch.cat((x[:, :, :, -self.pad_width:], x, x[:, :, :, :self.pad_width]), dim=3)
+        padded = F.pad(padded, (0, 0, self.pad_width, self.pad_width), 'constant', 0)
+        
+        return padded
+    
+    def forward(self, x):
+        padded = self.pad(x)
+        output = self.conv(padded)
+        
+        return output
+
+
+
+# Graph CNN layers
 def prepare_laplacian(laplacian):
     r"""Prepare a graph Laplacian to be fed to a graph convolutional layer."""
 
@@ -168,11 +196,11 @@ class ChebConv(torch.nn.Module):
         """
 
         if fan == 'in':
-            fan = self.in_channels * self.kernel_size
+            fan = self.in_channels #* self.kernel_size
         elif fan == 'out':
-            fan = self.out_channels * self.kernel_size
+            fan = self.out_channels #* self.kernel_size
         elif fan == 'avg':
-            fan = (self.in_channels + self.out_channels) / 2 * self.kernel_size
+            fan = (self.in_channels + self.out_channels) / 2 #* self.kernel_size
         else:
             raise ValueError('unknown fan')
 
@@ -231,6 +259,8 @@ class ChebConv(torch.nn.Module):
         return outputs
 
 
+    
+# Pooling layers
 class HealpixAvgPool(torch.nn.Module):
 
     def __init__(self, kernel_size):
@@ -264,3 +294,75 @@ class HealpixAvgUnpool(torch.nn.Module):
         x = x.permute(0, 2, 1)
         x = torch.nn.functional.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
         return x.permute(0, 2, 1)
+    
+
+def equiangular_calculator(tensor):
+    N, M, F = tensor.size()
+    dim1, dim2 = equiangular_dimension_unpack(M, ratio)
+    bw_dim1, bw_dim2 = dim1/2, dim2/2
+    tensor = tensor.view(N, dim1, dim2, F)
+    return tensor, [bw_dim1, bw_dim2]
+
+
+class EquiangularMaxPool(torch.nn.MaxPool1d):
+    """EquiAngular Maxpooling module using MaxPool 1d from torch
+    """
+
+    def __init__(self, ratio, kernel_size, return_indices=True):
+        """Initialization
+        Args:
+            ratio (float): ratio between latitude and longitude dimensions of the data
+        """
+        self.ratio = ratio
+        super().__init__(kernel_size=kernel_size, return_indices=return_indices)
+
+    def forward(self, x):
+        """calls Maxpool1d and if desired, keeps indices of the pixels pooled to unpool them
+        Args:
+            input (:obj:`torch.tensor`): batch x pixels x features
+        Returns:
+            tuple(:obj:`torch.tensor`, list(int)): batch x pooled pixels x features and the indices of the pixels pooled
+        """
+        x, _ = equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+
+        if self.return_indices:
+            x, indices = F.max_pool2d(x, self.kernel_size, return_indices=self.return_indices)
+        else:
+            x = F.max_pool2d(x, self.kernel_size)
+        x = reformat(x)
+
+        if self.return_indices:
+            output = x, indices
+        else:
+            output = x
+
+        return output
+
+
+class EquiangularMaxUnpool(torch.nn.MaxUnpool1d):
+    """Equiangular Maxunpooling using the MaxUnpool1d of pytorch
+    """
+
+    def __init__(self, ratio, kernel_size):
+        """Initialization
+        Args:
+            ratio (float): ratio between latitude and longitude dimensions of the data
+        """
+        self.ratio = ratio
+        
+        super().__init__(kernel_size=(kernel_size, kernel_size))
+
+    def forward(self, x, indices):
+        """calls MaxUnpool1d using the indices returned previously by EquiAngMaxPool
+        Args:
+            x (:obj:`torch.tensor`): batch x pixels x features
+            indices (int): indices of pixels equiangular maxpooled previously
+        Returns:
+            :obj:`torch.tensor`: batch x unpooled pixels x features
+        """
+        x, _ = equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+        x = F.max_unpool2d(x, indices, self.kernel_size)
+        x = reformat(x)
+        return x
