@@ -1,0 +1,6 @@
+name: envname
+channels:
+  - soumith
+  - defaults
+prefix: /home/illorens/miniconda3/envs/envname
+
