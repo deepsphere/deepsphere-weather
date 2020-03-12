@@ -61,7 +61,6 @@ class Weather_Dataset(Dataset):
         
         # Stack
         self.data = self.data.stack(nodes=('lat', 'lon')).transpose('time', 'nodes', 'level')
-        self.nodes = len(ds['nodes'])
         
         self.n_samples = self.data.isel(time=slice(0, -lead_time)).shape[0]
         self.idxs = np.arange(self.n_samples)
@@ -75,8 +74,11 @@ class Weather_Dataset(Dataset):
 
     def __getitem__(self, idx):
         idxs = self.idxs[idx]
-        X = torch.Tensor(self.data.isel(time=idxs).values).view((self.nodes, self.features))
-        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values).view((self.nodes, self.features))
+        X = self.data.isel(time=idxs).values
+        y = self.data.isel(time=idxs + self.lead_time).values
+        
+        X = torch.Tensor(X).permute(1, 0)
+        y = torch.Tensor(y).permute(1, 0)
 
         return X, y
 
@@ -88,8 +90,7 @@ class Dataset_WeatherBench_1D(Dataset):
         self.ds = ds
         self.var_dict = var_dict
         self.lead_time = lead_time
-        self.features = len(var_dict)
-    
+
         data = []
         generic_level = xr.DataArray([1], coords={'level': [1]}, dims=['level'])
         for var, levels in var_dict.items():
@@ -104,15 +105,13 @@ class Dataset_WeatherBench_1D(Dataset):
         
         # Normalize
         self.data = (self.data - self.mean) / self.std
+        self.n_samples = self.data.isel(time=slice(0, -lead_time)).shape[0]
+        self.init_time = self.data.isel(time=slice(None, -lead_time)).time
+        self.valid_time = self.data.isel(time=slice(lead_time, None)).time
+        self.idxs = np.arange(self.n_samples)
         
         # Stack
         self.data = self.data.stack(nodes=('lat', 'lon')).transpose('time', 'nodes', 'level')
-        self.nodes = len(self.data['nodes'])
-        
-        self.n_samples = self.data.isel(time=slice(0, -lead_time)).shape[0]
-        self.idxs = np.arange(self.n_samples)
-        self.init_time = self.data.isel(time=slice(None, -lead_time)).time
-        self.valid_time = self.data.isel(time=slice(lead_time, None)).time
         
         if load: print('Loading data into RAM'); self.data.load()
         
@@ -121,23 +120,23 @@ class Dataset_WeatherBench_1D(Dataset):
 
     def __getitem__(self, idx):
         idxs = self.idxs[idx]
-        X = torch.Tensor(self.data.isel(time=idxs).values).view((self.nodes, self.features))
-        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values).view((self.nodes, self.features))
+        X = self.data.isel(time=idxs).values
+        y = self.data.isel(time=idxs + self.lead_time).values
+        
+        X = torch.Tensor(X).permute(1, 0)
+        y = torch.Tensor(y).permute(1, 0)
 
         return X, y
 
-
+    
 class Dataset_WeatherBench_2D(Dataset):
     
     def __init__(self, ds, var_dict, lead_time, load=True, mean=None, std=None):
-        
+
         self.ds = ds
         self.var_dict = var_dict
         self.lead_time = lead_time
-        self.lat = len(ds['lat'])
-        self.lon = len(ds['lon'])
-        self.features = len(var_dict)
-    
+
         data = []
         generic_level = xr.DataArray([1], coords={'level': [1]}, dims=['level'])
         for var, levels in var_dict.items():
@@ -152,12 +151,12 @@ class Dataset_WeatherBench_2D(Dataset):
         
         # Normalize
         self.data = (self.data - self.mean) / self.std
-        
         self.n_samples = self.data.isel(time=slice(0, -lead_time)).shape[0]
-        self.idxs = np.arange(self.n_samples)
         self.init_time = self.data.isel(time=slice(None, -lead_time)).time
         self.valid_time = self.data.isel(time=slice(lead_time, None)).time
-        
+        self.idxs = np.arange(self.n_samples)
+
+        # For some weird reason calling .load() earlier messes up the mean and std computations
         if load: print('Loading data into RAM'); self.data.load()
         
     def __len__(self):
@@ -165,8 +164,10 @@ class Dataset_WeatherBench_2D(Dataset):
 
     def __getitem__(self, idx):
         idxs = self.idxs[idx]
-        X = torch.Tensor(self.data.isel(time=idxs).values).view((self.features, self.lat, self.lon))
-        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values).view((self.features, 
-                                                                                  self.lat, self.lon))
+        X = self.data.isel(time=idxs).values
+        y = self.data.isel(time=idxs + self.lead_time).values
+        
+        X = torch.Tensor(X).permute(2, 0, 1)
+        y = torch.Tensor(y).permute(2, 0, 1)
 
         return X, y
