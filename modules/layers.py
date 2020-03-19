@@ -1,22 +1,29 @@
-r"""
-PyTorch implementation of a convolutional neural network on graphs based on
-Chebyshev polynomials of the graph Laplacian.
-See https://arxiv.org/abs/1606.09375 for details.
-Copyright 2018 Michaël Defferrard.
-Released under the terms of the MIT license.
-"""
-
 import math
 
 import numpy as np
 from scipy import sparse
 import scipy.sparse.linalg
 import torch
+from torch.nn import functional as F
 
 from deepsphere.utils.samplings import equiangular_dimension_unpack
+from deepsphere.layers.samplings.equiangular_pool_unpool import reformat
 
-# Vanilla CNN layers
-class PeriodicConv2D(torch.nn.Module):
+# 2D CNN layers
+class Conv2dPeriodic(torch.nn.Module):
+    """ 2D Convolutional layer, periodic in the longitude (width) dimension.
+
+    Parameters
+    ----------
+    in_channels : int
+        Number of channels in the input image.
+    out_channels : int
+        Number of channels in the output image.
+    kernel_size : int
+        Width of the square convolutional kernel.
+        The actual size of the kernel is kernel_size*+2
+    """
+    
     def __init__(self, in_channels, out_channels, kernel_size):
         super().__init__()
         
@@ -41,10 +48,19 @@ class PeriodicConv2D(torch.nn.Module):
         return output
 
 
-
 # Graph CNN layers
+"""
+PyTorch implementation of a convolutional neural network on graphs based on
+Chebyshev polynomials of the graph Laplacian.
+See https://arxiv.org/abs/1606.09375 for details.
+Copyright 2018 Michaël Defferrard.
+Released under the terms of the MIT license.
+"""
+
+
 def prepare_laplacian(laplacian):
-    r"""Prepare a graph Laplacian to be fed to a graph convolutional layer."""
+    """Prepare a graph Laplacian to be fed to a graph convolutional layer
+    """
 
     def estimate_lmax(laplacian, tol=5e-3):
         r"""Estimate the largest eigenvalue of an operator."""
@@ -77,9 +93,24 @@ def prepare_laplacian(laplacian):
     return laplacian
 
 
-# State-less function.
-def cheb_conv(laplacian, x, weight):
-    B, V, Fin = x.shape
+def cheb_conv(laplacian, inputs, weight):
+    """Chebyshev convolution.
+    Parameters
+    ----------
+    laplacian : torch.sparse.Tensor
+        The laplacian corresponding to the current sampling of the sphere
+    inputs : torch.Tensor
+        The current input data being forwarded
+    weight : torch.Tensor
+        The weights of the current layer
+        
+    Returns
+    -------
+    x : torch.Tensor
+        Inputs after applying Chebyshev convolution.
+    """
+    
+    B, V, Fin = inputs.shape
     Fin, K, Fout = weight.shape
     # B = batch size
     # V = nb vertices
@@ -87,8 +118,8 @@ def cheb_conv(laplacian, x, weight):
     # Fout = nb output features
     # K = order of Chebyshev polynomials (kenel size)
     
-    # transform to Chebyshev basis
-    x0 = x.permute(1, 2, 0).contiguous()  # V x Fin x B
+    # transform to Chebyshev basis    
+    x0 = inputs.permute(1, 2, 0).contiguous()  # V x Fin x B
     x0 = x0.view([V, Fin*B])              # V x Fin*B
     x = x0.unsqueeze(0)                   # 1 x V x Fin*B
 
@@ -112,8 +143,8 @@ def cheb_conv(laplacian, x, weight):
     return x
 
 
-# State-full class.
-class ChebConv(torch.nn.Module):
+
+class ConvCheb(torch.nn.Module):
     """Graph convolutional layer.
 
     Parameters
@@ -196,11 +227,11 @@ class ChebConv(torch.nn.Module):
         """
 
         if fan == 'in':
-            fan = self.in_channels #* self.kernel_size
+            fan = self.in_channels * self.kernel_size
         elif fan == 'out':
-            fan = self.out_channels #* self.kernel_size
+            fan = self.out_channels * self.kernel_size
         elif fan == 'avg':
-            fan = (self.in_channels + self.out_channels) / 2 #* self.kernel_size
+            fan = (self.in_channels + self.out_channels) / 2 * self.kernel_size
         else:
             raise ValueError('unknown fan')
 
@@ -262,42 +293,7 @@ class ChebConv(torch.nn.Module):
 
     
 # Pooling layers
-class HealpixAvgPool(torch.nn.Module):
-
-    def __init__(self, kernel_size):
-        """kernel_size should be 4, 16, 64, etc."""
-        super().__init__()
-        self.kernel_size = kernel_size
-
-    def extra_repr(self):
-        return 'kernel_size={kernel_size}'.format(**self.__dict__)
-
-    def forward(self, x):
-        """x has shape (batch, pixels, channels) and is in nested ordering"""
-        x = x.permute(0, 2, 1)
-        x = torch.nn.functional.avg_pool1d(x, self.kernel_size)
-        return x.permute(0, 2, 1)
-
-
-class HealpixAvgUnpool(torch.nn.Module):
-
-    def __init__(self, kernel_size):
-        """kernel_size should be 4, 16, 64, etc."""
-        super().__init__()
-        self.kernel_size = kernel_size
-
-    def extra_repr(self):
-        return 'kernel_size={kernel_size}'.format(**self.__dict__)
-
-    def forward(self, x):
-        """x has shape (batch, pixels, channels) and is in nested ordering"""
-        # return x.repeat_interleave(self.kernel_size, dim=1)
-        x = x.permute(0, 2, 1)
-        x = torch.nn.functional.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
-        return x.permute(0, 2, 1)
-    
-
-def equiangular_calculator(tensor):
+def _equiangular_calculator(tensor, ratio):
     N, M, F = tensor.size()
     dim1, dim2 = equiangular_dimension_unpack(M, ratio)
     bw_dim1, bw_dim2 = dim1/2, dim2/2
@@ -305,24 +301,35 @@ def equiangular_calculator(tensor):
     return tensor, [bw_dim1, bw_dim2]
 
 
-class EquiangularMaxPool(torch.nn.MaxPool1d):
-    """EquiAngular Maxpooling module using MaxPool 1d from torch
+class PoolMaxEquiangular(torch.nn.MaxPool1d):
+    """EquiAngular max pooling module
     """
 
     def __init__(self, ratio, kernel_size, return_indices=True):
         """Initialization
-        Args:
-            ratio (float): ratio between latitude and longitude dimensions of the data
+        
+        Parameters
+        ----------
+        ratio : float
+            Ratio between latitude and longitude dimensions of the data
+        
         """
         self.ratio = ratio
         super().__init__(kernel_size=kernel_size, return_indices=return_indices)
 
-    def forward(self, x):
+    def forward(self, inputs):
         """calls Maxpool1d and if desired, keeps indices of the pixels pooled to unpool them
-        Args:
-            input (:obj:`torch.tensor`): batch x pixels x features
-        Returns:
-            tuple(:obj:`torch.tensor`, list(int)): batch x pooled pixels x features and the indices of the pixels pooled
+        Parameters
+        ----------
+        x : torch.tensor of shape batch x pixels x features
+            Input data
+            
+        Returns
+        -------
+        x : torch.tensor of shape batch x unpooled pixels x features
+            Layer output
+        indices : list(int)
+            Indices of the pixels pooled
         """
         x, _ = equiangular_calculator(x, self.ratio)
         x = x.permute(0, 3, 1, 2)
@@ -341,29 +348,102 @@ class EquiangularMaxPool(torch.nn.MaxPool1d):
         return output
 
 
-class EquiangularMaxUnpool(torch.nn.MaxUnpool1d):
-    """Equiangular Maxunpooling using the MaxUnpool1d of pytorch
+class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
+    """Equiangular max unpooling module
+    
+    Parameters
+    ----------
+    ratio : float
+        Ratio between latitude and longitude dimensions of the data
     """
 
     def __init__(self, ratio, kernel_size):
-        """Initialization
-        Args:
-            ratio (float): ratio between latitude and longitude dimensions of the data
-        """
         self.ratio = ratio
         
         super().__init__(kernel_size=(kernel_size, kernel_size))
 
-    def forward(self, x, indices):
+    def forward(self, inputs, indices):
         """calls MaxUnpool1d using the indices returned previously by EquiAngMaxPool
-        Args:
-            x (:obj:`torch.tensor`): batch x pixels x features
-            indices (int): indices of pixels equiangular maxpooled previously
-        Returns:
-            :obj:`torch.tensor`: batch x unpooled pixels x features
+        Parameters
+        ----------
+        inputs : torch.tensor of shape batch x pixels x features
+            Input data
+        
+        indices : int
+            Indices of pixels equiangular maxpooled previously
+            
+        Returns
+        -------
+        x : torch.tensor of shape batch x unpooled pixels x features
+            Layer output
         """
-        x, _ = equiangular_calculator(x, self.ratio)
+        x, _ = equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.max_unpool2d(x, indices, self.kernel_size)
+        x = reformat(x)
+        return x
+
+class PoolAvgEquiangular(torch.nn.AvgPool1d):
+    """EquiAngular average pooling
+    
+    Parameters
+    ----------
+    ratio : float
+        Parameter for equiangular sampling -> width/height
+    """
+
+    def __init__(self, ratio, kernel_size):
+        self.ratio = ratio
+        super().__init__(kernel_size=(kernel_size, kernel_size))
+
+    def forward(self, inputs):
+        """calls Avgpool1d
+        Parameters
+        ----------
+        inputs : torch.tensor of shape batch x pixels x features
+            Input data
+        
+        Returns
+        -------
+        x : torch.tensor of shape batch x pooled pixels x features
+            Layer output
+        """
+        x, _ = equiangular_calculator(inputs, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+        x = F.avg_pool2d(x, self.kernel_size)
+        x = reformat(x)
+
+        return x
+    
+class UnpoolAvgEquiangular(torch.nn.Module):
+    """EquiAngular average unpooling
+    
+    Parameters
+    ----------
+    ratio : float
+        Parameter for equiangular sampling -> width/height
+    """
+
+    def __init__(self, ratio, kernel_size):
+        self.ratio = ratio
+        self.kernel_size = kernel_size
+        super().__init__()
+
+    def forward(self, inputs):
+        """calls pytorch's interpolate function to create the values while unpooling based on the nearby values
+        Parameters
+        ----------
+        inputs : torch.tensor of shape batch x pixels x features
+            Input data
+        
+        Returns
+        -------
+        x : torch.tensor of shape batch x unpooled pixels x features
+            Layer output
+        """
+
+        x, _ = equiangular_calculator(inputs, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+        x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
         x = reformat(x)
         return x
