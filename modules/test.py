@@ -134,7 +134,7 @@ def compute_weighted_rmse(da_fc, da_true, dims=xr.ALL_DIMS):
     error = da_fc - da_true
     weights_lat = np.cos(np.deg2rad(error.lat))
     weights_lat /= weights_lat.mean()
-    rmse = np.sqrt(((error)**2 * weights_lat).mean(mean_dims))
+    rmse = np.sqrt(((error)**2 * weights_lat).mean(dims))
     return rmse
 
 

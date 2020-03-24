@@ -30,7 +30,7 @@ class Conv2dPeriodic(torch.nn.Module):
         self.kernel_size = kernel_size
         self.pad_width = int((self.kernel_size - 1)/2)
         
-        self.conv = nn.Conv2d(in_channels, out_channels, self.kernel_size, padding=0)
+        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size, padding=0)
         
         torch.nn.init.xavier_uniform_(self.conv.weight)
         torch.nn.init.zeros_(self.conv.bias)
@@ -331,7 +331,7 @@ class PoolMaxEquiangular(torch.nn.MaxPool1d):
         indices : list(int)
             Indices of the pixels pooled
         """
-        x, _ = equiangular_calculator(x, self.ratio)
+        x, _ = _equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
 
         if self.return_indices:
@@ -377,7 +377,7 @@ class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
         x : torch.tensor of shape batch x unpooled pixels x features
             Layer output
         """
-        x, _ = equiangular_calculator(inputs, self.ratio)
+        x, _ = _equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.max_unpool2d(x, indices, self.kernel_size)
         x = reformat(x)
@@ -408,7 +408,7 @@ class PoolAvgEquiangular(torch.nn.AvgPool1d):
         x : torch.tensor of shape batch x pooled pixels x features
             Layer output
         """
-        x, _ = equiangular_calculator(inputs, self.ratio)
+        x, _ = _equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.avg_pool2d(x, self.kernel_size)
         x = reformat(x)
@@ -442,7 +442,7 @@ class UnpoolAvgEquiangular(torch.nn.Module):
             Layer output
         """
 
-        x, _ = equiangular_calculator(inputs, self.ratio)
+        x, _ = _equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
         x = reformat(x)
