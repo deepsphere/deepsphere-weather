@@ -1,6 +1,9 @@
 import xarray as xr
 import numpy as np
+import healpy as hp
 import os
+from pathlib import Path
+from scipy import interpolate
 
 import torch
 from torch import nn, optim 
@@ -8,7 +11,7 @@ from torch.utils.data import Dataset
 
 
 # Data preprocessing
-def preprocess_data(datadir, train_years, val_years, test_years):
+def preprocess_equiangular(in_data, out_data, train_years, val_years, test_years):
     """ Splits data into train, validation and test sets, computes and saves the mean and standard deviation, normalizes the data, reshapes it to make 1D and saves each sample as a numpy array.
     
     Parameters
@@ -25,30 +28,24 @@ def preprocess_data(datadir, train_years, val_years, test_years):
     
     time_slices = {'train': train_years, 'val': val_years, 'test': test_years}
     
+    z = xr.open_mfdataset(in_data + 'geopotential_500/*.nc', combine='by_coords')
+    t = xr.open_mfdataset(in_data + 'temperature_850/*.nc', combine='by_coords')
+    data = xr.merge([z, t], compat='override').drop('level')
     
-    zpath = datadir + 'geopotential_500/'
-    tpath = datadir + 'temperature_850/'
-    
-    z = xr.open_mfdataset(zpath+'/*.nc', combine='by_coords')['z'].assign_coords(level=1)
-    t = xr.open_mfdataset(tpath+'/*.nc', combine='by_coords')['t'].assign_coords(level=1)
-
-    ratio = len(z.coords['lon'])/len(z.coords['lat'])
-
-    data = xr.concat([z, t], 'level').stack(v=('lat', 'lon')).transpose('time', 'v', 'level').drop('level')
-    
-    data_paths = []
+    # Stack
+    data = data.stack(v=('lat', 'lon')).transpose('time', 'v', 'level').drop('level')
+   
     for set_name in ['train']:
     
         # Create directory
-        out_path = DATA_DIR + set_name + "/"
+        out_path =  out_data + set_name + "/"
         Path(out_path).mkdir(parents=True, exist_ok=True)
-        data_paths.append(out_path)
         
         # Select relevant years
         dataset = data.sel(time=time_slices[set_name])
 
         # Compute mean and std
-        mean = data.mean(('time', 'v')).compute()
+        mean = data.mean(('time', 'lat', 'lon')).compute()
         std = data.std('time').mean(('v')).compute()
         np.save(out_path + 'mean.npy', mean.values)
         np.save(out_path + 'std.npy', std.values)
@@ -56,7 +53,71 @@ def preprocess_data(datadir, train_years, val_years, test_years):
         # Save individual arrays
         for i, array in enumerate(dataset):
             np.save(out_path + str(i) + '.npy', array.values)
+            
+            
+def preprocess_healpix(in_data, out_data, train_years, val_years, test_years, nside, interpolation_kind='linear'):
+    """ Splits data into train, validation and test sets, computes and saves the mean and standard deviation, normalizes the data, regrids all samples from a dataset from equiangular to HEALpix grid and saves each sample as a numpy array.
+    
+    Parameters
+    ---------- 
+    datadir : string
+        Path to data
+    train_years : slice(str)
+        Years used to select the training set
+    val_years : slice(str)
+        Years used to select the validation set
+    test_years : slice(str)
+        Years used to select the test set
+    nside : int
+        Number of sides dividing the HEALpix cells
+    interpolaton_kind : string
+        Interpolation method. Options are {‘linear’, ‘cubic’, ‘quintic’}
+        
+    Returns 
+    -------
+    hp_ds : xr.Dataset of dimensions time x num_vars x n_pixels
+        Regridded dataset
+    """
+    
+    time_slices = {'train': train_years, 'val': val_years, 'test': test_years}
+    
+    z = xr.open_mfdataset(in_data + 'geopotential_500/*.nc', combine='by_coords')
+    t = xr.open_mfdataset(in_data + 'temperature_850/*.nc', combine='by_coords')
+    data = xr.merge([z, t], compat='override').drop('level')
+    
+    # Input grid
+    lat = data.lat.values
+    lon = data.lon.values
+    
+    # Output grid
+    n_pixels = hp.nside2npix(nside)
+    out_lon, out_lat = hp.pix2ang(nside, np.arange(n_pixels), lonlat=True)
+    
+    for set_name in ['train', 'val', 'test']:
+    
+        # Create directory
+        out_path = out_data + 'healpix/' + set_name + "/"
+        Path(out_path).mkdir(parents=True, exist_ok=True)
+        data_paths.append(out_path)
+        
+        # Select relevant years
+        dataset = data.sel(time=time_slices[set_name])
 
+        # Compute mean and std
+        mean = data.mean(('time', 'lat', 'lon')).compute()
+        std = data.std('time').mean(('lat', 'lon')).compute()
+        np.save(out_path + 'mean.npy', mean.values)
+        np.save(out_path + 'std.npy', std.values)
+    
+        # Save individual arrays
+        for t in range(dataset.dims['time']):
+            hp_sample = []
+            for var in dataset.data_vars.keys():
+                signal = np.rot90(dataset[var].isel(time=t).values)
+                f = interpolate.interp2d(lat, lon, signal, kind=interpolation_kind)
+                hp_sample.append(np.array([f(out_lat[i], out_lon[i])[0] for i in range(n_pixels)]))
+            
+            np.save(out_path + str(t) + '.npy', np.array(hp_sample))
 
 
 # Datasets
