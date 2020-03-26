@@ -3,5 +3,12 @@
 *~
 .DS_Store
 
+# Byte-compiled / optimized files
+__pycache__/
+
 #IPython checkpoints
 .ipynb_checkpoints/
+
+# Folders
+/data/equiangular/
+/data/healpix/
