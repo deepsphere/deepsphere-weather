@@ -1,12 +1,6 @@
 import xarray as xr
 import numpy as np
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy
-
-from matplotlib.axes import Axes
-from cartopy.mpl.geoaxes import GeoAxes
-GeoAxes._pcolormesh_patched = Axes.pcolormesh
+import datetime
 
 
 # Predict
@@ -111,6 +105,32 @@ def create_predictions_2D(model, dg, mean, std):
             ))
             lev_idx += nlevs
     return xr.merge(das)
+
+
+def compute_anomalies(ds, mean):
+    """ Computes anomalies by removing relevant average to data
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset from whoch to compute the anomalies
+    mean : string
+        Which mean to remove to the data. Options are {"monthly", "weekly"}
+    
+    Returns
+    -------
+    anomalies : xr.Dataset
+        Demeaned dataset 
+    """
+
+    assert mean in ["monthly", "weekly"], "Parameter mean should be either 'monthly' or 'weekly'"
+    
+    if mean is "monthly":
+        anomalies = ds.groupby('time.month') - ds.groupby('time.month').mean()
+    else: 
+        anomalies = ds.groupby('time.week') - ds.groupby('time.week').mean()
+        
+    return anomalies
 
 
 # Metrics
@@ -294,98 +314,3 @@ def compute_KGE(da_fc, da_true):
     kge = 1 - np.sqrt((cc - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
 
     return kge
-
-def assess_model(pred, valid, path, model_description):
-    """ Assess predictions comparing them to label data using several metrics
-    
-    Parameters
-    ----------
-    pred : xr.DataArray
-        Forecast. Time coordinate must be validation time.
-    valid : xr.DataArray
-        Labels
-    path : str 
-        Path to which the evaluation is saved as .pdf
-    model_description : str
-        Plot title and filename, should distinguishly describe the model to assess
-    
-    Returns
-    -------
-    plt.plot
-        Several plots showing the predictions' rightness
-    """
-    
-    lats = pred.variables['lat'][:]
-    lons = pred.variables['lon'][:]
-
-    total_relative_bias = compute_relBIAS(pred, valid)
-    total_relative_std = compute_rSD(pred, valid)
-    total_w_rmse = compute_weighted_rmse(pred, valid)
-    total_mse = compute_relMSE(pred, valid)
-    total_mae = compute_relMAE(pred, valid)
-
-    map_relative_bias = compute_relBIAS(pred, valid, dims='time')
-    map_relative_std = compute_rSD(pred, valid, dims='time')
-    map_correlation = compute_temporal_correlation(pred, valid, dims='time')
-    map_w_rmse = compute_weighted_rmse(pred, valid, dims='time')
-    map_rel_mse = compute_relMSE(pred, valid, dims='time')
-    map_rel_mae = compute_relMAE(pred, valid, dims='time')
-    map_kge = compute_KGE(pred, valid)
-    
-    
-    proj = ccrs.PlateCarree()
-    
-    f, axs = plt.subplots(7, 2, figsize=(18,40), subplot_kw=dict(projection=proj))
-    f.suptitle(model_description, fontsize=26, y=1.005)
-    
-    def plot_signal(f, signal, ax, vmin, vmax, cmap):
-        cbar_shrink = 0.5
-        cbar_pad = 0.03
-
-        im = ax.contourf(lons, lats, signal, 60, transform=proj, cmap=cmap, vmin=vmin, vmax=vmax)
-        ax.coastlines()
-        f.colorbar(cm.ScalarMappable(norm=colors.Normalize(vmin=vmin,vmax=vmax), cmap=cmap), 
-                   ax=ax, pad=cbar_pad, shrink=cbar_shrink)
-    
-    
-    # Z500
-    plot_signal(f, signal=map_relative_bias.variables['z'][:], ax=axs[0,0], vmin=-0.01, vmax=0.01, cmap='RdBu_r') # relBIAS
-    plot_signal(f, signal=map_relative_std.variables['z'][:], ax=axs[1,0], vmin=0.4, vmax=1.6, cmap='RdBu_r') # rSD
-    plot_signal(f, signal=map_rel_mae.variables['z'][:], ax=axs[2,0], vmin=0, vmax=0.03, cmap='Reds') # relMAE
-    plot_signal(f, signal=map_correlation.variables['z'][:], ax=axs[3,0], vmin=0, vmax=1, cmap='Reds') # squared correlation
-    plot_signal(f, signal=map_rel_mse.variables['z'][:], ax=axs[4,0], vmin=0, vmax=0.001, cmap='Reds') # MSE
-    plot_signal(f, signal=map_w_rmse.variables['z'][:], ax=axs[5,0], vmin=0, vmax=1500, cmap='Reds') # weighted RMSE
-    plot_signal(f, signal=map_kge.variables['z'][:], ax=axs[6,0], vmin=-0.2, vmax=1, cmap='Reds') # KGE
-    
-    # T850
-    plot_signal(f, signal=map_relative_bias.variables['t'][:], ax=axs[0,1], vmin=-0.01, vmax=0.01, cmap='RdBu_r') # relBIAS
-    plot_signal(f, signal=map_relative_std.variables['t'][:], ax=axs[1,1], vmin=0.4, vmax=1.6, cmap='RdBu_r') # rSD
-    plot_signal(f, signal=map_rel_mae.variables['t'][:], ax=axs[2,1], vmin=0, vmax=0.03, cmap='Reds') # relMAE
-    plot_signal(f, signal=map_correlation.variables['t'][:], ax=axs[3,1], vmin=0, vmax=1, cmap='Reds') # squared correlation
-    plot_signal(f, signal=map_rel_mse.variables['t'][:], ax=axs[4,1], vmin=0, vmax=0.001, cmap='Reds') # MSE
-    plot_signal(f, signal=map_w_rmse.variables['t'][:], ax=axs[5,1], vmin=0, vmax=8, cmap='Reds') # weighted RMSE
-    plot_signal(f, signal=map_kge.variables['t'][:], ax=axs[6,1], vmin=-0.2, vmax=1, cmap='Reds') # KGE
-    
-    
-    axs[0, 0].set_title("Z500 relBIAS map; total: {:.5f}".format(total_relative_bias.z.values), fontsize=20)
-    axs[1, 0].set_title("Z500 rSD map; total: {:.5f}".format(total_relative_std.z.values), fontsize=20)
-    axs[2, 0].set_title("Z500 relMAE map; total: {:.5f}".format(total_mae.z.values), fontsize=20)
-    axs[3, 0].set_title("Z500 Pearsons squared correlation coefficient", fontsize=20)
-    axs[4, 0].set_title("Z500 MSE map; total: {:.5f}".format(total_mse.z.values), fontsize=20)
-    axs[5, 0].set_title("Z500 weighted RMSE map; total: {:.5f}".format(total_w_rmse.z.values), fontsize=20)
-    axs[6, 0].set_title("Z500 KGE map", fontsize=20)
-    
-    
-    
-    axs[0, 1].set_title("T850 relBIAS map; total: {:.5f}".format(total_relative_bias.t.values), fontsize=20)
-    axs[1, 1].set_title("T850 rSD map; total: {:.5f}".format(total_relative_std.t.values), fontsize=20)
-    axs[2, 1].set_title("T850 relMAE map; total: {:.5f}".format(total_mae.t.values), fontsize=20)
-    axs[3, 1].set_title("T850 Pearsons squared correlation coefficient map", fontsize=20)
-    axs[4, 1].set_title("T850 MSE map; total: {:.5f}".format(total_mse.t.values), fontsize=20)
-    axs[5, 1].set_title("T850 weighted RMSE map; total: {:.5f}".format(total_w_rmse.t.values), fontsize=20)
-    axs[6, 1].set_title("T850 KGE map", fontsize=20)
-    
-    f.tight_layout(pad=-2)
-
-    plt.savefig(path + model_description + ".pdf", format="pdf", bbox_inches = 'tight')
-    plt.show()
