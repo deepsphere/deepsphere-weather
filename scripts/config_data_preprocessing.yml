@@ -1,0 +1,9 @@
+# Data preprocessing config
+input_dir: ../data/5.625deg/
+output_dir: ../data/
+train_years: slice(1979, 2016)
+val_years: slice(2016, 2016)
+test_years: slice(2017, 2018)
+samplings: [equiangular, healpix]
+nside: 16
+interpolation_kind: linear
