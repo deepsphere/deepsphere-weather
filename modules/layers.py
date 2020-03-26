@@ -303,17 +303,18 @@ def _equiangular_calculator(tensor, ratio):
 
 class PoolMaxEquiangular(torch.nn.MaxPool1d):
     """EquiAngular max pooling module
+    
+    Parameters
+    ----------
+    ratio : float
+        Ratio between latitude and longitude dimensions of the data
+    kernel_size : int
+        Pooling kernel width
+    return_indices : bool (default : True)
+        Whether to return the indices corresponding to the locations of the maximum value retained at pooling
     """
 
     def __init__(self, ratio, kernel_size, return_indices=True):
-        """Initialization
-        
-        Parameters
-        ----------
-        ratio : float
-            Ratio between latitude and longitude dimensions of the data
-        
-        """
         self.ratio = ratio
         super().__init__(kernel_size=kernel_size, return_indices=return_indices)
 
@@ -355,6 +356,8 @@ class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
     ----------
     ratio : float
         Ratio between latitude and longitude dimensions of the data
+    kernel_size : int
+        Pooling kernel width
     """
 
     def __init__(self, ratio, kernel_size):
@@ -363,12 +366,11 @@ class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
         super().__init__(kernel_size=(kernel_size, kernel_size))
 
     def forward(self, inputs, indices):
-        """calls MaxUnpool1d using the indices returned previously by EquiAngMaxPool
+        """calls MaxUnpool1d using the indices returned previously by PoolMaxEquiangular
         Parameters
         ----------
         inputs : torch.tensor of shape batch x pixels x features
             Input data
-        
         indices : int
             Indices of pixels equiangular maxpooled previously
             
@@ -390,6 +392,8 @@ class PoolAvgEquiangular(torch.nn.AvgPool1d):
     ----------
     ratio : float
         Parameter for equiangular sampling -> width/height
+    kernel_size : int
+        Pooling kernel width
     """
 
     def __init__(self, ratio, kernel_size):
@@ -446,4 +450,142 @@ class UnpoolAvgEquiangular(torch.nn.Module):
         x = x.permute(0, 3, 1, 2)
         x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
         x = reformat(x)
+        return x
+    
+    
+class PoolMaxHealpix(torch.nn.MaxPool1d):
+    """Healpix Maxpooling module
+     
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    return_indices : bool (default : True)
+        Whether to return the indices corresponding to the locations of the maximum value retained at pooling
+    """
+
+    def __init__(self, kernel_size, return_indices=True):
+        super().__init__(kernel_size=kernel_size, return_indices=return_indices)
+
+    def forward(self, x):
+        """calls Maxpool1d and if desired, keeps indices of the pixels pooled to unpool them
+        Parameters
+        ----------
+        x : torch.tensor of shape batch x pixels x features
+            Input data  
+        indices : list
+            Indices where the max value was located in unpooled image
+            
+        Returns
+        -------
+        x : torch.tensor of shape batch x unpooled pixels x features
+            Layer output
+        indices : list(int)
+            Indices of the pixels pooled
+        """
+        x = x.permute(0, 2, 1)
+        if self.return_indices:
+            x, indices = F.max_pool1d(x, self.kernel_size)
+        else:
+            x = F.max_pool1d(x)
+        x = x.permute(0, 2, 1)
+
+        if self.return_indices:
+            output = x, indices
+        else:
+            output = x
+        return output
+
+
+class PoolAvgHealpix(torch.nn.AvgPool1d):
+    """Healpix average pooling module
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, kernel_size):
+        self.ratio = ratio
+        super().__init__(kernel_size=(kernel_size, kernel_size))
+
+    def forward(self, x):
+        """calls Avgpool1d
+        Parameters
+        ----------
+        inputs : torch.tensor of shape batch x pixels x features
+            Input data
+        
+        Returns
+        -------
+        x : torch.tensor of shape batch x pooled pixels x features
+            Layer output
+        """
+        x = x.permute(0, 2, 1)
+        x = F.avg_pool1d(x, self.kernel_size)
+        x = x.permute(0, 2, 1)
+        return x
+
+
+class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
+    """HEALpix max unpooling module
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, kernel_size):
+        super().__init__(kernel_size=(kernel_size, kernel_size))
+        
+
+    def forward(self, x, indices):
+        """calls pytorch's unpool1d function to create the values while unpooling based on the nearby values
+        Parameters
+        ----------
+        inputs : torch.tensor of shape batch x pixels x features
+            Input data
+        indices : list
+            Indices where the max value was located in unpooled image
+        
+        Returns
+        -------
+        x : torch.tensor of shape batch x unpooled pixels x features
+            Layer output
+        """
+        x = x.permute(0, 2, 1)
+        x = F.max_unpool1d(x, indices, self.kernel_size)
+        x = x.permute(0, 2, 1)
+        return x
+
+
+class UnpoolAvgHealpix(torch.nn.Module):
+    """Healpix Average Unpooling module
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, kernel_size):
+        super().__init__(kernel_size=(kernel_size, kernel_size))
+
+    def forward(self, x):
+        """calls MaxUnpool1d using the indices returned previously by PoolMaxHealpix
+        Parameters
+        ----------
+        inputs : torch.tensor of shape batch x pixels x features
+            Input data
+        
+        Returns
+        -------
+        x : torch.tensor of shape batch x unpooled pixels x features
+            Layer output
+        """
+        x = x.permute(0, 2, 1)
+        x = F.interpolate(x, scale_factor=self.kernel_size, mode="nearest")
+        x = x.permute(0, 2, 1)
         return x
