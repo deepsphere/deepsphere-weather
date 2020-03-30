@@ -28,12 +28,9 @@ def preprocess_equiangular(in_data, out_data, train_years, val_years, test_years
     
     time_slices = {'train': train_years, 'val': val_years, 'test': test_years}
     
-    z = xr.open_mfdataset(in_data + 'geopotential_500/*.nc', combine='by_coords')
-    t = xr.open_mfdataset(in_data + 'temperature_850/*.nc', combine='by_coords')
-    data = xr.merge([z, t], compat='override').drop('level')
-    
-    # Stack
-    data = data.stack(v=('lat', 'lon')).transpose('time', 'v', 'level').drop('level')
+    z = xr.open_mfdataset(in_data + 'geopotential_500/*.nc', combine='by_coords')['z'].assign_coords(level=1)
+    t = xr.open_mfdataset(in_data + 'temperature_850/*.nc', combine='by_coords')['t'].assign_coords(level=1)
+    data = xr.concat([z, t], 'level').stack(v=('lat', 'lon')).transpose('time', 'v', 'level').drop('level')
    
     for set_name in ['train']:
     
@@ -45,8 +42,8 @@ def preprocess_equiangular(in_data, out_data, train_years, val_years, test_years
         dataset = data.sel(time=time_slices[set_name])
 
         # Compute mean and std
-        mean = data.mean(('time', 'lat', 'lon')).compute()
-        std = data.std('time').mean(('v')).compute()
+        mean = data.mean().compute()
+        std = data.std('time').mean().compute()
         np.save(out_path + 'mean.npy', mean.values)
         np.save(out_path + 'std.npy', std.values)
     
@@ -81,9 +78,9 @@ def preprocess_healpix(in_data, out_data, train_years, val_years, test_years, ns
     
     time_slices = {'train': train_years, 'val': val_years, 'test': test_years}
     
-    z = xr.open_mfdataset(in_data + 'geopotential_500/*.nc', combine='by_coords')
-    t = xr.open_mfdataset(in_data + 'temperature_850/*.nc', combine='by_coords')
-    data = xr.merge([z, t], compat='override').drop('level')
+    z = xr.open_mfdataset(in_data + 'geopotential_500/*.nc', combine='by_coords')['z'].assign_coords(level=1)
+    t = xr.open_mfdataset(in_data + 'temperature_850/*.nc', combine='by_coords')['t'].assign_coords(level=1)
+    data = xr.concat([z, t], 'level').drop('level')
     
     # Input grid
     lat = data.lat.values
@@ -91,14 +88,13 @@ def preprocess_healpix(in_data, out_data, train_years, val_years, test_years, ns
     
     # Output grid
     n_pixels = hp.nside2npix(nside)
-    out_lon, out_lat = hp.pix2ang(nside, np.arange(n_pixels), lonlat=True)
-    
+    out_lon, out_lat = hp.pix2ang(nside, np.arange(n_pixels), lonlat=True, nest=True)
+
     for set_name in ['train', 'val', 'test']:
     
         # Create directory
         out_path = out_data + 'healpix/' + set_name + "/"
         Path(out_path).mkdir(parents=True, exist_ok=True)
-        data_paths.append(out_path)
         
         # Select relevant years
         dataset = data.sel(time=time_slices[set_name])
@@ -110,14 +106,13 @@ def preprocess_healpix(in_data, out_data, train_years, val_years, test_years, ns
         np.save(out_path + 'std.npy', std.values)
     
         # Save individual arrays
-        for t in range(dataset.dims['time']):
-            hp_sample = []
-            for var in dataset.data_vars.keys():
-                signal = np.rot90(dataset[var].isel(time=t).values)
-                f = interpolate.interp2d(lat, lon, signal, kind=interpolation_kind)
-                hp_sample.append(np.array([f(out_lat[i], out_lon[i])[0] for i in range(n_pixels)]))
+        for t, sample in enumerate(dataset):
+            hp_sample = np.empty((n_pixels, sample.shape[0]))
+            for i, signal in enumerate(sample.values):
+                f = interpolate.interp2d(lat, lon, np.rot90(signal), kind=interpolation_kind)
+                hp_sample[:, i] = np.array([f(lat, lon) for lat, lon in zip(out_lat, out_lon)]).flatten()
             
-            np.save(out_path + str(t) + '.npy', np.array(hp_sample))
+            np.save(out_path + str(t) + '.npy', hp_sample)
 
 
 # Datasets
@@ -130,28 +125,26 @@ class WeatherBenchDataset1dNumpy(Dataset):
         Path to data folder
     lead_time : int
         Prediction interval (in hours)
-    lat :  
-    lon : 
     var_dict : dict
         Dictionary where the keys are the relevant variables and the values are pressure levels at which the variables are considered 
-    valid_time :  
+    years : tuple(str)
+        Years used to split the data
+    res : float
+        Spatial resolution
     mean : np.ndarray of shape 2
         Mean to use for data normalization. If None, mean is computed from data
     std : np.ndarray of shape 2
         std to use for data normalization. If None, mean is computed from data
     """
     
-    def __init__(self, data_path, lead_time, lat, lon, var_dict, valid_time, mean=None, std=None):
+    def __init__(self, data_path, lead_time, var_dict, years, res, mean=None, std=None):
         
         self.lead_time = lead_time
-        self.lat = lat
-        self.lon = lon
+        self.years = years
+        self.res = res
         self.var_dict = var_dict
-        self.valid_time = valid_time
     
         self.features = len(self.var_dict)
-        self.latitudes = len(self.lat)
-        self.longitudes = len(self.lon)
         
         self.mean = np.load(data_path + 'mean.npy') if mean is None else mean
         self.std = np.load(data_path + 'std.npy') if std is None else std
@@ -190,8 +183,11 @@ class WeatherBenchDataset1dXarray(Dataset):
     lead_time : int
         Prediction interval (in hours)
     var_dict : dict
-        Dictionary where the keys are the relevant variables and the values are pressure levels at which the variables are
-        considered 
+        Dictionary where the keys are the relevant variables and the values are pressure levels at which the variables are considered
+    years : tuple(str)
+        Years used to split the data
+    res : float
+        Spatial resolution
     load : bool
         If true, load dataset to RAM
     mean : np.ndarray of shape 2
@@ -200,11 +196,15 @@ class WeatherBenchDataset1dXarray(Dataset):
         std to use for data normalization. If None, mean is computed from data
     """
     
-    def __init__(self, ds, var_dict, lead_time, load=True, mean=None, std=None):
+    def __init__(self, ds, var_dict, lead_time, years, res, load=True, mean=None, std=None):
         
         self.ds = ds
         self.var_dict = var_dict
         self.lead_time = lead_time
+        self.years = years
+        self.res = res
+    
+        self.features = len(self.var_dict)
 
         data = []
         generic_level = xr.DataArray([1], coords={'level': [1]}, dims=['level'])
@@ -221,16 +221,16 @@ class WeatherBenchDataset1dXarray(Dataset):
         # Normalize
         self.data = (self.data - self.mean) / self.std
         self.n_samples = self.data.isel(time=slice(0, -lead_time)).shape[0]
-        self.init_time = self.data.isel(time=slice(None, -lead_time)).time
-        self.valid_time = self.data.isel(time=slice(lead_time, None)).time
+        #self.init_time = self.data.isel(time=slice(None, -lead_time)).time
+        #self.valid_time = self.data.isel(time=slice(lead_time, None)).time
         self.idxs = np.arange(self.n_samples)
         
-        self.lat = self.data.lat
-        self.lon = self.data.lon
+        #self.lat = self.data.lat
+        #self.lon = self.data.lon
         
         self.features = len(self.data.level)
-        self.latitudes = len(self.lat)
-        self.longitudes = len(self.lon)
+        #self.latitudes = len(self.lat)
+        #self.longitudes = len(self.lon)
         
         # Stack
         self.data = self.data.stack(nodes=('lat', 'lon')).transpose('time', 'nodes', 'level')
