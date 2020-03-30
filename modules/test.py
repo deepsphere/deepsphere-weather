@@ -2,9 +2,17 @@ import xarray as xr
 import numpy as np
 import datetime
 
+# Utils
+def _inner(x, y):
+        result = np.matmul(x[..., np.newaxis, :], y[..., :, np.newaxis])
+        return result[..., 0, 0]
+
+def inner_product(x, y, dim):
+    return xr.apply_ufunc(_inner, x, y, input_core_dims=[[dim], [dim]])
+
 
 # Predict
-def create_predictions(model, device, dg, mean, std):
+def create_predictions(model, device, dg):
     """Create direct predictions for models using 1D signals (eg GCNN)
     
     Parameters
@@ -22,7 +30,18 @@ def create_predictions(model, device, dg, mean, std):
         Model predictions
     """
     
-    output_dim = (dg.dataset.latitudes, dg.dataset.longitudes, dg.dataset.features)
+    lats = np.arange(-90+dg.dataset.res/2, 90+dg.dataset.res/2, dg.dataset.res)
+    lons = np.arange(0, 360, dg.dataset.res)
+    lat = xr.DataArray(lats, coords=[lats], dims=['lat'], name='lat')
+    lon = xr.DataArray(lons, coords=[lons], dims=['lon'], name='lon')
+
+    start = np.datetime64(dg.dataset.years[0], 'h') + np.timedelta64(dg.dataset.lead_time, 'h')
+    stop = np.datetime64(str(int(dg.dataset.years[1])+1), 'h')
+    times = np.arange(start, stop)
+    valid_time = xr.DataArray(times, coords=[times], dims='time', name='time', attrs={'long_name': 'time'})
+    
+    
+    output_dim = (len(lats), len(lons), dg.dataset.features)
     outputs = []
     
     for i, (sample, _) in enumerate(dg):
@@ -32,7 +51,7 @@ def create_predictions(model, device, dg, mean, std):
     preds = np.concatenate(outputs)
     
     # Unnormalize
-    preds = preds * std + mean
+    preds = preds * dg.dataset.std.values + dg.dataset.mean.values
     das = []
     lev_idx = 0
     for var, levels in dg.dataset.var_dict.items():
@@ -40,7 +59,7 @@ def create_predictions(model, device, dg, mean, std):
             das.append(xr.DataArray(
                 preds[:, :, :, lev_idx],
                 dims=['time', 'lat', 'lon'],
-                coords={'time': dg.dataset.valid_time, 'lat': dg.dataset.lat, 'lon': dg.dataset.lon},
+                coords={'time': valid_time, 'lat': lat, 'lon': lon},
                 name=var
             ))
             lev_idx += 1
@@ -49,7 +68,7 @@ def create_predictions(model, device, dg, mean, std):
             das.append(xr.DataArray(
                 preds[:, :, :, lev_idx:lev_idx+nlevs],
                 dims=['time', 'lat', 'lon', 'level'],
-                coords={'time': dg.dataset.valid_time, 'lat': dg.dataset.data.lat, 'lon': dg.dataset.data.lon, 'level': levels},
+                coords={'time': valid_time, 'lat': lat, 'lon': lon, 'level': levels},
                 name=var
             ))
             lev_idx += nlevs
@@ -158,7 +177,7 @@ def compute_weighted_rmse(da_fc, da_true, dims=xr.ALL_DIMS):
     return rmse
 
 
-def compute_relBIAS(da_fc, da_true, dims=xr.ALL_DIMS):
+def compute_relBIAS(da_fc, da_true, dims='time'):
     """ Compute the relative bias from two xr.DataArrays given some dimensions
     
     Parameters
@@ -181,7 +200,7 @@ def compute_relBIAS(da_fc, da_true, dims=xr.ALL_DIMS):
     rbias = error.mean(dims) / da_true.mean(dims)
     return rbias
 
-def compute_relMSE(da_fc, da_true, dims=xr.ALL_DIMS):
+def compute_relMSE(da_fc, da_true, dims='time'):
     """ Compute the relative mean squared error (MSE) from two xr.DataArrays given some dimensions
     
     Parameters
@@ -205,7 +224,7 @@ def compute_relMSE(da_fc, da_true, dims=xr.ALL_DIMS):
     return rel_mse
 
 
-def compute_relMAE(da_fc, da_true, dims=xr.ALL_DIMS):
+def compute_relMAE(da_fc, da_true, dims='time'):
     """ Compute the relative mean absolute error (MAE) from two xr.DataArrays given some dimensions
     
     Parameters
@@ -229,7 +248,7 @@ def compute_relMAE(da_fc, da_true, dims=xr.ALL_DIMS):
     return rel_mae
 
 
-def compute_rSD(da_fc, da_true, dims=xr.ALL_DIMS):
+def compute_rSD(da_fc, da_true, dims='time'):
     """ Compute the ratio of standard deviations from two xr.DataArrays given some dimensions
     
     Parameters
@@ -252,8 +271,8 @@ def compute_rSD(da_fc, da_true, dims=xr.ALL_DIMS):
     return rsd
 
 
-def compute_temporal_correlation(da_fc, da_true, dims='time'):
-    """ Compute the Pearson correlation coefficient from two xr.DataArrays given some dimensions
+def compute_R2(da_fc, da_true, dims='time'):
+    """ Compute the squared Pearson correlation coefficient from two xr.DataArrays given some dimensions
     
     Parameters
     ----------
@@ -270,13 +289,6 @@ def compute_temporal_correlation(da_fc, da_true, dims='time'):
         Pearson correlation coefficients
     """
     
-    def _inner(x, y):
-        result = np.matmul(x[..., np.newaxis, :], y[..., :, np.newaxis])
-        return result[..., 0, 0]
-
-    def inner_product(x, y, dim):
-        return xr.apply_ufunc(_inner, x, y, input_core_dims=[[dim], [dim]])
-    
     def covariance(x, y, dims=None):
         return inner_product(x - x.mean(dims), y - y.mean(dims), dim=dims) / x.count(dims)
     
@@ -284,6 +296,31 @@ def compute_temporal_correlation(da_fc, da_true, dims='time'):
     y = da_true.load()
 
     return (covariance(x, y, dims) / (x.std(dims) * y.std(dims)))**2
+
+
+def compute_ACC(da_fc, da_true, dims='time'):
+    """ Compute the anomaly correlation coefficient from two xr.DataArrays given some dimensions
+    
+    Parameters
+    ----------
+    da_fc : xr.DataArray
+        Forecast. Time coordinate must be validation time.
+    da_true : xr.DataArray
+        Labels
+    dims (str): 
+        Dimensions over which to compute the metric
+    
+    Returns
+    -------
+    corr : xr.DataArray
+        Anomaly correlation coefficient
+    """
+    
+    anomaly_f = compute_anomalies(da_fc, mean='weekly').load()
+    anomaly_o = compute_anomalies(da_true, mean='weekly').load()
+
+    return inner_product(anomaly_f, anomaly_o, dim=dims) / (anomaly_f.count(dims) * anomaly_o.std(dims) 
+                                                            * anomaly_f.std(dims))
 
 
 def compute_KGE(da_fc, da_true):
@@ -308,7 +345,7 @@ def compute_KGE(da_fc, da_true):
         
     dims="time"
     
-    cc = compute_temporal_correlation(da_fc, da_true, dims=dims)
+    cc = compute_R2(da_fc, da_true, dims=dims)
     alpha = compute_rSD(da_fc, da_true, dims=dims)
     beta = da_fc.sum(dims) / da_true.sum(dims)
     kge = 1 - np.sqrt((cc - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
