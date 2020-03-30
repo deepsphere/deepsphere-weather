@@ -485,7 +485,7 @@ class PoolMaxHealpix(torch.nn.MaxPool1d):
         """
         x = x.permute(0, 2, 1)
         if self.return_indices:
-            x, indices = F.max_pool1d(x, self.kernel_size)
+            x, indices = F.max_pool1d(x, self.kernel_size, return_indices=self.return_indices)
         else:
             x = F.max_pool1d(x)
         x = x.permute(0, 2, 1)
@@ -497,7 +497,8 @@ class PoolMaxHealpix(torch.nn.MaxPool1d):
         return output
 
 
-class PoolAvgHealpix(torch.nn.AvgPool1d):
+    
+class PoolAvgHealpix(torch.nn.Module):
     """Healpix average pooling module
     
     Parameters
@@ -507,26 +508,44 @@ class PoolAvgHealpix(torch.nn.AvgPool1d):
     """
 
     def __init__(self, kernel_size):
-        self.ratio = ratio
-        super().__init__(kernel_size=(kernel_size, kernel_size))
+        """kernel_size should be 4, 16, 64, etc."""
+        super().__init__()
+        self.kernel_size = kernel_size
+
+    def extra_repr(self):
+        return 'kernel_size={kernel_size}'.format(**self.__dict__)
 
     def forward(self, x):
-        """calls Avgpool1d
-        Parameters
-        ----------
-        inputs : torch.tensor of shape batch x pixels x features
-            Input data
-        
-        Returns
-        -------
-        x : torch.tensor of shape batch x pooled pixels x features
-            Layer output
-        """
+        """x has shape (batch, pixels, channels) and is in nested ordering"""
         x = x.permute(0, 2, 1)
-        x = F.avg_pool1d(x, self.kernel_size)
-        x = x.permute(0, 2, 1)
-        return x
+        x = torch.nn.functional.avg_pool1d(x, self.kernel_size)
+        return x.permute(0, 2, 1)
 
+
+class UnpoolAvgHealpix(torch.nn.Module):
+    """Healpix Average Unpooling module
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, kernel_size):
+        """kernel_size should be 4, 16, 64, etc."""
+        super().__init__()
+        self.kernel_size = kernel_size
+
+    def extra_repr(self):
+        return 'kernel_size={kernel_size}'.format(**self.__dict__)
+
+    def forward(self, x):
+        """x has shape (batch, pixels, channels) and is in nested ordering"""
+        # return x.repeat_interleave(self.kernel_size, dim=1)
+        x = x.permute(0, 2, 1)
+        x = torch.nn.functional.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
+        return x.permute(0, 2, 1)
+    
 
 class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
     """HEALpix max unpooling module
@@ -538,7 +557,7 @@ class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
     """
 
     def __init__(self, kernel_size):
-        super().__init__(kernel_size=(kernel_size, kernel_size))
+        super().__init__(kernel_size=kernel_size)
         
 
     def forward(self, x, indices):
@@ -557,35 +576,5 @@ class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
         """
         x = x.permute(0, 2, 1)
         x = F.max_unpool1d(x, indices, self.kernel_size)
-        x = x.permute(0, 2, 1)
-        return x
-
-
-class UnpoolAvgHealpix(torch.nn.Module):
-    """Healpix Average Unpooling module
-    
-    Parameters
-    ----------
-    kernel_size : int
-        Pooling kernel width
-    """
-
-    def __init__(self, kernel_size):
-        super().__init__(kernel_size=(kernel_size, kernel_size))
-
-    def forward(self, x):
-        """calls MaxUnpool1d using the indices returned previously by PoolMaxHealpix
-        Parameters
-        ----------
-        inputs : torch.tensor of shape batch x pixels x features
-            Input data
-        
-        Returns
-        -------
-        x : torch.tensor of shape batch x unpooled pixels x features
-            Layer output
-        """
-        x = x.permute(0, 2, 1)
-        x = F.interpolate(x, scale_factor=self.kernel_size, mode="nearest")
         x = x.permute(0, 2, 1)
         return x
