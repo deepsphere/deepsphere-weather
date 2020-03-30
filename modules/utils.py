@@ -53,42 +53,6 @@ def load_test_data(path, lead_time, years=slice('2017', '2018')):
     dataset = xr.merge([z, t], compat='override')
 
     return dataset.sel(time=years).isel(time=slice(lead_time, None))
-
-
-def plot_signal(f, sample, var, ax, vmin, vmax, proj, cmap='RdBu_r', cbar_shrink = 0.6, cbar_pad = 0.03):
-        """ Plots a weather signal drawing coastlines
-        
-        Parameters
-        ----------
-        f : matplotlib.pyplot.figure
-            Figure container
-        sample : xr.DataArray
-            Sample containing signals to plot
-        var : string
-            Variable to plot
-        ax : artopy.mpl.geoaxes
-            Axes where plot is drawn
-        vmin : float
-            Minimum value for colorbar
-        vmax : float
-            Maximum value for colorbar
-        proj: cartopy.crs.CRS (Coordinate Reference System)
-            Geoaxes projection
-        cmap : string
-            Colormap
-        cbar_shrink : float
-            Fraction of axes describing the colorbar size
-        cbar_pad : float
-            Padding between plot axes and colorbar
-        """
-        lats = sample.variables['lat'][:]
-        lons = sample.variables['lon'][:]
-        signal = sample.variables[var]
-
-        im = ax.contourf(lons, lats, signal, 60, transform=proj, cmap=cmap, vmin=vmin, vmax=vmax)
-        ax.coastlines()
-        f.colorbar(cm.ScalarMappable(norm=colors.Normalize(vmin=vmin,vmax=vmax), cmap=cmap), 
-                   ax=ax, pad=cbar_pad, shrink=cbar_shrink)
         
 
 def init_device(model, gpu=None):
