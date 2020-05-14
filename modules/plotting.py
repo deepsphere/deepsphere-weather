@@ -46,6 +46,26 @@ def _compute_min_max(samples):
     maxs = [samples[i].max(dim=xr.ALL_DIMS).values for i in range(len(samples))]
     return min(mins), max(maxs)
 
+def plot_rmses(rmse, reference_rmse, lead_time, max_lead_time=120):
+    f, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 4))
+    
+    lead_times = np.arange(lead_time, max_lead_time + lead_time, lead_time)
+    ax1.plot(lead_times, rmse.z.values, label='Spherical Weyn')
+    ax1.plot(lead_times, reference_rmse.z.values, label='Actual Weyn')
+    ax2.plot(lead_times, rmse.t.values, label='Spherical Weyn')
+    ax2.plot(lead_times, reference_rmse.t.values, label='Actual Weyn')
+    ax1.set_xlabel('Lead time (h)')
+    ax1.set_xticks(lead_times)
+    ax2.set_xticks(lead_times)
+    ax2.set_xlabel('Lead time (h)')
+    ax1.set_ylabel('RMSE')
+    ax2.set_ylabel('RMSE')
+    ax1.set_title('Z500')
+    ax2.set_title('T850')
+    ax1.legend()
+    ax2.legend()
+    plt.show()
+
 
 def plot_signal(f, sample, var, ax, vmin, vmax, proj, cmap='RdBu_r', cbar_shrink=0.6, cbar_pad=0.03):
     """ Plots a weather signal drawing coastlines
@@ -99,6 +119,10 @@ def plot_anomalies(ds_input, ds_pred, ds_labels, timestep, mean, model_descripti
         index of the starting timestep
     mean : str
         Whether to subtract the weekly or monthly mean. Options are {´weekly´, ´monthly´}
+    model_description : str
+        Description of the model
+    save_path : str
+        Path to save the figure
     """
     lead_time = ((ds_pred.isel(time=0).time.values - ds_input.isel(time=0).time.values)
                  /(1e9*3600)).astype(int)

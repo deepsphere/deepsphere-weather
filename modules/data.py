@@ -104,9 +104,10 @@ def preprocess_healpix(in_data, out_data, train_years, val_years, test_years, ns
         std = data.std('time').mean(('lat', 'lon')).compute()
         np.save(out_path + 'mean.npy', mean.values)
         np.save(out_path + 'std.npy', std.values)
-    
+
         # Save individual arrays
-        for t, sample in enumerate(dataset):
+        for t in range(dataset.shape[1]):
+            sample = dataset.isel(time=t)
             hp_sample = np.empty((n_pixels, sample.shape[0]))
             for i, signal in enumerate(sample.values):
                 f = interpolate.interp2d(lat, lon, np.rot90(signal), kind=interpolation_kind)
@@ -114,8 +115,135 @@ def preprocess_healpix(in_data, out_data, train_years, val_years, test_years, ns
             
             np.save(out_path + str(t) + '.npy', hp_sample)
 
+# Interpolation
+def hp_to_equiangular(sample, res, method='linear'):
+    
+    # Input grid
+    n_pixels = sample.dims['node']
+    nside = int(np.sqrt(n_pixels/12))
+    hp_lon, hp_lat = hp.pix2ang(nside, np.arange(n_pixels), lonlat=True, nest=True)
+    points = np.array([hp_lon, hp_lat]).transpose((1, 0))
+    
+    # Output grid
+    equi_lat = np.arange(-90 + res/2, 90, res)
+    equi_lon = np.arange(0, 360, res)
+    grid_x, grid_y = np.meshgrid(equi_lon, equi_lat)
+    
+    eq_lon = grid_x[0, :]
+    eq_lat = grid_y[:, 0]
+    
+    interpolated = []
+    for var in sample.data_vars:
+        signal = sample[var]
+        grid_z = interpolate.griddata(points, signal.values, (grid_x, grid_y), method=method)
+
+
+        nans = np.isnan(grid_z)
+        notnans = np.logical_not(nans)
+        grid_z[nans] = interpolate.griddata((grid_x[notnans], grid_y[notnans]), grid_z[notnans], 
+                                            (grid_x[nans], grid_y[nans]), method='nearest')
+
+        interpolated.append(xr.DataArray(
+                grid_z, 
+                dims=['lat', 'lon'],
+                coords={'lat': eq_lat, 'lon': eq_lon},
+                name=var
+            ))     
+    interpolated = xr.merge(interpolated)
+    
+    return interpolated
 
 # Datasets
+class WeatherBenchDatasetXarrayHealpix(Dataset):
+    """ Dataset used for graph models (1D), where data is loaded from an xarray Dataset
+    
+    Parameters
+    ----------
+    ds : xarray Dataset
+        Dataset containing the input data
+    lead_time : int
+        Prediction interval (in hours)
+    out_features : int
+        Number of output features
+    years : tuple(str)
+        Years used to split the data
+    nodes : float
+        Number of nodes each sample has
+    max_lead_time : int
+        Maximum lead time (in case of iterative predictions) in hours
+    load : bool
+        If true, load dataset to RAM
+    mean : np.ndarray of shape 2
+        Mean to use for data normalization. If None, mean is computed from data
+    std : np.ndarray of shape 2
+        std to use for data normalization. If None, mean is computed from data
+    """
+    
+    def __init__(self, ds, out_features, lead_time, years, nodes, nb_timesteps, max_lead_time=None, 
+                 load=True, mean=None, std=None):
+        
+        self.lead_time = lead_time
+        self.years = years
+        self.nodes = nodes
+        self.out_features = out_features
+        self.max_lead_time = max_lead_time
+        self.nb_timesteps = nb_timesteps
+        
+        self.data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
+        self.in_features = self.data.shape[-1]
+        
+        self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean
+        self.std = self.data.std(('time', 'node')).compute() if std is None else std
+        
+        # Normalize
+        self.data = (self.data - self.mean) / self.std
+        if max_lead_time is None:
+            self.n_samples = self.data.isel(time=slice(0, -self.nb_timesteps*lead_time)).shape[0]
+        else:
+            self.n_samples = self.data.isel(time=slice(0, -self.nb_timesteps*lead_time)).shape[0] - max_lead_time
+        self.idxs = np.arange(self.n_samples)
+        
+        if load: 
+            print('Loading data into RAM')
+            self.data.load()
+        
+    def __len__(self):
+        return self.n_samples
+
+    def __getitem__(self, idx):
+        idxs = self.idxs[idx]
+        
+        X = (torch.Tensor(self.data.isel(time=idxs).values),
+             torch.Tensor(self.data.isel(time=idxs + self.lead_time).values[:, self.out_features:]))
+        
+        y = (torch.Tensor(self.data.isel(time=idxs + self.lead_time).values[:, :self.out_features]), 
+             torch.Tensor(self.data.isel(time=idxs + 2*self.lead_time).values[:, :self.out_features]))
+
+        return X, y
+    
+    
+class WeatherBenchDatasetIterative(Dataset):
+    """ Dataset used for graph models (1D), where data is loaded from stored numpy arrays.
+    
+    Parameters
+    ----------
+    """
+    
+    def __init__(self, data):
+        
+        self.data = data
+        self.n_samples = data.shape[0]
+        
+    def __len__(self):
+        return self.n_samples
+    
+    def __getitem__(self, idx):
+        """ Returns sample and label corresponding to an index as torch.Tensor objects
+            The return tensor shapes are (for the sample and the label): [n_vertex, n_features]
+        """
+        return [torch.Tensor(self.data[idx, :, :])], 0
+
+    
 class WeatherBenchDataset1dNumpy(Dataset):
     """ Dataset used for graph models (1D), where data is loaded from stored numpy arrays.
     
@@ -182,8 +310,12 @@ class WeatherBenchDataset1dXarray(Dataset):
         Dataset containing the input data
     lead_time : int
         Prediction interval (in hours)
-    var_dict : dict
-        Dictionary where the keys are the relevant variables and the values are pressure levels at which the variables are considered
+    var_dict_in : dict
+        Dictionary where the keys are the input variables and the values are pressure levels at which the variables 
+        are considered
+    var_dict_out : dict
+        Dictionary where the keys are the output variables and the values are pressure levels at which the variables 
+        are considered
     years : tuple(str)
         Years used to split the data
     res : float
@@ -196,19 +328,20 @@ class WeatherBenchDataset1dXarray(Dataset):
         std to use for data normalization. If None, mean is computed from data
     """
     
-    def __init__(self, ds, var_dict, lead_time, years, res, load=True, mean=None, std=None):
+    def __init__(self, ds, var_dict_in, var_dict_out, lead_time, years, res, load=True, mean=None, std=None):
         
         self.ds = ds
-        self.var_dict = var_dict
+        self.var_dict_in = var_dict_in
+        self.var_dict_out = var_dict_out
         self.lead_time = lead_time
         self.years = years
         self.res = res
-    
-        self.features = len(self.var_dict)
+        self.out_features = len(var_dict_out)
+        self.in_features = len(var_dict_in)
 
         data = []
         generic_level = xr.DataArray([1], coords={'level': [1]}, dims=['level'])
-        for var, levels in var_dict.items():
+        for var, levels in var_dict_in.items():
             try:
                 data.append(ds[var].sel(level=levels))
             except ValueError:
@@ -216,26 +349,24 @@ class WeatherBenchDataset1dXarray(Dataset):
 
         self.data = xr.concat(data, 'level').transpose('time', 'lat', 'lon', 'level')
         self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
-        self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
+        
+        if std is None:
+            
+            const_std = self.data.std(('time', 'lat', 'lon')).compute()
+            std_ = self.data.std(('time')).mean(('lat', 'lon')).compute()
+            std_[std_ == 0] = const_std[std_==0]
+            self.std = std_
+        else:
+            self.std = std
         
         # Normalize
         self.data = (self.data - self.mean) / self.std
         self.n_samples = self.data.isel(time=slice(0, -lead_time)).shape[0]
-        #self.init_time = self.data.isel(time=slice(None, -lead_time)).time
-        #self.valid_time = self.data.isel(time=slice(lead_time, None)).time
         self.idxs = np.arange(self.n_samples)
-        
-        #self.lat = self.data.lat
-        #self.lon = self.data.lon
-        
-        self.features = len(self.data.level)
-        #self.latitudes = len(self.lat)
-        #self.longitudes = len(self.lon)
         
         # Stack
         self.data = self.data.stack(nodes=('lat', 'lon')).transpose('time', 'nodes', 'level')
         
-        # For some weird reason calling .load() earlier messes up the mean and std computations
         if load: 
             print('Loading data into RAM')
             self.data.load()
@@ -246,7 +377,7 @@ class WeatherBenchDataset1dXarray(Dataset):
     def __getitem__(self, idx):
         idxs = self.idxs[idx]
         X = torch.Tensor(self.data.isel(time=idxs).values)
-        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values)
+        y = torch.Tensor(self.data.isel(time=idxs + self.lead_time).values[:, :self.out_features])
 
         return X, y
 
