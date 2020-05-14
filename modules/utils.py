@@ -17,6 +17,79 @@ from tensorflow.keras.layers import Input, Dropout, Conv2D, Lambda
 import tensorflow.keras.backend as K
 
 
+def train_model_2steps(model, device, train_generator, epochs, lr, validation_data):    
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
+    
+    train_losses = []
+    val_losses = []
+    
+    for epoch in range(epochs):
+        
+        time1 = time.time()
+        
+        val_loss = 0
+        train_loss = 0
+        
+        model.train()  
+        for batch_idx, (batch, labels) in enumerate(train_generator):
+            # Transfer to GPU
+            batch1 = batch[0].to(device)
+            constants1 = batch[1].to(device)
+            label1 = labels[0].to(device)
+            label2 = labels[1].to(device)
+            
+            batch_size = batch1.shape[0]
+            
+            # Model
+            output1 = model(batch1)
+            batch2 = torch.cat((output1, constants1), dim=2)
+            output2 = model(batch2)
+            
+            loss = criterion(output1, label1) + criterion(output2, label2)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            train_loss = train_loss + loss.item() * batch_size
+            
+        train_loss = train_loss / (len(train_generator.dataset))
+        train_losses.append(train_loss)
+        
+        model.eval()
+        with torch.set_grad_enabled(False):
+            index = 0
+            
+            for batch, labels in validation_data:
+                # Transfer to GPU
+                batch1 = batch[0].to(device)
+                constants1 = batch[1].to(device)
+                label1 = labels[0].to(device)
+                label2 = labels[1].to(device)
+
+                batch_size = batch1.shape[0]
+                
+                output1 = model(batch1)
+                batch2 = torch.cat((output1, constants1), dim=2)
+                output2 = model(batch2)
+                
+                val_loss = val_loss + (criterion(output1, label1).item() 
+                                       + criterion(output2, label2).item()) * batch_size
+                index = index + batch_size
+                
+        val_loss = val_loss / (len(validation_data.dataset))
+        val_losses.append(val_loss)
+        
+        time2 = time.time()
+        
+        # Print stuff
+        print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
+              .format(e=epoch+1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2-time1))
+        
+    return train_losses, val_losses
+
+
 def load_test_data(path, lead_time, years=slice('2017', '2018')):
     """ Function to load test labels
     
