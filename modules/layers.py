@@ -142,6 +142,7 @@ def cheb_conv(laplacian, inputs, weight):
 
     return x
 
+
 def cheb_conv_temp(laplacian, inputs, weight):
     """Chebyshev convolution.
     Parameters
@@ -155,7 +156,7 @@ def cheb_conv_temp(laplacian, inputs, weight):
         
     Returns
     -------
-    x : torch.Tensor
+    x : torch.Tensor of shape [batch_size x num_vertex x in_channels]
         Inputs after applying Chebyshev convolution.
     """
     B, V, T, Fin = inputs.shape
@@ -182,38 +183,17 @@ def cheb_conv_temp(laplacian, inputs, weight):
         x0, x1 = x1, x2
     
     x = x.view([Kv, V, T, Fin, B])              # Kv x V x T x Fin x B
+    x = x.permute(4, 1, 3, 0, 2).contiguous()   # B x V x Fin x Kv x T
+    x = x.view([B*V, Fin*Kv*T])                 # B*V x Fin*K*T
     
-    ### start temporal unfolding #####
-    temp_width = int(Kt/2)
-    x = x.permute(2, 0, 1, 3, 4).contiguous()   # T x Kv x V x Fin x B
-    x0 = x.view([T, Kv*V*Fin*B])                # T x Kv*V*T*Fin*B
-    
-    x = torch.roll(x0, -temp_width, dims=1)
-    x[-temp_width:, :] = 0
-    x = x.unsqueeze(0) # 1 x T x Kv*V*T*Fin*B
-   
-    for i in range(-temp_width+1, 0):
-        rolled = torch.roll(x0, i, dims=1)
-        rolled[i:, :] = 0
-        x = torch.cat((x, rolled.unsqueeze(0)))
-    
-    for i in range(temp_width+1):
-        rolled = torch.roll(x0, i, dims=1)
-        rolled[:i, :] = 0 
-        x = torch.cat((x, rolled.unsqueeze(0)))
-    
-    x = x.view([Kt, T, Kv, V, Fin, B])          # Kt x T x Kv x V x Fin x B
-    #### end temporal unfolding ####
-    
-    x = x.permute(5, 3, 1, 4, 2, 0).contiguous()  # B x V x T x Fin x Kv x Kt
-    x = x.view([B*V*T, Fin*Kv*Kt])                # B*V x Fin*K
-
     # Linearly compose Fin features to get Fout features
     weight = weight.view(Fin*Kv*Kt, Fout)
-    x = x.matmul(weight)      # B*V*T x Fout
-    x = x.view([B, V, T, Fout])  # B x V x T x Fout
+    x = x.matmul(weight)      # B*V x Fout
+    x = x.view([B, V, Fout])  # B x V x Fout
 
     return x
+
+
 
 class ConvCheb(torch.nn.Module):
     """Graph convolutional layer.
@@ -801,7 +781,7 @@ class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
     
  # Temporal + graph 2D pooling
 class PoolAvgTempHealpix(torch.nn.Module):
-    """Healpix average pooling module for 2D data
+    """Healpix with temporal convolutions average pooling module for 2D data
     
     Parameters
     ----------
@@ -825,7 +805,7 @@ class PoolAvgTempHealpix(torch.nn.Module):
 
 
 class UnpoolAvgTempHealpix(torch.nn.Module):
-    """Healpix Average Unpooling module
+    """Healpix with temporal convolutions Average Unpooling module
     
     Parameters
     ----------
@@ -847,4 +827,84 @@ class UnpoolAvgTempHealpix(torch.nn.Module):
         x = x.permute(0, 3, 1, 2) # batch, channels, nodes, len_sqce
         x = F.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
         return x.permute(0, 2, 3, 1)
+    
+    
+
+class PoolMaxTempHealpix(torch.nn.MaxPool1d):
+    """Healpix Maxpooling module for spatio-temporal convolutions
+     
+    Parameters
+    ----------
+    kernel_size : tuple
+        Pooling kernel shape. First dimension indicates spatial kernel with, second dimension is 
+        temporal kernel width
+    return_indices : bool (default : True)
+        Whether to return the indices corresponding to the locations of the maximum value retained at pooling
+    """
+
+    def __init__(self, kernel_size, return_indices=True):
+        super().__init__(kernel_size=kernel_size, return_indices=return_indices)
+
+    def forward(self, x):
+        """calls Maxpool1d and if desired, keeps indices of the pixels pooled to unpool them
+        Parameters
+        ----------
+        x : torch.tensor of shape batch x pixels x features
+            Input data  
+        indices : list
+            Indices where the max value was located in unpooled image
+            
+        Returns
+        -------
+        x : torch.tensor of shape batch x unpooled pixels x features
+            Layer output
+        indices : list(int)
+            Indices of the pixels pooled
+        """
+        x = x.permute(0, 3, 1, 2)
+        if self.return_indices:
+            x, indices = F.max_pool2d(x, self.kernel_size, return_indices=self.return_indices)
+        else:
+            x = F.max_pool2d(x)
+        x = x.permute(0, 2, 3, 1)
+
+        if self.return_indices:
+            output = x, indices
+        else:
+            output = x
+        return output
+    
+    
+class UnpoolMaxTempHealpix(torch.nn.MaxUnpool1d):
+    """HEALpix max unpooling module for spatio-temporal convolutions
+    
+    Parameters
+    ----------
+    kernel_size : tuple
+        Pooling kernel shape. First dimension indicates spatial kernel with, second dimension is 
+        temporal kernel width
+    """
+
+    def __init__(self, kernel_size):
+        super().__init__(kernel_size=kernel_size)
+        
+
+    def forward(self, x, indices):
+        """calls pytorch's unpool1d function to create the values while unpooling based on the nearby values
+        Parameters
+        ----------
+        inputs : torch.tensor of shape [batch x nodes x len_sqce x features] in nested ordering
+            Input data
+        indices : list
+            Indices where the max value was located in unpooled image
+        
+        Returns
+        -------
+        x : torch.tensor of shape [batch x nodes x len_sqce x features] in nested ordering
+            Layer output
+        """
+        x = x.permute(0, 3, 1, 2)
+        x = F.max_unpool2d(x, indices, self.kernel_size)
+        x = x.permute(0, 2, 3, 1)
+        return x
     
