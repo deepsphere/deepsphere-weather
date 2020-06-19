@@ -222,6 +222,91 @@ class WeatherBenchDatasetXarrayHealpix(Dataset):
         return X, y
     
     
+class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
+    
+    """ Dataset used for graph models (1D), where data is loaded from stored numpy arrays.
+    
+    Parameters
+    ----------
+    ds : xarray Dataset
+        Dataset containing the input data
+    out_features : int
+        Number of output features
+    delta_t : int
+        Temporal spacing between samples in temporal sequence (in hours)
+    len_sqce : int
+        Length of the input and output (predicted) sequences
+    years : tuple(str)
+        Years used to split the data
+    nodes : float
+        Number of nodes each sample has
+    max_lead_time : int
+        Maximum lead time (in case of iterative predictions) in hours
+    load : bool
+        If true, load dataset to RAM
+    mean : np.ndarray of shape 2
+        Mean to use for data normalization. If None, mean is computed from data
+    std : np.ndarray of shape 2
+        std to use for data normalization. If None, mean is computed from data
+    """
+        
+    def __init__(self, ds, out_features, delta_t, len_sqce, years, nodes, nb_timesteps, 
+                 max_lead_time=None, load=True, mean=None, std=None):
+        
+        
+        self.delta_t = delta_t
+        self.len_sqce = len_sqce
+        self.years = years
+        
+        self.nodes = nodes
+        self.out_features = out_features
+        self.max_lead_time = max_lead_time
+        self.nb_timesteps = nb_timesteps
+        
+        self.data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
+        self.in_features = self.data.shape[-1]
+        
+        self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean
+        self.std = self.data.std(('time', 'node')).compute() if std is None else std
+        
+        # Normalize
+        self.data = (self.data - self.mean) / self.std
+        
+        # Count total number of samples
+        total_samples = self.data.shape[0]        
+        if max_lead_time is None:
+            self.n_samples = total_samples - (len_sqce+1) * delta_t
+        else:
+            self.n_samples = total_samples - (len_sqce+1) * delta_t - max_lead_time
+            
+        
+        # Create indexes
+        self.idxs = [[[[sample_idx + delta_t*k for k in range(len_sqce)], sample_idx + delta_t * len_sqce], 
+                      [sample_idx + delta_t * len_sqce, sample_idx + delta_t * (len_sqce+1)]] 
+                     for sample_idx in range(self.n_samples)]
+        
+        if load: 
+            print('Loading data into RAM')
+            self.data.load()
+            
+        
+    def __len__(self):
+        return self.n_samples
+    
+    def __getitem__(self, idx):
+        """ Returns sample and label corresponding to an index as torch.Tensor objects
+            The return tensor shapes are (for the sample and the label): [n_vertex, len_sqce, n_features]
+        """
+        
+        X = (torch.tensor(self.data.isel(time=self.idxs[idx][0][0]).values).float().permute(1, 0, 2), 
+             torch.tensor(self.data.isel(time=self.idxs[idx][0][1]).values[:, self.out_features:]).float())
+        
+        y = (torch.Tensor(self.data.isel(time=self.idxs[idx][1][0]).values[:, :self.out_features]).float(), 
+             torch.Tensor(self.data.isel(time=self.idxs[idx][1][1]).values[:, :self.out_features]).float())
+        
+        return X, y 
+    
+    
 class WeatherBenchDatasetIterative(Dataset):
     """ Dataset used for graph models (1D), where data is loaded from stored numpy arrays.
     
