@@ -1,17 +1,23 @@
 import xarray as xr
 import numpy as np
+import healpy as hp
 import datetime
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy
+import pickle
 
 from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
 from matplotlib import cm, colors
 from cartopy.mpl.geoaxes import GeoAxes
 GeoAxes._pcolormesh_patched = Axes.pcolormesh
 
 from modules.test import (compute_anomalies, compute_weighted_rmse, compute_relBIAS, compute_rSD, 
                           compute_R2, compute_KGE, compute_relMSE, compute_relMAE, compute_ACC)
+
+#from scipy import interpolate
+from modules.data import hp_to_equiangular
 
 
 # Global dictionaries
@@ -67,7 +73,8 @@ def plot_rmses(rmse, reference_rmse, lead_time, max_lead_time=120):
     plt.show()
 
 
-def plot_signal(f, sample, var, ax, vmin, vmax, proj, cmap='RdBu_r', cbar_shrink=0.6, cbar_pad=0.03):
+def plot_signal(f, sample, var, ax, vmin, vmax, proj, cmap, colorbar, cbar_label, cbar_shrink=0.7, 
+                cbar_pad=0.03, extend='neither'):
     """ Plots a weather signal drawing coastlines
 
     Parameters
@@ -88,11 +95,18 @@ def plot_signal(f, sample, var, ax, vmin, vmax, proj, cmap='RdBu_r', cbar_shrink
         Geoaxes projection
     cmap : string
         Colormap
+    colorbar : bool
+        Whether or not to draw a colorbar 
+    cbar_label : string
+        Colorbar label
     cbar_shrink : float
         Fraction of axes describing the colorbar size
     cbar_pad : float
         Padding between plot axes and colorbar
+    extend : string
+        Whether or not to draw extended colorbars. Options are [ 'neither' | 'both' | 'min' | 'max' ] 
     """
+    
     sample = sample.roll(lon=int(len(sample.lon)/2), roll_coords=True)
     lats = sample.variables['lat'][:]
     lons = sample.variables['lon'][:]
@@ -100,10 +114,654 @@ def plot_signal(f, sample, var, ax, vmin, vmax, proj, cmap='RdBu_r', cbar_shrink
 
     im = ax.pcolormesh(lons, lats, signal, transform=proj, cmap=cmap, vmin=vmin, vmax=vmax, shading='gouraud')
     ax.coastlines()
-    f.colorbar(cm.ScalarMappable(norm=colors.Normalize(vmin=vmin,vmax=vmax), cmap=cmap), 
-               ax=ax, pad=cbar_pad, shrink=cbar_shrink)
+    
+    cb = f.colorbar(cm.ScalarMappable(norm=colors.Normalize(vmin=vmin,vmax=vmax), cmap=cmap), 
+                    ax=ax, pad=cbar_pad, shrink=cbar_shrink, extend=extend)
+    
+    cb.set_label(label=cbar_label, size=18)
+    cb.ax.tick_params(labelsize=16)
+    
+    if not colorbar:
+        cb.remove()
+        
+        
+def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, output_dir, title=True):
+    
+    lead_times0 = np.arange(6, lead_times[-1]+6, 6)
+    
+    xlabels = [str(t) if t%4 == 0 else '' for t in lead_times] if lead_times[0] < 12 else lead_times
+    
+    # RMSE baselines
+    rmses_baselines = pickle.load(open(input_dir+'rmse.pkl', 'rb'))
+    
+    rmses_rasp_direct = rmses_baselines['CNN (direct)']
+    rmses_rasp_iter = rmses_baselines['CNN (iterative)']
+    rmses_climatology = rmses_baselines['Climatology']
+    rmses_weekly_clim = rmses_baselines['Weekly clim.']
+    rmses_persistence = rmses_baselines['Persistence']
+    rmses_ifs = rmses_baselines['Operational'].sel(lead_time=lead_times)
+    rmses_ifs_t42 = rmses_baselines['IFS T42'].sel(lead_time=lead_times)
+    rmses_ifs_t63 = rmses_baselines['IFS T63'].sel(lead_time=slice(lead_times[0], lead_times[-1]))
+    rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc')
+    
+    f, axs = plt.subplots(1, 2, figsize=(17, 6))
+    if title:
+        f.suptitle('RMSE between forecast and observation as a function of forecast time', fontsize=24, y=1.07)
+
+    axs[0].plot(lead_times0, rmses_persistence.z.values, label='Persistence', linestyle='--')
+    axs[0].plot(lead_times0, [rmses_climatology.z.values]*len(lead_times0), label='Global climatology', linestyle='--')
+    axs[0].plot(lead_times0, [rmses_weekly_clim.z.values]*len(lead_times0), label='Weekly climatology', linestyle='--')
+    axs[0].plot(lead_times0, rmses_ifs.z.values, label='Operational IFS', linestyle='--')
+    #axs[0].plot(lead_times0, rmses_ifs_t42.z.values, label='IFS T42', linestyle='--')
+    #axs[0].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.z.values, label='IFS T63', linestyle='--')
+    axs[0].scatter([72, 120], rmses_rasp_direct.z.values, label='Rasp 2020 (direct)', color='maroon')
+    axs[0].plot(lead_times0, rmses_rasp_iter.z.values, label='Rasp 2020 (iter)', linestyle='-')
+    axs[0].plot(lead_times0, rmses_weyn.z.values, label='Weyn 2020', linestyle='-')
+    axs[0].plot(lead_times, rmses_spherical.z.values, label='Ours', color='black', marker='o')
+
+    axs[0].set_ylabel('RMSE [$m^2 s^{−2}$]', fontsize=18)
+    axs[0].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[0].set_title('Z500', fontsize=22)
+    axs[0].tick_params(axis='both', which='major', labelsize=16)
+    axs[0].set_xticks(lead_times)
+    axs[0].set_xticklabels(xlabels, fontsize=16)
+    axs[0].legend(loc='upper left', fontsize=15)
 
 
+    axs[1].plot(lead_times0, rmses_persistence.t.values, label='Persistence', linestyle='--')
+    axs[1].plot(lead_times0, [rmses_climatology.t.values]*len(lead_times0), label='Global climatology', linestyle='--')
+    axs[1].plot(lead_times0, [rmses_weekly_clim.t.values]*len(lead_times0), label='Weekly climatology', linestyle='--')
+    axs[1].plot(lead_times0, rmses_ifs.t.values, label='Operational IFS', linestyle='--')
+    #axs[1].plot(lead_times0, rmses_ifs_t42.t.values, label='IFS T42', linestyle='--')
+    #axs[1].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.t.values, label='IFS T63', linestyle='--')
+    axs[1].scatter([72, 120], rmses_rasp_direct.t.values, label='Rasp 2020 (direct)', color='maroon')
+    axs[1].plot(lead_times0, rmses_rasp_iter.t.values, label='Rasp 2020 (iter)', linestyle='-')
+    axs[1].plot(lead_times0, rmses_weyn.t.values, label='Weyn 2020', linestyle='-')
+    axs[1].plot(lead_times, rmses_spherical.t.values, label='Ours', color='black', marker='o')
+
+
+    axs[1].set_ylabel('RMSE [K]', fontsize=18)
+    axs[1].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[1].set_title('T850', fontsize=22)
+    axs[1].set_xticks(lead_times)
+    axs[1].set_xticklabels(xlabels, fontsize=16)
+    axs[1].tick_params(axis='both', which='major', labelsize=16)
+    axs[1].legend(loc='upper left', fontsize=15)
+    
+    
+    filename = model_description + '_benchmark.png'
+    
+    plt.tight_layout()
+    plt.savefig(output_dir + filename, bbox_inches='tight')
+
+    plt.show()
+
+def plot_benchmark_MAE(rmses_spherical, model_description, lead_times, input_dir, output_dir, title=True):
+    
+    lead_times0 = np.arange(6, lead_times[-1]+6, 6)
+    
+    xlabels = [str(t) if t%4 == 0 else '' for t in lead_times] if lead_times[0] < 12 else lead_times
+    
+    # RMSE baselines
+    rmses_baselines = pickle.load(open(input_dir+'mae.pkl', 'rb'))
+    
+    rmses_rasp_direct = rmses_baselines['CNN (direct)']
+    rmses_rasp_iter = rmses_baselines['CNN (iterative)']
+    rmses_climatology = rmses_baselines['Climatology']
+    rmses_weekly_clim = rmses_baselines['Weekly clim.']
+    rmses_persistence = rmses_baselines['Persistence']
+    rmses_ifs = rmses_baselines['Operational'].sel(lead_time=lead_times)
+    rmses_ifs_t42 = rmses_baselines['IFS T42'].sel(lead_time=lead_times)
+    rmses_ifs_t63 = rmses_baselines['IFS T63'].sel(lead_time=slice(lead_times[0], lead_times[-1]))
+    rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc')
+    
+    f, axs = plt.subplots(1, 2, figsize=(17, 6))
+    if title:
+        f.suptitle('RMSE between forecast and observation as a function of forecast time', fontsize=24, y=1.07)
+
+    axs[0].plot(lead_times0, rmses_persistence.z.values, label='Persistence', linestyle='--')
+    axs[0].plot(lead_times0, [rmses_climatology.z.values]*len(lead_times0), label='Global climatology', linestyle='--')
+    axs[0].plot(lead_times0, [rmses_weekly_clim.z.values]*len(lead_times0), label='Weekly climatology', linestyle='--')
+    axs[0].plot(lead_times0, rmses_ifs.z.values, label='Operational IFS', linestyle='--')
+    #axs[0].plot(lead_times0, rmses_ifs_t42.z.values, label='IFS T42', linestyle='--')
+    #axs[0].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.z.values, label='IFS T63', linestyle='--')
+    axs[0].scatter([72, 120], rmses_rasp_direct.z.values, label='Rasp 2020 (direct)', color='maroon')
+    axs[0].plot(lead_times0, rmses_rasp_iter.z.values, label='Rasp 2020 (iter)', linestyle='-')
+    #axs[0].plot(lead_times0, rmses_weyn.z.values, label='Weyn 2020', linestyle='-')
+    axs[0].plot(lead_times, rmses_spherical.z.values, label='Ours', color='black', marker='o')
+
+    axs[0].set_ylabel('MAE [$m^2 s^{-2}$]', fontsize=18)
+    axs[0].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[0].set_title('Z500', fontsize=22)
+    axs[0].tick_params(axis='both', which='major', labelsize=16)
+    axs[0].set_xticks(lead_times)
+    axs[0].set_xticklabels(xlabels, fontsize=16)
+    axs[0].legend(loc='upper left', fontsize=15)
+
+
+    axs[1].plot(lead_times0, rmses_persistence.t.values, label='Persistence', linestyle='--')
+    axs[1].plot(lead_times0, [rmses_climatology.t.values]*len(lead_times0), label='Global climatology', linestyle='--')
+    axs[1].plot(lead_times0, [rmses_weekly_clim.t.values]*len(lead_times0), label='Weekly climatology', linestyle='--')
+    axs[1].plot(lead_times0, rmses_ifs.t.values, label='Operational IFS', linestyle='--')
+    #axs[1].plot(lead_times0, rmses_ifs_t42.t.values, label='IFS T42', linestyle='--')
+    #axs[1].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.t.values, label='IFS T63', linestyle='--')
+    axs[1].scatter([72, 120], rmses_rasp_direct.t.values, label='Rasp 2020 (direct)', color='maroon')
+    axs[1].plot(lead_times0, rmses_rasp_iter.t.values, label='Rasp 2020 (iter)', linestyle='-')
+    #axs[1].plot(lead_times0, rmses_weyn.t.values, label='Weyn 2020', linestyle='-')
+    axs[1].plot(lead_times, rmses_spherical.t.values, label='Ours', color='black', marker='o')
+
+
+    axs[1].set_ylabel('MAE [K]', fontsize=18)
+    axs[1].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[1].set_title('T850', fontsize=22)
+    axs[1].set_xticks(lead_times)
+    axs[1].set_xticklabels(xlabels, fontsize=16)
+    axs[1].tick_params(axis='both', which='major', labelsize=16)
+    axs[1].legend(loc='upper left', fontsize=15)
+    
+    
+    filename = model_description + '_mae_benchmark.png'
+    
+    plt.tight_layout()
+    plt.savefig(output_dir + filename, bbox_inches='tight')
+
+    plt.show()
+    
+    
+def plot_benchmark_ACC(rmses_spherical, model_description, lead_times, input_dir, output_dir, title=True):
+    
+    lead_times0 = np.arange(6, lead_times[-1]+6, 6)
+    
+    xlabels = [str(t) if t%4 == 0 else '' for t in lead_times] if lead_times[0] < 12 else lead_times
+    
+    # RMSE baselines
+    rmses_baselines = pickle.load(open(input_dir+'acc.pkl', 'rb'))
+    
+    rmses_rasp_direct = rmses_baselines['CNN (direct)']
+    rmses_rasp_iter = rmses_baselines['CNN (iterative)']
+    rmses_climatology = rmses_baselines['Climatology']
+    rmses_weekly_clim = rmses_baselines['Weekly clim.']
+    rmses_persistence = rmses_baselines['Persistence']
+    rmses_ifs = rmses_baselines['Operational'].sel(lead_time=lead_times)
+    rmses_ifs_t42 = rmses_baselines['IFS T42'].sel(lead_time=lead_times)
+    rmses_ifs_t63 = rmses_baselines['IFS T63'].sel(lead_time=slice(lead_times[0], lead_times[-1]))
+    rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc')
+    
+    f, axs = plt.subplots(1, 2, figsize=(17, 6), sharey=True)
+    if title:
+        f.suptitle('RMSE between forecast and observation as a function of forecast time', fontsize=24, y=1.07)
+
+    axs[0].plot(lead_times0, rmses_persistence.z.values, label='Persistence', linestyle='--')
+    axs[0].plot(lead_times0, [rmses_climatology.z.values]*len(lead_times0), label='Global climatology', linestyle='--')
+    axs[0].plot(lead_times0, [rmses_weekly_clim.z.values]*len(lead_times0), label='Weekly climatology', linestyle='--')
+    axs[0].plot(lead_times0, rmses_ifs.z.values, label='Operational IFS', linestyle='--')
+    #axs[0].plot(lead_times0, rmses_ifs_t42.z.values, label='IFS T42', linestyle='--')
+    #axs[0].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.z.values, label='IFS T63', linestyle='--')
+    axs[0].scatter([72, 120], rmses_rasp_direct.z.values, label='Rasp 2020 (direct)', color='maroon')
+    axs[0].plot(lead_times0, rmses_rasp_iter.z.values, label='Rasp 2020 (iter)', linestyle='-')
+    #axs[0].plot(lead_times0, rmses_weyn.z.values, label='Weyn 2020', linestyle='-')
+    axs[0].plot(lead_times, rmses_spherical.z.values, label='Ours', color='black', marker='o')
+
+    axs[0].set_ylabel('ACC', fontsize=18)
+    axs[0].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[0].set_title('Z500', fontsize=22)
+    axs[0].tick_params(axis='both', which='major', labelsize=16)
+    axs[0].set_xticks(lead_times)
+    axs[0].set_xticklabels(xlabels, fontsize=16)
+    axs[0].legend(loc='lower left', fontsize=15)
+
+
+    axs[1].plot(lead_times0, rmses_persistence.t.values, label='Persistence', linestyle='--')
+    axs[1].plot(lead_times0, [rmses_climatology.t.values]*len(lead_times0), label='Global climatology', linestyle='--')
+    axs[1].plot(lead_times0, [rmses_weekly_clim.t.values]*len(lead_times0), label='Weekly climatology', linestyle='--')
+    axs[1].plot(lead_times0, rmses_ifs.t.values, label='Operational IFS', linestyle='--')
+    #axs[1].plot(lead_times0, rmses_ifs_t42.t.values, label='IFS T42', linestyle='--')
+    #axs[1].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.t.values, label='IFS T63', linestyle='--')
+    axs[1].scatter([72, 120], rmses_rasp_direct.t.values, label='Rasp 2020 (direct)', color='maroon')
+    axs[1].plot(lead_times0, rmses_rasp_iter.t.values, label='Rasp 2020 (iter)', linestyle='-')
+    #axs[1].plot(lead_times0, rmses_weyn.t.values, label='Weyn 2020', linestyle='-')
+    axs[1].plot(lead_times, rmses_spherical.t.values, label='Ours', color='black', marker='o')
+
+
+    axs[1].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[1].set_title('T850', fontsize=22)
+    axs[1].set_xticks(lead_times)
+    axs[1].set_xticklabels(xlabels, fontsize=16)
+    axs[1].tick_params(axis='both', which='major', labelsize=16)
+    axs[1].legend(loc='lower left', fontsize=15)
+    
+    
+    filename = model_description + '_benchmark.png'
+    
+    plt.tight_layout()
+    plt.savefig(output_dir + filename, bbox_inches='tight')
+
+    plt.show()
+    
+def plot_general_skills(rmse_map, corr_map, rbias_map, rsd_map, model_description, lead_times, 
+                        output_dir,  relrmse_ylim=[0, 0.05], relbias_ylim=[-0.05, 0.05], 
+                        rsd_ylim=[0, 2], r2_ylim=[0, 1], title=True):
+    
+    n_ticks = len(lead_times)
+    
+    xlabels = [str(t) if t%4 == 0 else '' for t in lead_times] if lead_times[0] < 12 else lead_times
+    
+    rmse = rmse_map.mean('node').compute()
+    corr = corr_map.mean('node').compute()
+    rbias = rbias_map.mean('node').compute()
+    rsd = rsd_map.mean('node').compute()
+    
+    
+    f, axs = plt.subplots(4, 2, figsize=(17, 20), sharex=True, sharey='row')
+    
+    if title:
+        f.suptitle('Skill boxplots', fontsize=24, y=1.05)
+    else:
+        f.suptitle('   ', fontsize=24, y=1.05)
+
+    
+    cols = ['Z500', 'T850']
+    rows = ['relRMSE', 'relBIAS', 'rSD', 'R2']
+    
+    
+
+    colors = ['red', 'orange', 'black']
+    lines = [Line2D([0], [0], color=c, linewidth=3, linestyle='-') for c in colors]
+    labels = ['Mean', 'Median', '25% and 75% quartiles']
+
+    for ax, col in zip(axs[0, :], cols):
+        ax.set_title(col, fontsize=22, y=1.08)
+
+    for ax, row in zip(axs[:, 0], rows):
+        ax.set_ylabel(row, fontsize=20)
+    
+    # relRMSE
+    rmsesbox_z = [rmse_map.z.values[i, :] for i in range(len(rmse_map.z.values))]
+    axs[0, 0].boxplot(rmsesbox_z)
+    axs[0, 0].plot(np.arange(1, n_ticks+1, 1), rmse.z.values, color='red')
+    axs[0, 0].set_ylim(relrmse_ylim)
+    axs[0, 0].tick_params(axis='y', labelsize=16)
+    
+    rmsesbox_t = [rmse_map.t.values[i, :] for i in range(len(rmse_map.t.values))]
+    axs[0, 1].boxplot(rmsesbox_t)
+    axs[0, 1].plot(np.arange(1, n_ticks+1, 1), rmse.t.values, color='red')
+    
+
+    # relBIAS
+    rbiasbox_z = [rbias_map.z.values[i, :] for i in range(len(rbias_map.z.values))]
+    axs[1, 0].boxplot(rbiasbox_z)
+    axs[1, 0].plot(np.arange(1, n_ticks+1, 1), rbias.z.values, color='red')
+    axs[1, 0].set_ylim(relbias_ylim)
+    axs[1, 0].tick_params(axis='y', labelsize=16)
+
+    rbiasbox_t = [rbias_map.t.values[i, :] for i in range(len(rbias_map.t.values))]
+    axs[1, 1].boxplot(rbiasbox_t)
+    axs[1, 1].plot(np.arange(1, n_ticks+1, 1), rbias.t.values, color='red')
+    
+    
+    # rSD
+    rsdbox_z = [rsd_map.z.values[i, :] for i in range(len(rsd_map.z.values))]
+    axs[2, 0].boxplot(rsdbox_z)
+    axs[2, 0].plot(np.arange(1, n_ticks+1, 1), rsd.z.values, color='red')
+    axs[2, 0].set_ylim(rsd_ylim)
+    axs[2, 0].tick_params(axis='y', labelsize=16)
+
+    rsdbox_t = [rsd_map.t.values[i, :] for i in range(len(rsd_map.t.values))]
+    axs[2, 1].boxplot(rsdbox_t)
+    axs[2, 1].plot(np.arange(1, n_ticks+1, 1), rsd.t.values, color='red')
+    
+    
+    # R2
+    r2box_z = [corr_map.z.values[i, :] for i in range(len(corr_map.z.values))]
+    axs[3, 0].boxplot(r2box_z)
+    axs[3, 0].plot(np.arange(1, n_ticks+1, 1), corr.z.values, color='red')
+    axs[3, 0].set_ylim(r2_ylim)
+    axs[3, 0].tick_params(axis='y', labelsize=16)
+    
+    r2box_t = [corr_map.t.values[i, :] for i in range(len(corr_map.t.values))]
+    axs[3, 1].boxplot(r2box_t)
+    axs[3, 1].plot(np.arange(1, n_ticks+1, 1), corr.t.values, color='red')
+
+
+    f.legend(lines, labels, loc=[0.03, 0.94], fontsize=18)
+    
+    
+    axs[3, 0].set_xlabel('Forecast time [hours]', fontsize=20)
+    axs[3, 1].set_xlabel('Forecast time [hours]', fontsize=20)
+    axs[3, 0].set_xticklabels(xlabels, fontsize=16)
+    axs[3, 1].set_xticklabels(xlabels, fontsize=16)
+    
+    plt.tight_layout()
+
+    filename = model_description + '_general_skills.png'
+    plt.savefig(output_dir + filename, bbox_inches='tight')
+    
+    plt.show()
+    
+
+def plot_skillmaps(rmse_map, rsd_map, rbias_map, corr_map, model_description, lead_times, resolution, 
+                   output_dir):
+    for i, lead in enumerate(lead_times):  
+        
+        rmse_min = 0
+        rmse_max = 0.04
+        
+        rsd_min = 0.2
+        rsd_max = 1.8
+
+        rbias_min = -0.025
+        rbias_max = 0.025
+
+        corr_min = 0
+        corr_max = 1
+
+        rmse_equi = hp_to_equiangular(rmse_map.isel(lead_time=i), resolution)
+        rsd_equi = hp_to_equiangular(rsd_map.isel(lead_time=i), resolution)
+        rbias_equi = hp_to_equiangular(rbias_map.isel(lead_time=i), resolution)
+        corr_equi = hp_to_equiangular(corr_map.isel(lead_time=i), resolution)
+
+        proj = ccrs.PlateCarree()
+
+        f, axs = plt.subplots(4, 2, figsize=(15, 15), subplot_kw=dict(projection=proj))
+        f.suptitle('Skillmaps between forecast and observation, lead time: {}h'.format(lead), 
+                   fontsize=26, y=1.05, x=0.45)
+        
+        cols = ['Z500', 'T850']
+
+        for ax, col in zip(axs[0, :], cols):
+            ax.set_title(col, fontsize=24, y=1.08)
+        
+        plot_signal(f, sample=rmse_equi, var='z', vmin=rmse_min, vmax=rmse_max, proj=proj, ax=axs[0, 0], 
+                    cmap='Reds', colorbar=False, cbar_label='', extend='max')
+        plot_signal(f, sample=rmse_equi, var='t', vmin=rmse_min, vmax=rmse_max, proj=proj, ax=axs[0, 1], 
+                    cmap='Reds', colorbar=True, cbar_label='relRMSE', extend='max')
+
+        plot_signal(f, sample=rbias_equi, var='z', vmin=rbias_min, vmax=rbias_max, proj=proj, ax=axs[1, 0], 
+                    cmap='RdBu_r', colorbar=False, cbar_label='', extend='both')
+        plot_signal(f, sample=rbias_equi, var='t', vmin=rbias_min, vmax=rbias_max, proj=proj, ax=axs[1, 1], 
+                    cmap='RdBu_r', colorbar=True, cbar_label='relBIAS', extend='both')
+
+        plot_signal(f, sample=rsd_equi, var='z', vmin=rsd_min, vmax=rsd_max, proj=proj, ax=axs[2, 0], 
+                    cmap='PuOr_r', colorbar=False, cbar_label='', extend='both')
+        plot_signal(f, sample=rsd_equi, var='t', vmin=rsd_min, vmax=rsd_max, proj=proj, ax=axs[2, 1], 
+                    cmap='PuOr_r', colorbar=True, cbar_label='rSD', extend='both')
+
+        plot_signal(f, sample=corr_equi, var='z', vmin=corr_min, vmax=corr_max, proj=proj, ax=axs[3, 0], 
+                    cmap='Greens', colorbar=False, cbar_label='', extend='neither')
+        plot_signal(f, sample=corr_equi, var='t', vmin=corr_min, vmax=corr_max, proj=proj, ax=axs[3, 1], 
+                    cmap='Greens', colorbar=True, cbar_label='R2', extend='neither')
+
+
+        f.tight_layout(pad=-2)
+        filename = model_description + '_' + str(i) + '_maps.png'
+        plt.savefig(output_dir + filename, bbox_inches='tight')
+
+        plt.show()
+       
+'''   
+def plot_general_skills(rmse, corr, rbias, rsd, model_description, lead_times, 
+                        input_dir, output_dir):
+    
+    f, axs = plt.subplots(4, 2, figsize=(17, 18), sharex=True)
+    f.suptitle('Skills between forecast and observation as a function of forecast time', fontsize=20, y=0.93)
+
+    # RMSE
+    rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc')
+    rmses_rasp = xr.open_dataset(input_dir + 'rmses_rasp.nc')
+    rmses_climatology = xr.open_dataset(input_dir + 'rmses_clim.nc')
+    rmses_weekly_clim = xr.open_dataset(input_dir + 'rmses_weekly_clim.nc')
+    rmses_persistence = xr.open_dataset(input_dir + 'rmses_persistence.nc')
+    rmses_tigge = xr.open_dataset(input_dir + 'rmses_tigge.nc')
+
+
+    axs[0, 0].plot(lead_times, rmses_persistence.z.values, label='Persistence', linestyle='--')
+    axs[0, 0].plot(lead_times, rmses_climatology.z.values, label='Global climatology', linestyle='--')
+    axs[0, 0].plot(lead_times, rmses_weekly_clim.z.values, label='Weekly climatology', linestyle='--')
+    axs[0, 0].plot(lead_times, rmses_tigge.z.values, label='Operational IFS', linestyle='--')
+    axs[0, 0].plot(lead_times, rmses_weyn.z.values, label='Weyn 2020', linestyle='--')
+    axs[0, 0].scatter([72, 120], rmses_rasp.z.values, label='Rasp 2020', marker='_', linewidth=5, s=60, color='maroon')
+    axs[0, 0].plot(lead_times, rmse.z.values, label='Spherical', color='black')
+
+    axs[0, 0].set_ylabel('RMSE [m2 s−2]', fontsize=16)
+    axs[0, 0].set_title('RMSE Z500', fontsize=18)
+    axs[0, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[0, 0].set_xticks(np.arange(24, 120+24, 24))
+    axs[0, 0].set_xticklabels((1, 2, 3, 4, 5))
+    axs[0, 0].legend(loc='upper left', fontsize=14)
+
+
+    axs[0, 1].plot(lead_times, rmses_persistence.t.values, label='Persistence', linestyle='--')
+    axs[0, 1].plot(lead_times, rmses_climatology.t.values, label='Global climatology', linestyle='--')
+    axs[0, 1].plot(lead_times, rmses_weekly_clim.t.values, label='Weekly climatology', linestyle='--')
+    axs[0, 1].plot(lead_times, rmses_tigge.t.values, label='Operational IFS', linestyle='--')
+    axs[0, 1].plot(lead_times, rmses_weyn.t.values, label='Weyn et al., 2020', linestyle='--')
+    axs[0, 1].scatter([72, 120], rmses_rasp.t.values, label='Rasp et al., 2020', marker='_', linewidth=5, s=60, color='maroon')
+    axs[0, 1].plot(lead_times, rmse.t.values, label='Spherical', color='black')
+
+
+    axs[0, 1].set_ylabel('RMSE [K]', fontsize=16)
+    axs[0, 1].set_title('RMSE T850', fontsize=18)
+    axs[0, 1].set_xticks(np.arange(24, 120+24, 24))
+    axs[0, 1].set_xticklabels((1, 2, 3, 4, 5))
+    axs[0, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[0, 1].legend(loc='upper left', fontsize=14)
+
+    # R2
+    axs[1, 0].plot(lead_times, corr.z.values, label='Spherical', color='black')
+
+    axs[1, 0].set_ylabel('R2', fontsize=16)
+    axs[1, 0].set_title('R2 Z500', fontsize=18)
+    axs[1, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[1, 0].set_xticks(np.arange(24, 120+24, 24))
+    axs[1, 0].set_xticklabels((1, 2, 3, 4, 5))
+    axs[1, 0].legend(loc='upper right', fontsize=14)
+    axs[1, 0].set_ylim([0, 1])
+
+    axs[1, 1].plot(lead_times, corr.t.values, label='Spherical', color='black')
+
+    axs[1, 1].set_ylabel('R2', fontsize=16)
+    axs[1, 1].set_title('R2 T850', fontsize=18)
+    axs[1, 1].set_xticks(np.arange(24, 120+24, 24))
+    axs[1, 1].set_xticklabels((1, 2, 3, 4, 5))
+    axs[1, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[1, 1].legend(loc='upper right', fontsize=14)
+    axs[1, 1].set_ylim([0, 1])
+
+    # relBIAS
+    axs[2, 0].plot(lead_times, rbias.z.values, label='Spherical', color='black')
+
+    axs[2, 0].set_ylabel('relBIAS', fontsize=16)
+    axs[2, 0].set_title('relBIAS Z500', fontsize=18)
+    axs[2, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[2, 0].set_xticks(np.arange(24, 120+24, 24))
+    axs[2, 0].set_xticklabels((1, 2, 3, 4, 5))
+    axs[2, 0].legend(loc='upper right', fontsize=14)
+    axs[2, 0].set_ylim([-0.0005, 0.0005])
+
+    axs[2, 1].plot(lead_times, rbias.t.values, label='Spherical', color='black')
+
+    axs[2, 1].set_ylabel('relBIAS', fontsize=16)
+    axs[2, 1].set_title('relBIAS T850', fontsize=18)
+    axs[2, 1].set_xticks(np.arange(24, 120+24, 24))
+    axs[2, 1].set_xticklabels((1, 2, 3, 4, 5))
+    axs[2, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[2, 1].legend(loc='upper right', fontsize=14)
+    axs[2, 1].set_ylim([-0.005, 0.005])
+
+    # rSD
+    axs[3, 0].plot(lead_times, rsd.z.values, label='Spherical', color='black')
+
+    axs[3, 0].set_ylabel('rSD', fontsize=16)
+    axs[3, 0].set_title('rSD Z500', fontsize=18)
+    axs[3, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[3, 0].set_xticks(np.arange(24, 120+24, 24))
+    axs[3, 0].set_xticklabels((1, 2, 3, 4, 5))
+    axs[3, 0].legend(loc='upper right', fontsize=14)
+    axs[3, 0].set_ylim([0.8, 1.2])
+    axs[3, 0].set_xlabel('Forecast time [days]', fontsize=16)
+
+    axs[3, 1].plot(lead_times, rsd.t.values, label='Spherical', color='black')
+
+    axs[3, 1].set_ylabel('rSD', fontsize=16)
+    axs[3, 1].set_title('rSD T850', fontsize=18)
+    axs[3, 1].set_xticks(np.arange(24, 120+24, 24))
+    axs[3, 1].set_xticklabels((1, 2, 3, 4, 5))
+    axs[3, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[3, 1].legend(loc='upper right', fontsize=14)
+    axs[3, 1].set_ylim([0.8, 1.2])
+    axs[3, 1].set_xlabel('Forecast time [days]', fontsize=16)
+
+    filename = model_description + '_general_skills.png'
+    plt.savefig(output_dir + filename, bbox_inches='tight')
+
+    plt.show()
+
+
+def plot_general_skills_boxplot(rmse_map, corr_map, rbias_map, rsd_map, model_description, lead_times, 
+                                input_dir, output_dir):    
+    f, axs = plt.subplots(4, 2, figsize=(17, 18), sharex=True)
+    f.suptitle('Skill boxplots', fontsize=20, y=0.93)
+
+    # RMSE
+
+    rmsesbox_z = [rmse_map.z.values[i, :] for i in range(len(rmse_map.z.values))]
+    axs[0, 0].boxplot(rmsesbox_z)
+
+    axs[0, 0].set_ylabel('RMSE [m2 s−2]', fontsize=16)
+    axs[0, 0].set_title('RMSE Z500', fontsize=18)
+    axs[0, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[0, 0].set_xticklabels(lead_times)
+    axs[0, 1].set_ylim([0, 2000])
+
+
+    rmsesbox_t = [rmse_map.t.values[i, :] for i in range(len(rmse_map.t.values))]
+    axs[0, 1].boxplot(rmsesbox_t)
+
+    axs[0, 1].set_ylabel('RMSE [K]', fontsize=16)
+    axs[0, 1].set_title('RMSE T850', fontsize=18)
+    axs[0, 1].set_xticklabels(lead_times)
+    axs[0, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[0, 1].set_ylim([0, 10])
+
+    # R2
+    r2box_z = [corr_map.z.values[i, :] for i in range(len(corr_map.z.values))]
+    axs[1, 0].boxplot(r2box_z)
+
+    axs[1, 0].set_ylabel('R2', fontsize=16)
+    axs[1, 0].set_title('R2 Z500', fontsize=18)
+    axs[1, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[1, 0].set_xticklabels(lead_times)
+    axs[1, 0].set_ylim([0, 1])
+
+    r2box_t = [corr_map.t.values[i, :] for i in range(len(corr_map.t.values))]
+    axs[1, 1].boxplot(r2box_t)
+
+    axs[1, 1].set_ylabel('R2', fontsize=16)
+    axs[1, 1].set_title('R2 T850', fontsize=18)
+    axs[1, 1].set_xticklabels(lead_times)
+    axs[1, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[1, 1].set_ylim([0, 1])
+
+    # relBIAS
+    rbiasbox_z = [rbias_map.z.values[i, :] for i in range(len(rbias_map.z.values))]
+    axs[2, 0].boxplot(rbiasbox_z)
+
+    axs[2, 0].set_ylabel('relBIAS', fontsize=16)
+    axs[2, 0].set_title('relBIAS Z500', fontsize=18)
+    axs[2, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[2, 0].set_xticklabels(lead_times)
+    axs[2, 0].set_ylim([-0.02, 0.02])
+
+    rbiasbox_t = [rbias_map.t.values[i, :] for i in range(len(rbias_map.t.values))]
+    axs[2, 1].boxplot(rbiasbox_t)
+
+    axs[2, 1].set_ylabel('relBIAS', fontsize=16)
+    axs[2, 1].set_title('relBIAS T850', fontsize=18)
+    axs[2, 1].set_xticklabels(lead_times)
+    axs[2, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[2, 1].set_ylim([-0.02, 0.02])
+
+    # rSD
+    rsdbox_z = [rsd_map.z.values[i, :] for i in range(len(rsd_map.z.values))]
+    axs[3, 0].boxplot(rsdbox_z)
+
+    axs[3, 0].set_ylabel('rSD', fontsize=16)
+    axs[3, 0].set_title('rSD Z500', fontsize=18)
+    axs[3, 0].tick_params(axis='both', which='major', labelsize=14)
+    axs[3, 0].set_xticklabels(lead_times)
+    axs[3, 0].set_ylim([0.7, 1.3])
+    axs[3, 0].set_xlabel('Forecast time [hours]', fontsize=16)
+
+    rsdbox_t = [rsd_map.t.values[i, :] for i in range(len(rsd_map.t.values))]
+    axs[3, 1].boxplot(rsdbox_t)
+
+    axs[3, 1].set_ylabel('rSD', fontsize=16)
+    axs[3, 1].set_title('rSD T850', fontsize=18)
+    axs[3, 1].set_xticklabels(lead_times)
+    axs[3, 1].tick_params(axis='both', which='major', labelsize=14)
+    axs[3, 1].set_ylim([0.25, 1.75])
+    axs[3, 1].set_xlabel('Forecast time [days]', fontsize=16)
+
+    filename = model_description + '_general_skills_boxplot.png'
+    plt.savefig(output_dir + filename, bbox_inches='tight')
+
+    plt.show()
+
+
+def plot_skillmaps(rsd_map, rbias_map, corr_map, model_description, lead_times, resolution, output_dir):
+    for i, lead in enumerate(lead_times):    
+        rsd_min = 0.35
+        rsd_max = 1.65
+
+        rbias_min = -0.015
+        rbias_max = 0.015
+
+        corr_min = 0
+        corr_max = 1
+
+        rsd_equi = hp_to_equiangular(rsd_map.isel(lead_time=i), resolution)
+        rbias_equi = hp_to_equiangular(rbias_map.isel(lead_time=i), resolution)
+        corr_equi = hp_to_equiangular(corr_map.isel(lead_time=i), resolution)
+
+        proj = ccrs.PlateCarree()
+
+        f, axs = plt.subplots(3, 2, figsize=(17, 15), subplot_kw=dict(projection=proj))
+        f.suptitle('Skillmaps between forecast and observation, lead time: {}h'.format(lead), fontsize=26, y=1.02)
+
+        plot_signal(f, sample=rbias_equi, var='z', vmin=rbias_min, vmax=rbias_max, proj=proj, ax=axs[0, 0], 
+                    cmap='RdBu_r')
+        plot_signal(f, sample=rbias_equi, var='t', vmin=rbias_min, vmax=rbias_max, proj=proj, ax=axs[0, 1], 
+                    cmap='RdBu_r')
+
+        plot_signal(f, sample=rsd_equi, var='z', vmin=rsd_min, vmax=rsd_max, proj=proj, ax=axs[1, 0], 
+                    cmap='PuOr_r')
+        plot_signal(f, sample=rsd_equi, var='t', vmin=rsd_min, vmax=rsd_max, proj=proj, ax=axs[1, 1], 
+                    cmap='PuOr_r')
+
+        plot_signal(f, sample=corr_equi, var='z', vmin=corr_min, vmax=corr_max, proj=proj, ax=axs[2, 0], 
+                    cmap='Greens')
+        plot_signal(f, sample=corr_equi, var='t', vmin=corr_min, vmax=corr_max, proj=proj, ax=axs[2, 1], 
+                    cmap='Greens')
+
+        fontsize=24
+
+
+        axs[0, 0].set_title('relBIAS Z500', fontsize=fontsize)
+        axs[0, 1].set_title('relBIAS T850', fontsize=fontsize)
+
+        axs[1, 0].set_title('rSD Z500', fontsize=fontsize)
+        axs[1, 1].set_title('rSD T850', fontsize=fontsize)
+
+        axs[2, 0].set_title('R2 Z500', fontsize=fontsize)
+        axs[2, 1].set_title('R2 T850', fontsize=fontsize)
+
+        f.tight_layout(pad=-2)
+        filename = model_description + '_' + str(i) + '_maps.png'
+        plt.savefig(output_dir + filename, bbox_inches='tight')
+
+        plt.show()
+'''  
+    
 def plot_anomalies(ds_input, ds_pred, ds_labels, timestep, mean, model_description, save_path):
     """ Plots the evolution of anomalies for a given prediction and its corresponding observation
     
