@@ -1,6 +1,11 @@
 import xarray as xr
 import numpy as np
 import datetime
+import healpy as hp
+import time
+from torch.utils.data import Dataset, DataLoader
+
+from modules.data import WeatherBenchDatasetIterative
 
 # Utils
 def _inner(x, y):
@@ -11,10 +16,62 @@ def inner_product(x, y, dim):
     return xr.apply_ufunc(_inner, x, y, input_core_dims=[[dim], [dim]])
 
 
+
+def create_iterative_observations_healpix(ds, lead_time, max_lead_time, nb_timesteps, test_years, nodes):
+    
+    lead_times = np.arange(lead_time, max_lead_time + lead_time, lead_time)
+
+    data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
+    n_samples = data.isel(time=slice(0, -nb_timesteps*lead_time)).shape[0] - max_lead_time
+
+    obs_list = []
+
+    for lead in lead_times:
+        obs_list.append(data.isel(time=slice(lead, lead + n_samples)).isel(level=slice(0, 2)).values)
+
+    observations_numpy = np.array(obs_list)
+
+    # Lat lon coordinates
+    nside = int(np.sqrt(nodes/12))
+    out_lon, out_lat = hp.pix2ang(nside, np.arange(nodes), lonlat=True)
+
+    # Actual times
+    start = np.datetime64(test_years[0], 'h') + np.timedelta64(lead_time, 'h')
+    stop = start + np.timedelta64(n_samples, 'h')
+    times = np.arange(start, stop)
+
+    # Variables
+    var_dict_out = {var: None for var in ['z', 't']}
+
+    das = [];
+    lev_idx = 0
+    for var, levels in var_dict_out.items():
+        if levels is None:            
+            das.append(xr.DataArray(
+                observations_numpy[:, :, :, lev_idx],
+                dims=['lead_time', 'time', 'node'],
+                coords={'lead_time': lead_times, 'time': times, 'node': np.arange(nodes)},
+                name=var
+            ))
+            lev_idx += 1
+
+        else:
+            nlevs = len(levels)
+            das.append(xr.DataArray(
+                observations_numpy[:, :, :, lev_idx:lev_idx+nlevs],
+                dims=['lead_time', 'time', 'node', 'level'],
+                coords={'lead_time': lead_times, 'time': valid_time, 'node': nodes, 'level': nlevs},
+                name=var
+            ))
+            lev_idx += nlevs
+    observation_ds = xr.merge(das)
+    observation_ds = observation_ds.assign_coords({'lat': out_lat, 'lon': out_lon})
+    return observation_ds
+
+
 # Predict
 def create_iterative_predictions_healpix(model, device, dg):
-    train_std =  dg.dataset.std.values[:2]
-    train_mean = dg.dataset.mean.values[:2]
+    batch_size = dg.batch_size
     
     delta_t = dg.dataset.lead_time
     max_lead_time = dg.dataset.max_lead_time
@@ -24,6 +81,10 @@ def create_iterative_predictions_healpix(model, device, dg):
     n_samples = dg.dataset.n_samples
     in_feat = dg.dataset.in_features
     out_feat = dg.dataset.out_features
+    data_vars = dg.dataset.mean.level.values.tolist()[:out_feat]
+    
+    train_std =  dg.dataset.std.values[:out_feat]
+    train_mean = dg.dataset.mean.values[:out_feat]
     
     # Lead times
     lead_times = np.arange(delta_t, max_lead_time + delta_t, delta_t)
@@ -37,10 +98,10 @@ def create_iterative_predictions_healpix(model, device, dg):
     times = np.arange(start, stop)
     
     # Variables
-    var_dict_out = {var: None for var in ['z', 't']}
+    var_dict_out = {var: None for var in data_vars}
     
     # Radiation
-    constants = np.array(dataloader_test.dataset.data.isel(level=slice(out_feat, None)).values)
+    constants = np.array(dg.dataset.data.isel(level=slice(out_feat, None)).values)
     
     dataloader = dg
     predictions = []
@@ -74,7 +135,7 @@ def create_iterative_predictions_healpix(model, device, dg):
     
     das = [];
     lev_idx = 0
-    for var in ['z', 't']:       
+    for var in data_vars:       
         das.append(xr.DataArray(
             predictions[:, :, :, lev_idx],
             dims=['lead_time', 'time', 'node'],
@@ -229,10 +290,10 @@ def compute_anomalies(ds, mean):
     return anomalies
 
 # Metrics for healpix iterative predictions
-def compute_rmse_healpix(pred, obs):
+def compute_rmse_healpix(pred, obs, dims=('node', 'time')):
     error = pred - obs
     
-    rmse = np.sqrt(((error)**2).mean(['node', 'time']))
+    rmse = np.sqrt(((error)**2).mean(dims))
     return rmse.drop('lat').drop('lon').load()
 
 
@@ -254,28 +315,6 @@ def compute_relBIAS_map_healpix(pred, obs):
     error = pred - obs
     rbias = error.mean(('time')).load() / obs.mean(('time')).load()
     return rbias
-
-def compute_rSD_map_healpix(pred, obs, obs_std_leadtime):
-    """ Compute the relative std from two xr.DataArrays
-    
-    Parameters
-    ----------
-    pred : xr.DataArray
-        Forecast. Time coordinate must be validation time.
-    obs : xr.DataArray
-        Labels
-    obs_std_leadtime : xr.DataArray
-        std of observations along the "lead_time" dimension
-    
-    Returns
-    -------
-    rSD : xr.DataArray
-        Relative std map
-    """
-    
-    error = pred - obs
-    rsd = (error.std('lead_time') / obs_std_leadtime).mean('time')
-    return rsd.load()
 
 
 def compute_weighted_rmse(da_fc, da_true, dims=xr.ALL_DIMS):
@@ -374,6 +413,12 @@ def compute_relMSE(da_fc, da_true, dims='time'):
     return rel_mse
 
 
+def compute_MAE(da_fc, da_true, dims=('node', 'time')):
+    error = da_fc - da_true
+    mae = (abs(error)).mean(dims).load()
+    return mae
+
+
 def compute_relMAE(da_fc, da_true, dims='time'):
     """ Compute the relative mean absolute error (MAE) from two xr.DataArrays given some dimensions
     
@@ -447,10 +492,11 @@ def compute_R2(da_fc, da_true, dims='time'):
 
     return (covariance(x, y, dims) / (x.std(dims) * y.std(dims)))**2
 
+def compute_ACC(da_fc, da_true, mean_dims=xr.ALL_DIMS):
+    """
+    Compute the anomaly correlation coefficient from two xr.DataArrays
+    WARNING: Does not work if datasets contain NaNs
 
-def compute_ACC(da_fc, da_true, dims='time'):
-    """ Compute the anomaly correlation coefficient from two xr.DataArrays given some dimensions
-    
     Parameters
     ----------
     da_fc : xr.DataArray
@@ -465,12 +511,23 @@ def compute_ACC(da_fc, da_true, dims='time'):
     corr : xr.DataArray
         Anomaly correlation coefficient
     """
-    
-    anomaly_f = compute_anomalies(da_fc, mean='weekly').load()
-    anomaly_o = compute_anomalies(da_true, mean='weekly').load()
 
-    return inner_product(anomaly_f, anomaly_o, dim=dims) / (anomaly_f.count(dims) * anomaly_o.std(dims) 
-                                                            * anomaly_f.std(dims))
+    clim = da_true.mean('time')
+    try:
+        t = np.intersect1d(da_fc.time, da_true.time)
+        fa = da_fc.sel(time=t) - clim
+        
+    except AttributeError:
+        t = da_true.time.values
+        fa = da_fc - clim
+    a = da_true.sel(time=t) - clim
+
+    fa_prime = fa - fa.mean()
+    a_prime = a - a.mean()
+    
+    acc = (np.sum(fa_prime * a_prime, axis=(1, 2)) 
+           / np.sqrt(np.sum(fa_prime ** 2, axis=(1, 2)) * np.sum(a_prime ** 2, axis=(1, 2))))
+    return acc
 
 
 def compute_KGE(da_fc, da_true):
