@@ -66,17 +66,17 @@ The below notebooks show how to evaluate the performance of our models.
     Produces a video of the error between predictions and true data.
    
    
-[static_features]: https://github.com/illorens/weather_prediction/blob/master/notebooks/test_static_features.ipynb
+[static_features]: https://nbviewer.jupyter.org/github/illorens/weather_prediction/blob/master/notebooks/test_static_features.ipynb
 
-[dynamic_features]: https://github.com/illorens/weather_prediction/blob/master/notebooks/test_dynamic_features.ipynb
+[dynamic_features]: https://nbviewer.jupyter.org/github/illorens/weather_prediction/blob/master/notebooks/test_dynamic_features.ipynb
 
-[temporal]: https://github.com/illorens/weather_prediction/blob/master/notebooks/test_temporal_dimension.ipynb
+[temporal]: https://nbviewer.jupyter.org/github/illorens/weather_prediction/blob/master/notebooks/test_temporal_dimension.ipynb
 
-[evaluation]: https://github.com/illorens/weather_prediction/blob/master/notebooks/evaluate_model.ipynb
+[evaluation]: https://nbviewer.jupyter.org/github/illorens/weather_prediction/blob/master/notebooks/evaluate_model.ipynb
 
-[error_vid]: https://github.com/illorens/weather_prediction/blob/master/notebooks/error_video.ipynb
+[error_vid]: https://nbviewer.jupyter.org/github/illorens/weather_prediction/blob/master/notebooks/error_video.ipynb
 
 
 ## License
 
-The content of this repository is released under the terms of the [MIT license](LICENCE.txt).
+The content of this repository is released under the terms of the [MIT license](LICENSE.txt).
