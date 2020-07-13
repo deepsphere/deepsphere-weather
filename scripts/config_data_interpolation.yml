@@ -1,0 +1,6 @@
+# Data interpolation config
+input_dir: ../data/equiangular/5.625deg/
+output_dir: ../data/healpix/5.625deg/
+nside: 16
+interpolation_kind: linear
+
