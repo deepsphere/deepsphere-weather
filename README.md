@@ -36,13 +36,14 @@ For a local installation, follow the below instructions.
    mkdir data/equiangular/5.625deg/ data/healpix/5.625deg/
    ```
    
-4. Download the WeatherBench data on the ```sh data/equiangular/5.625deg/``` folder by following instructions on the [WeatherBench][https://github.com/pangeo-data/WeatherBench] repository.
+4. Download the WeatherBench data on the ```data/equiangular/5.625deg/``` folder by following instructions on the [WeatherBench][weatherbench_repo] repository.
 
-5. Interpolate the WeatherBench data onto the HEALPix grid. Modify the paremeters in config_data_interpolation.yml as desired.
+5. Interpolate the WeatherBench data onto the HEALPix grid. Modify the paremeters in ```scripts/config_data_interpolation.yml``` as desired.
     ```sh 
     python -m scripts.data_iterpolation -c scripts/config_data_interpolation.yml
     ```
 
+[weatherbench_repo]: https://github.com/pangeo-data/WeatherBench
 
 
 ## Notebooks
