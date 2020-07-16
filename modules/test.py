@@ -16,8 +16,15 @@ def inner_product(x, y, dim):
     return xr.apply_ufunc(_inner, x, y, input_core_dims=[[dim], [dim]])
 
 
-
+# generate observation files
 def create_iterative_observations_healpix(ds, lead_time, max_lead_time, nb_timesteps, test_years, nodes):
+    """
+    Assumptions
+    lead_time : min time to next prediction (6h)
+    max_lead_time: lastest time of predictions (72h)
+    nb_timesteps: 
+    nodes --> number of nodes? 
+    """
     
     lead_times = np.arange(lead_time, max_lead_time + lead_time, lead_time)
 
@@ -212,7 +219,7 @@ def create_predictions(model, device, dg):
             lev_idx += nlevs
     return xr.merge(das)
 
-def create_predictions_2D(model, dg, mean, std):
+def create_predictions_2D(model, dg, mean, std, device):
     """Create direct predictions for models using 2D signals (images)
     
     Parameters
