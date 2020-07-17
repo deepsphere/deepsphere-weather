@@ -296,6 +296,99 @@ def compute_anomalies(ds, mean):
         
     return anomalies
 
+# Add redundant functions to create iterative observations
+def create_iterative_observations_hp(input_dir, test_years, lead_time, max_lead_time, nside, nb_timesteps=2):
+    z500 = xr.open_mfdataset(f'{input_dir}geopotential_500/*.nc', combine='by_coords').sel(time=slice(*test_years))
+    t850 = xr.open_mfdataset(f'{input_dir}temperature_850/*.nc', combine='by_coords').sel(time=slice(*test_years))
+
+    test_data = xr.merge([z500, t850], compat='override')
+
+
+    n_samples = test_data.isel(time=slice(0, -nb_timesteps*lead_time)).dims['time'] - max_lead_time
+    nb_iter = max_lead_time // lead_time
+    n_pixels = 12*(nside**2)
+
+
+    # Lead times
+    lead_times = np.arange(lead_time, max_lead_time + lead_time, lead_time)
+
+    # Lat lon coordinates
+    out_lon, out_lat = hp.pix2ang(nside, np.arange(n_pixels), lonlat=True)
+
+    # Actual times
+    start = np.datetime64(test_years[0], 'h') + np.timedelta64(lead_time, 'h')
+    stop = start + np.timedelta64(n_samples, 'h')
+    times = np.arange(start, stop, 1)
+
+    # Variables
+    data_vars = ['z', 't']
+    var_dict_out = {var: None for var in data_vars}
+
+    data = np.zeros((2, nb_iter, n_samples, 32, 64))
+    for i in range(nb_iter):
+        data[0, i, :, :, :] = test_data.z.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
+        data[1, i, :, :, :] = test_data.t.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
+
+    das = [];
+    lev_idx = 0
+    for var in data_vars:       
+        das.append(xr.DataArray(
+         data[lev_idx, :, :, :],
+         dims=['lead_time', 'time', 'node'],
+         coords={'lead_time': lead_times, 'time': times, 'node': np.arange(n_pixels)},
+         name=var
+     ))
+        lev_idx += 1
+    observations = xr.merge(das)
+    observations = observations.assign_coords({'lat': out_lat, 'lon': out_lon})
+
+    return observations
+
+
+def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_time, nside, nb_timesteps=2):
+    z500 = xr.open_mfdataset(f'{input_dir}geopotential_500/*.nc', combine='by_coords').sel(time=slice(*test_years))
+    t850 = xr.open_mfdataset(f'{input_dir}temperature_850/*.nc', combine='by_coords').sel(time=slice(*test_years))
+
+    test_data = xr.merge([z500, t850], compat='override')
+
+
+    n_samples = test_data.isel(time=slice(0, -nb_timesteps*lead_time)).dims['time'] - max_lead_time
+    nb_iter = max_lead_time // lead_time
+    n_pixels = 12*(nside**2)
+
+    # Lead times
+    lead_times = np.arange(lead_time, max_lead_time + lead_time, lead_time)
+
+    # Actual times
+    start = np.datetime64(test_years[0], 'h') + np.timedelta64(lead_time, 'h')
+    stop = start + np.timedelta64(n_samples, 'h')
+    times = np.arange(start, stop, 1)
+
+    # Variables
+    data_vars = ['z', 't']
+    var_dict_out = {var: None for var in data_vars}
+
+    data = np.zeros((2, nb_iter, n_samples, 32, 64))
+    for i in range(nb_iter):
+        data[0, i, :, :, :] = test_data.z.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
+        data[1, i, :, :, :] = test_data.t.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
+
+    das = [];
+    lev_idx = 0
+    for var in data_vars:       
+        das.append(xr.DataArray(
+         data[lev_idx, :, :, :, :],
+         dims=['lead_time', 'time', 'lat', 'lon'],
+         coords={'lead_time': lead_times, 'time': times, 'lat': test_data.lat.values, 'lon': test_data.lon.values},
+         name=var
+     ))
+        lev_idx += 1
+
+    observations = xr.merge(das)
+
+    return observations
+
+
 # Metrics for healpix iterative predictions
 def compute_rmse_healpix(pred, obs, dims=('node', 'time')):
     error = pred - obs
