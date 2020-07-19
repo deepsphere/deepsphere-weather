@@ -195,13 +195,14 @@ class WeatherBenchDatasetXarrayHealpix(Dataset):
         self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean
         self.std = self.data.std(('time', 'node')).compute() if std is None else std
         
-        # Normalize
-        self.data = (self.data - self.mean) / self.std
         if max_lead_time is None:
             self.n_samples = self.data.isel(time=slice(0, -self.nb_timesteps*lead_time)).shape[0]
         else:
             self.n_samples = self.data.isel(time=slice(0, -self.nb_timesteps*lead_time)).shape[0] - max_lead_time
         self.idxs = np.arange(self.n_samples)
+        
+        # Normalize
+        self.data = (self.data - self.mean) / self.std
         
         if load: 
             print('Loading data into RAM')
