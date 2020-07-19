@@ -270,8 +270,7 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
         self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean
         self.std = self.data.std(('time', 'node')).compute() if std is None else std
         
-        # Normalize
-        self.data = (self.data - self.mean) / self.std
+        
         
         # Count total number of samples
         total_samples = self.data.shape[0]        
@@ -285,6 +284,9 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
         self.idxs = [[[[sample_idx + delta_t*k for k in range(len_sqce)], sample_idx + delta_t * len_sqce], 
                       [sample_idx + delta_t * len_sqce, sample_idx + delta_t * (len_sqce+1)]] 
                      for sample_idx in range(self.n_samples)]
+        
+        # Normalize
+        self.data = (self.data - self.mean) / self.std
         
         if load: 
             print('Loading data into RAM')
