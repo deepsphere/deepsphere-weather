@@ -31,6 +31,7 @@ For a local installation, follow the below instructions.
    conda env create -f environment.yml
    ```
    
+   
 3. Create the data folders
     ```sh
    mkdir data/equiangular/5.625deg/ data/healpix/5.625deg/
@@ -42,6 +43,26 @@ For a local installation, follow the below instructions.
     ```sh 
     python -m scripts.data_iterpolation -c scripts/config_data_interpolation.yml
     ```
+    
+Attention:
+
+- If deepsphere is not properly installed:
+   ```sh
+   conda activate weather_modelling
+   pip install git+https://github.com/deepsphere/deepsphere-pytorch 
+   ```
+   
+   If an incompatibility with YAML raises, the following command should solve the problem: 
+   ```sh
+   conda activate weather_modelling
+   pip install git+https://github.com/deepsphere/deepsphere-pytorch --ignore-installed PyYAML
+   ```
+
+- If it does not find the module ```SphereHealpix``` from pygsp, install the development branch using: 
+   ```sh
+   conda activate weather_modelling
+   pip install git+https://github.com/Droxef/pygsp@new_sphere_graph
+   ```
 
 [weatherbench_repo]: https://github.com/pangeo-data/WeatherBench
 
