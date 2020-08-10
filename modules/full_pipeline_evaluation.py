@@ -6,7 +6,8 @@ import numpy as np
 import time
 import os
 import pandas as pd
-import yaml
+#import yaml
+import json
 import matplotlib.pyplot as plt
 from matplotlib import cm, colors
 
@@ -17,7 +18,8 @@ from torch.utils.data import Dataset, DataLoader
 
 from modules.utils import init_device
 from modules.healpix_models import UNetSphericalHealpix, UNetSphericalTempHealpix, Conv1dAuto, \
-UNetSphericalHealpixResidual, _compute_laplacian_healpix, ConvBlock, ConvCheb, UNetSphericalHealpixResidual_2
+UNetSphericalHealpixResidual, _compute_laplacian_healpix, ConvBlock, ConvCheb, UNetSphericalHealpixResidual_2, \
+UNetSphericalHealpixDeep
 from modules.test import compute_rmse_healpix
 from modules.plotting import plot_rmses
 from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTemp, \
@@ -31,8 +33,18 @@ def main():
 
     print('Reading confing file and set up folders...')
 
-    with open("config_train.yml", "r") as ymlfile:
-        cfg = yaml.full_load(ymlfile)
+    #with open("../modules/config_train.yml", "r") as ymlfile:
+    #    cfg = yaml.full_load(ymlfile)
+
+    with open("../modules/config_train.json") as json_data_file:
+        cfg = json.load(json_data_file)
+
+
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    gpu = [0]
+    num_workers = 10
+    pin_memory = True
 
     datadir = cfg['directories']['datadir']
     input_dir = datadir + cfg['directories']['input_dir']
@@ -58,7 +70,7 @@ def main():
     nodes = cfg['training_constants']['nodes']
     max_lead_time = cfg['training_constants']['max_lead_time']
     nb_timesteps = cfg['training_constants']['nb_timesteps']
-    nb_epochs = cfg['training_constants']['nb_epochs']
+    epochs = cfg['training_constants']['nb_epochs']
     learning_rate = cfg['training_constants']['learning_rate']
     batch_size = cfg['training_constants']['batch_size']
 
@@ -69,18 +81,13 @@ def main():
     out_features = cfg['model_parameters']['out_features']
     architecture_name = cfg['model_parameters']['architecture_name']
     resolution = cfg['model_parameters']['resolution']
+    lead_time = delta_t
+    kernel_size_pooling = cfg['model_parameters']['kernel_size_pooling']
 
     description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
     model_filename = model_save_path + description + ".h5"
     pred_filename = pred_save_path +  description + ".nc"
     rmse_filename = datadir + 'metrics/rmse_' + description + '.nc'
-
-    # environment configuration
-    os.environ["CUDA_DEVICE_ORDER"] = cfg['environment']['cuda_device']
-    os.environ["CUDA_VISIBLE_DEVICES"]= cfg['environment']['cuda_visible']
-    gpu = cfg['environment']['gpu']
-    num_workers = cfg['environment']['num_workers']
-    pin_memory = cfg['environment']['pin_memory']
 
     ##############################################
 
@@ -117,7 +124,8 @@ def main():
     ##############################################
 
     print('Define model...')
-    spherical_unet = UNetSphericalHealpixResidual_2(N=nodes, in_channels=in_features*len_sqce, out_channels=out_features, kernel_size=3)
+    spherical_unet = UNetSphericalHealpix(N=nodes, in_channels=in_features*len_sqce, out_channels=out_features, \
+                                              kernel_size=3)
     spherical_unet, device = init_device(spherical_unet, gpu=gpu)
 
     constants_tensor = torch.tensor(xr.merge([orog, lats, lsm, slt], compat='override').to_array().values, \
@@ -130,7 +138,8 @@ def main():
 
     print('Train model...')
     # Train model
-    train_loss, val_loss = train_model_2steps(spherical_unet, device, training_ds, constants_tensor.transpose(1,0), \
+    torch.cuda.empty_cache()
+    train_loss, val_loss, train_loss_it, times_it = train_model_2steps(spherical_unet, device, training_ds, constants_tensor.transpose(1,0), \
                                               batch_size=batch_size, epochs=epochs, \
                                                lr=learning_rate, validation_ds=validation_ds)
 
@@ -150,6 +159,7 @@ def main():
     plt.savefig(figures_path + 'MSE_train_val.png')
     plt.show()
 
+    #return train_loss, val_loss, train_loss_it, times_it
     del training_ds, validation_ds
     torch.cuda.empty_cache()
 
@@ -201,13 +211,14 @@ def main():
 
     print('Generate plots for evaluation...')
 
+
     start_time = len_sqce * lead_time - delta_t
     end_time = (delta_t-lead_time) if (delta_t-lead_time) > 0 else None
 
     # Data
     lead_times = np.arange(lead_time, max_lead_time+lead_time, lead_time)
 
-    pred = xr.open_mfdataset(prediction_path  + description + '.nc', combine='by_coords',  chunks={'time':chunk_size})
+    pred = xr.open_mfdataset(pred_save_path  + description + '.nc', combine='by_coords',  chunks={'time':chunk_size})
     obs = obs.isel(time=slice(delta_t,pred.time.shape[0]+delta_t))
 
     print('Compute errors...')
@@ -286,6 +297,7 @@ def main():
     plot_climatology(figname, predictions_vals, val_limits, ticks, lat_labels, month_labels)
 
     print('DONE!')
+    print(description)
 
 
 if __name__=="__main__":

@@ -110,8 +110,11 @@ def cheb_conv(laplacian, inputs, weight):
         Inputs after applying Chebyshev convolution.
     """
     
-    B, V, Fin = inputs.shape
+    B, V, Fin1 = inputs.shape
+    #print('B: {}, V. {}, Fin: {}'.format(B,V,Fin1))
     Fin, K, Fout = weight.shape
+    #print('Fin: {}, K: {}, Fout: {}'.format(Fin, K, Fout))
+    assert Fin1 == Fin
     # B = batch size
     # V = nb vertices
     # Fin = nb input features
@@ -881,7 +884,7 @@ class UnpoolMaxTempHealpix(torch.nn.MaxUnpool1d):
     Parameters
     ----------
     kernel_size : tuple
-        Pooling kernel shape. First dimension indicates spatial kernel with, second dimension is 
+        Pooling kernel shape. First dimension indicates spatial kernel width, second dimension is 
         temporal kernel width
     """
 

@@ -165,12 +165,14 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
         idxs = training_ds.idxs
         
         batch_idx = 0
-        
+        train_loss_it = []
+        times_it = []
+        t0 = time.time()
         for i in range(0, n_samples - batch_size, batch_size):
             i_next = min(i + batch_size, n_samples)
             
             if len(idxs[i:i_next]) < batch_size:
-                constants_expanded = contants.expand(len(idxs[i:i_next]), num_nodes, num_constants)
+                constants_expanded = constants.expand(len(idxs[i:i_next]), num_nodes, num_constants)
                 constants1 = constants_expanded.to(device)
         
             batch, labels = training_ds[idxs[i:i_next]]
@@ -199,6 +201,9 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
             optimizer.step()
             
             train_loss = train_loss + loss.item() * batch_size
+            train_loss_it.append(train_loss/(batch_size*(batch_idx+1)))
+            times_it.append(time.time()-t0)
+            t0 = time.time()
             
             if batch_idx%50 == 0:
                 print('\rBatch idx: {}; Loss: {:.3f}'.format(batch_idx, train_loss/(batch_size*(batch_idx+1))), end="")
@@ -217,7 +222,7 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
                 i_next = min(i + batch_size, n_samples_val)
 
                 if len(idxs_val[i:i_next]) < batch_size:
-                    constants_expanded = contants.expand(len(idxs_val[i:i_next]), num_nodes, num_constants)
+                    constants_expanded = constants.expand(len(idxs_val[i:i_next]), num_nodes, num_constants)
                     constants1 = constants_expanded.to(device)
 
 
@@ -252,7 +257,7 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
         print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
               .format(e=epoch+1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2-time1))
         
-    return train_losses, val_losses
+    return train_losses, val_losses, train_loss_it, times_it
 
 
 def create_iterative_predictions_healpix_temp(model, device, dg, constants):
