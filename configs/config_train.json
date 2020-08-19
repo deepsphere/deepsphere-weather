@@ -10,20 +10,21 @@
             "constants": "constants/constants_5.625deg_standardized.nc",
             "train_mean_file": "mean_train_features_dynamic.nc",
             "train_std_file": "std_train_features_dynamic.nc",
-            "metrics_path": "metrics/"
+            "metrics_path": "metrics/",
+            "standardized_data": "None"
             },
     "training_constants":
     {
             "chunk_size": 521,
-            "train_years": ["1990","2012"],
+            "train_years": ["2010","2012"],
             "val_years": ["2013", "2016"],
             "test_years": ["2017", "2018"],
             "nodes":3072,
             "max_lead_time": 120,
             "nb_timesteps": 2,
-            "nb_epochs": 7,
+            "nb_epochs": 1,
             "learning_rate": 0.008,
-            "batch_size": 120
+            "batch_size": 20
     },
     "model_parameters":
     {
@@ -31,8 +32,9 @@
             "delta_t": 6,
             "in_features": 7,
             "out_features":2,
-            "architecture_name": "spherical_unet_deeper_original_1990_7ep",
+            "architecture_name": "spherical_unet_residual_short",
             "resolution": 5.625,
-            "kernel_size_pooling": 4
+            "kernel_size_pooling": 4,
+            "model": "UNetSphericalHealpixResidualShort3Levels"
     }
 }
