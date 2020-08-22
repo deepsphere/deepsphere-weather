@@ -14,23 +14,24 @@ from torch.utils.data import Dataset
 from modules.test import (compute_rmse_healpix, compute_relBIAS, compute_rSD, compute_R2, compute_anomalies, 
                           compute_relMAE, compute_ACC)
 
-def load_data_split(input_dir, train_years, val_years, test_years, chunk_size):
+def load_data_split(input_dir, train_years, val_years, test_years, chunk_size, standardized=None):
+
     z500 = xr.open_mfdataset(f'{input_dir}geopotential_500/*.nc', combine='by_coords', \
-                         chunks={'time':chunk_size}).rename({'z':'z500'})
+                                 chunks={'time': chunk_size}).rename({'z': 'z500'})
     t850 = xr.open_mfdataset(f'{input_dir}temperature_850/*.nc', combine='by_coords', \
-                             chunks={'time':chunk_size}).rename({'t':'t850'})
+                             chunks={'time': chunk_size}).rename({'t': 't850'})
     rad = xr.open_mfdataset(f'{input_dir}toa_incident_solar_radiation/*.nc', combine='by_coords', \
-                            chunks={'time':chunk_size})
+                            chunks={'time': chunk_size})
 
     z500 = z500.isel(time=slice(7, None))
     t850 = t850.isel(time=slice(7, None))
 
-    
     ds = xr.merge([z500, t850, rad], compat='override')
 
     ds_train = ds.sel(time=slice(*train_years))
     ds_valid = ds.sel(time=slice(*val_years))
     ds_test = ds.sel(time=slice(*test_years))
+
 
     return ds_train, ds_valid, ds_test
 
@@ -63,7 +64,7 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
     """
         
     def __init__(self, ds, out_features, delta_t, len_sqce, years, nodes, nb_timesteps, 
-                 max_lead_time=None, load=True, mean=None, std=None):
+                 max_lead_time=None, load=True, mean=None, std=None, requires_st=None):
         
         
         self.delta_t = delta_t
@@ -92,7 +93,14 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
             self.n_samples = total_samples - (len_sqce+1) * delta_t - max_lead_time
         
         # Normalize
-        self.data = (self.data - self.mean.to_array(dim='level')) / (self.std.to_array(dim='level') + eps)
+
+        if requires_st:
+            self.data = self.data.groupby('time.month') - self.mean.to_array(dim='level')
+            self.data = self.data.groupby('time.month') / self.std.to_array(dim='level')
+            self.data.compute()
+        else:
+            self.data = (self.data - self.mean.to_array(dim='level')) / (
+                        self.std.to_array(dim='level') + eps)
         self.data.persist()
         
         self.idxs = np.array(range(self.n_samples))
@@ -131,10 +139,144 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
                          dtype=torch.float).reshape(len(idx)*self.len_sqce, self.nodes, -1)
         
         )
-        return X, y 
+        return X, y
+
+
+def train_model_2steps_error(model, device, training_ds, constants, batch_size, max_error, lr, validation_ds):
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
+
+    train_losses = []
+    val_losses = []
+    n_samples = training_ds.n_samples
+    n_samples_val = validation_ds.n_samples
+    num_nodes = training_ds.nodes
+    num_constants = constants.shape[1]
+    out_features = training_ds.out_features
+
+    constants_expanded = constants.expand(batch_size, num_nodes, num_constants)
+    constants1 = constants_expanded.to(device)
+    idxs_val = validation_ds.idxs
+    error_val = 10000
+    epoch = 0
+    while error_val > max_error:
+
+        print('\rEpoch : {}'.format(epoch), end="")
+
+        time1 = time.time()
+
+        val_loss = 0
+        train_loss = 0
+
+        model.train()
+
+        random.shuffle(training_ds.idxs)
+        idxs = training_ds.idxs
+
+        batch_idx = 0
+        train_loss_it = []
+        times_it = []
+        t0 = time.time()
+        for i in range(0, n_samples - batch_size, batch_size):
+            i_next = min(i + batch_size, n_samples)
+
+            if len(idxs[i:i_next]) < batch_size:
+                constants_expanded = constants.expand(len(idxs[i:i_next]), num_nodes, num_constants)
+                constants1 = constants_expanded.to(device)
+
+            batch, labels = training_ds[idxs[i:i_next]]
+
+            # Transfer to GPU
+            batch_size = batch[0].shape[0] // 2
+            batch1 = torch.cat((batch[0][:batch_size, :, :], \
+                                constants_expanded, batch[0][batch_size:, :, :], constants_expanded), dim=2).to(device)
+            label1 = labels[0].to(device)
+            label2 = labels[1].to(device)
+
+            # t3 = time.time()
+            batch_size = batch1.shape[0]
+
+            # Model
+            output1 = model(batch1)
+            toa_delta = batch[0][batch_size:, :, -1].view(-1, num_nodes, 1).to(device)
+
+            batch2 = torch.cat((output1, toa_delta, constants1, \
+                                label1[batch_size:, :, :], constants1), dim=2)
+
+            output2 = model(batch2)
+            loss = criterion(output1, label1[batch_size:, :, :out_features]) + criterion(output2, label2[batch_size:, :,
+                                                                                                  :out_features])
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            #return batch1, batch2, output1, output2
+            train_loss = train_loss + loss.item() * batch_size
+            train_loss_it.append(train_loss / (batch_size * (batch_idx + 1)))
+            times_it.append(time.time() - t0)
+            t0 = time.time()
+
+            if batch_idx % 50 == 0:
+                print('\rBatch idx: {}; Loss: {:.3f}'.format(batch_idx, train_loss / (batch_size * (batch_idx + 1))),
+                      end="")
+            batch_idx += 1
+
+        train_loss = train_loss / n_samples
+        train_losses.append(train_loss)
+
+        model.eval()
+
+        constants1 = constants_expanded.to(device)
+        with torch.set_grad_enabled(False):
+            index = 0
+
+            for i in range(0, n_samples_val - batch_size, batch_size):
+                i_next = min(i + batch_size, n_samples_val)
+
+                if len(idxs_val[i:i_next]) < batch_size:
+                    constants_expanded = constants.expand(len(idxs_val[i:i_next]), num_nodes, num_constants)
+                    constants1 = constants_expanded.to(device)
+
+                # t1 = time.time()
+                batch, labels = validation_ds[idxs_val[i:i_next]]
+                # Transfer to GPU
+                batch_size = batch[0].shape[0] // 2
+
+                batch1 = torch.cat((batch[0][:batch_size, :, :], \
+                                    constants_expanded, batch[0][batch_size:, :, :], constants_expanded), dim=2).to(
+                    device)
+                label1 = labels[0].to(device)
+                label2 = labels[1].to(device)
+
+                batch_size = batch1.shape[0]
+
+                output1 = model(batch1)
+                toa_delta = batch[0][batch_size:, :, -1].view(-1, num_nodes, 1).to(device)
+                batch2 = torch.cat((output1, toa_delta, constants1, \
+                                    label1[batch_size:, :, :], constants1), dim=2)
+                output2 = model(batch2)
+
+                val_loss = val_loss + (criterion(output1, label1[batch_size:, :, :out_features]).item()
+                                       + criterion(output2, label2[batch_size:, :, :out_features]).item()) * batch_size
+                index = index + batch_size
+
+        val_loss = val_loss / n_samples_val
+        val_losses.append(val_loss)
+
+        error_val = val_loss
+        epoch += 1
+
+        time2 = time.time()
+
+        # Print stuff
+        print('Epoch: {e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
+              .format(e=epoch + 1, l=train_loss, v_l=val_loss, t=time2 - time1))
+
+    return train_losses, val_losses, train_loss_it, times_it
     
     
-def train_model_2steps(model, device, training_ds, constants, batch_size, epochs, lr, validation_ds):    
+def train_model_2steps(model, device, training_ds, constants, batch_size, epochs, lr, validation_ds):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
     
@@ -149,7 +291,11 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
     constants_expanded = constants.expand(batch_size, num_nodes, num_constants)
     constants1 = constants_expanded.to(device)
     idxs_val = validation_ds.idxs
-    
+
+    train_loss_steps = {}
+    for step_ahead in range(2):
+        train_loss_steps['t{}'.format(step_ahead)] = []
+
     for epoch in range(epochs):
         
         print('\rEpoch : {}'.format(epoch), end="")
@@ -194,7 +340,13 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
                                label1[batch_size:, :,:], constants1), dim=2)
             
             output2 = model(batch2)
-            loss = criterion(output1, label1[batch_size:,:,:out_features]) + criterion(output2, label2[batch_size:,:,:out_features])
+
+            l0 = criterion(output1, label1[batch_size:,:,:out_features])
+            l1 = criterion(output2, label2[batch_size:,:,:out_features])
+            loss =  l0 + l1
+
+            train_loss_steps['t0'].append(l0.item())
+            train_loss_steps['t1'].append(l1.item())
             
             optimizer.zero_grad()
             loss.backward()
@@ -204,9 +356,11 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
             train_loss_it.append(train_loss/(batch_size*(batch_idx+1)))
             times_it.append(time.time()-t0)
             t0 = time.time()
-            
-            if batch_idx%50 == 0:
-                print('\rBatch idx: {}; Loss: {:.3f}'.format(batch_idx, train_loss/(batch_size*(batch_idx+1))), end="")
+
+            #if train_loss/(batch_size*(batch_idx+1)) > 50 and batch_idx > 40:
+            #    return batch1, batch2, label1, label2, output1, output2
+            if batch_idx%5 == 0:
+                print('\rBatch idx: {}; Loss: {:.3f};\tL0: {:.4f}\t L1: {:.4f}'.format(batch_idx, train_loss/(batch_size*(batch_idx+1)), l0.item(), l1.item()), end="")
             batch_idx += 1
         
         train_loss = train_loss / n_samples
@@ -257,6 +411,134 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
         print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
               .format(e=epoch+1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2-time1))
         
+    return train_losses, val_losses, train_loss_it, times_it, train_loss_steps
+
+
+def train_model_multiple_steps(model, device, training_ds, constants, batch_size, epochs, lr, validation_ds):
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
+
+    train_losses = []
+    val_losses = []
+    n_samples = training_ds.n_samples
+    n_samples_val = validation_ds.n_samples
+    num_nodes = training_ds.nodes
+    num_constants = constants.shape[1]
+    out_features = training_ds.out_features
+
+    constants_expanded = constants.expand(batch_size, num_nodes, num_constants)
+    constants1 = constants_expanded.to(device)
+    idxs_val = validation_ds.idxs
+
+    for epoch in range(epochs):
+
+        print('\rEpoch : {}'.format(epoch), end="")
+
+        time1 = time.time()
+
+        val_loss = 0
+        train_loss = 0
+
+        model.train()
+
+        random.shuffle(training_ds.idxs)
+        idxs = training_ds.idxs
+
+        batch_idx = 0
+        train_loss_it = []
+        times_it = []
+        t0 = time.time()
+        for i in range(0, n_samples - batch_size, batch_size):
+            i_next = min(i + batch_size, n_samples)
+
+            if len(idxs[i:i_next]) < batch_size:
+                constants_expanded = constants.expand(len(idxs[i:i_next]), num_nodes, num_constants)
+                constants1 = constants_expanded.to(device)
+
+            batch, labels = training_ds[idxs[i:i_next]]
+
+            # Transfer to GPU
+            batch_size = batch[0].shape[0] // 2
+            batch1 = torch.cat((batch[0][:batch_size, :, :], \
+                                constants_expanded, batch[0][batch_size:, :, :], constants_expanded), dim=2).to(device)
+            label1 = labels[0].to(device)
+            label2 = labels[1].to(device)
+
+            # t3 = time.time()
+            batch_size = batch1.shape[0]
+
+            # Model
+            output1 = model(batch1)
+            toa_delta = batch[0][batch_size:, :, -1].view(-1, num_nodes, 1).to(device)
+            batch2 = torch.cat((output1, toa_delta, constants1, \
+                                label1[batch_size:, :, :], constants1), dim=2)
+
+            output2 = model(batch2)
+            loss = criterion(output1, label1[batch_size:, :, :out_features]) + criterion(output2, label2[batch_size:, :,
+                                                                                                  :out_features])
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            train_loss = train_loss + loss.item() * batch_size
+            train_loss_it.append(train_loss / (batch_size * (batch_idx + 1)))
+            times_it.append(time.time() - t0)
+            t0 = time.time()
+
+            if batch_idx % 50 == 0:
+                print('\rBatch idx: {}; Loss: {:.3f}'.format(batch_idx, train_loss / (batch_size * (batch_idx + 1))),
+                      end="")
+            batch_idx += 1
+
+        train_loss = train_loss / n_samples
+        train_losses.append(train_loss)
+
+        model.eval()
+
+        constants1 = constants_expanded.to(device)
+        with torch.set_grad_enabled(False):
+            index = 0
+
+            for i in range(0, n_samples_val - batch_size, batch_size):
+                i_next = min(i + batch_size, n_samples_val)
+
+                if len(idxs_val[i:i_next]) < batch_size:
+                    constants_expanded = constants.expand(len(idxs_val[i:i_next]), num_nodes, num_constants)
+                    constants1 = constants_expanded.to(device)
+
+                # t1 = time.time()
+                batch, labels = validation_ds[idxs_val[i:i_next]]
+                # Transfer to GPU
+                batch_size = batch[0].shape[0] // 2
+
+                batch1 = torch.cat((batch[0][:batch_size, :, :], \
+                                    constants_expanded, batch[0][batch_size:, :, :], constants_expanded), dim=2).to(
+                    device)
+                label1 = labels[0].to(device)
+                label2 = labels[1].to(device)
+
+                batch_size = batch1.shape[0]
+
+                output1 = model(batch1)
+                toa_delta = batch[0][batch_size:, :, -1].view(-1, num_nodes, 1).to(device)
+                batch2 = torch.cat((output1, toa_delta, constants1, \
+                                    label1[batch_size:, :, :], constants1), dim=2)
+                output2 = model(batch2)
+
+                val_loss = val_loss + (criterion(output1, label1[batch_size:, :, :out_features]).item()
+                                       + criterion(output2, label2[batch_size:, :, :out_features]).item()) * batch_size
+                index = index + batch_size
+
+        val_loss = val_loss / n_samples_val
+        val_losses.append(val_loss)
+
+        time2 = time.time()
+
+        # Print stuff
+        print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
+              .format(e=epoch + 1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2 - time1))
+
     return train_losses, val_losses, train_loss_it, times_it
 
 

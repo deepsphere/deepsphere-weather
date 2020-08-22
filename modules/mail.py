@@ -24,15 +24,16 @@ def send_info_mail(mailInfo, configFile):
     msg.attach(MIMEText(body, 'plain'))
 
     if mailInfo['fileAttaching']:
-        filename = mailInfo['file']
-        attachment = open(filename, "rb")
+        for file_to_attach in mailInfo['file']:
+            filename = file_to_attach
+            attachment = open(filename, "rb")
 
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload((attachment).read())
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', "attachment; filename= %s" % filename)
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload((attachment).read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', "attachment; filename= %s" % filename)
 
-        msg.attach(part)
+            msg.attach(part)
 
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()

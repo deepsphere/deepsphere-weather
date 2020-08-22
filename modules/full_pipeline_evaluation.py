@@ -6,37 +6,33 @@ import numpy as np
 import time
 import os
 import pandas as pd
-#import yaml
 import json
 import matplotlib.pyplot as plt
-from matplotlib import cm, colors
 
 
 import torch
-from torch import nn, optim
-from torch.utils.data import Dataset, DataLoader
 
+import modules.architectures as modelArchitectures
 from modules.utils import init_device
 from modules.healpix_models import UNetSphericalHealpix, UNetSphericalTempHealpix, Conv1dAuto, \
-UNetSphericalHealpixResidual, _compute_laplacian_healpix, ConvBlock, ConvCheb, UNetSphericalHealpixResidual_2, \
-UNetSphericalHealpixDeep
+    UNetSphericalHealpixResidual, _compute_laplacian_healpix, ConvBlock, ConvCheb, UNetSphericalHealpixResidual_2, \
+    UNetSphericalHealpixDeep, weights_init
 from modules.test import compute_rmse_healpix
 from modules.plotting import plot_rmses
 from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTemp, \
                                   train_model_2steps, create_iterative_predictions_healpix_temp, \
-                                  compute_errors, plot_climatology
+                                  compute_errors, plot_climatology, train_model_2steps_error
 from modules.plotting import plot_general_skills, plot_benchmark, plot_skillmaps, plot_benchmark_simple
 from modules.data import hp_to_equiangular
+from modules.mail import send_info_mail
 
 
-def main():
+def main(conf_file):
+    time_init = time.time()
 
     print('Reading confing file and set up folders...')
 
-    #with open("../modules/config_train.yml", "r") as ymlfile:
-    #    cfg = yaml.full_load(ymlfile)
-
-    with open("../modules/config_train.json") as json_data_file:
+    with open("../configs/" + conf_file) as json_data_file:
         cfg = json.load(json_data_file)
 
 
@@ -83,11 +79,13 @@ def main():
     resolution = cfg['model_parameters']['resolution']
     lead_time = delta_t
     kernel_size_pooling = cfg['model_parameters']['kernel_size_pooling']
+    model = cfg['model_parameters']['model']
 
     description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
     model_filename = model_save_path + description + ".h5"
     pred_filename = pred_save_path +  description + ".nc"
     rmse_filename = datadir + 'metrics/rmse_' + description + '.nc'
+    standardized_data = cfg['directories']['standardized_data']
 
     ##############################################
 
@@ -105,27 +103,40 @@ def main():
 
     num_constants = len([orog, lats, lsm, slt])
 
-    train_mean_ = xr.open_mfdataset(f'{input_dir}' + cfg['directories']['train_mean_file'])
-    train_std_ = xr.open_mfdataset(f'{input_dir}' + cfg['directories']['train_std_file'])
+    if standardized_data:
+        train_mean_ = xr.open_mfdataset(f'{input_dir}' + cfg['directories']['train_mean_file'])
+        train_std_ = xr.open_mfdataset(f'{input_dir}' + cfg['directories']['train_std_file'])
+    else:
+        train_mean_ = xr.open_mfdataset(f'{input_dir}' + cfg['directories']['train_mean_file'])
+        train_std_ = xr.open_mfdataset(f'{input_dir}' + cfg['directories']['train_std_file'])
+
 
     # load data and provide train, test and validation datasets
     ds_train, ds_valid, ds_test = load_data_split(input_dir, train_years, val_years, test_years, chunk_size)
 
+
     training_ds = WeatherBenchDatasetXarrayHealpixTemp(ds=ds_train, out_features=out_features, delta_t=delta_t,
                                                        len_sqce=len_sqce, max_lead_time=max_lead_time,
                                                        years=train_years, nodes=nodes, nb_timesteps=nb_timesteps,
-                                                       mean=train_mean_, std=train_std_, load=False)
+                                                       mean=train_mean_, std=train_std_, load=False, requires_st=False)
 
     validation_ds = WeatherBenchDatasetXarrayHealpixTemp(ds=ds_valid, out_features=out_features, delta_t=delta_t,
                                                          len_sqce=len_sqce, max_lead_time=max_lead_time,
                                                          years=val_years, nodes=nodes, nb_timesteps=nb_timesteps,
-                                                         mean=train_mean_, std=train_std_, load=False)
+                                                         mean=train_mean_, std=train_std_, load=False, requires_st=False)
 
+    iterations_per_epoch = int(np.ceil(training_ds.n_samples / batch_size))
     ##############################################
 
     print('Define model...')
-    spherical_unet = UNetSphericalHealpix(N=nodes, in_channels=in_features*len_sqce, out_channels=out_features, \
-                                              kernel_size=3)
+    print('Model name: ', description)
+    modelClass = getattr(modelArchitectures, model)
+    #spherical_unet = UNetSphericalHealpixResidual(N=nodes, in_channels=in_features*len_sqce, out_channels=out_features, \
+    #                                          kernel_size=3)
+    spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce,
+                                                  out_channels=out_features, kernel_size=3)
+
+    #spherical_unet.apply(weights_init)
     spherical_unet, device = init_device(spherical_unet, gpu=gpu)
 
     constants_tensor = torch.tensor(xr.merge([orog, lats, lsm, slt], compat='override').to_array().values, \
@@ -139,10 +150,12 @@ def main():
     print('Train model...')
     # Train model
     torch.cuda.empty_cache()
-    train_loss, val_loss, train_loss_it, times_it = train_model_2steps(spherical_unet, device, training_ds, constants_tensor.transpose(1,0), \
-                                              batch_size=batch_size, epochs=epochs, \
-                                               lr=learning_rate, validation_ds=validation_ds)
-
+    # batch1, batch2, label1, label2, output1, output2 =
+    #  \
+    train_loss, val_loss, train_loss_it, times_it, train_loss_steps =\
+        train_model_2steps(spherical_unet, device, training_ds, constants_tensor.transpose(1,0), \
+                                 batch_size, epochs=epochs, lr=learning_rate, validation_ds=validation_ds)
+    #return batch1, batch2, label1, label2, output1, output2
     # save model
     torch.save(spherical_unet.state_dict(), model_filename)
 
@@ -171,7 +184,7 @@ def main():
                                                       len_sqce=len_sqce, delta_t=delta_t, years=test_years,
                                                       nodes=nodes, nb_timesteps=nb_timesteps,
                                                       mean=train_mean_, std=train_std_,
-                                                      max_lead_time=max_lead_time)
+                                                      max_lead_time=max_lead_time, requires_st=False)
 
     predictions, lead_times, times, nodes, out_lat, out_lon = \
     create_iterative_predictions_healpix_temp(spherical_unet, device, testing_ds, constants_tensor.transpose(1,0))
@@ -296,9 +309,56 @@ def main():
     figname = figures_path + description + '_hovmoller'
     plot_climatology(figname, predictions_vals, val_limits, ticks, lat_labels, month_labels)
 
+    # plot evolution of loss for each time step
+
+    plt.figure(figsize=(16, 7))
+    for i in range(2):
+        plt.plot(train_loss_steps['t{}'.format(i)], label='Step {}'.format(i))
+
+    plt.yscale('log')
+    plt.legend(fontsize=12)
+    plt.xlabel('Iterations', fontsize=12)
+    plt.ylabel('Loss', fontsize=12)
+    plt.savefig(figures_path + 'loss_evolution.png')
+    plt.show()
+
+    plt.figure(figsize=(16, 7))
+    for i in range(2):
+        plt.plot(train_loss_steps['t{}'.format(i)][200:], label='Step {}'.format(i))
+
+    plt.yscale('log')
+    plt.legend(fontsize=12)
+    plt.xlabel('Iterations', fontsize=12)
+    plt.ylabel('Loss', fontsize=12)
+    plt.savefig(figures_path + 'loss_evolution_200.png')
+    plt.show()
+
+
+    ## end
     print('DONE!')
     print(description)
 
+    with open("../modules/confMail.json") as json_data_file:
+        mailConf = json.load(json_data_file)
+
+    mail = {
+        "sender": mailConf["sender"],
+        "receiver": mailConf["sender"],
+        "subject": "Finished training!",
+        "body": "Finished training model {}.\nTime: {}\n Losses: \nZ500: t0 \t{}\t t120 \t{}\nt850: t0 \t{}\t t120 \t{} " \
+            .format(description, time.time()-time_init, rmse_spherical.z[0].values, rmse_spherical.z[-1].values,
+                    rmse_spherical.t[0].values, rmse_spherical.t[-1].values),
+        "fileAttaching": "Yes",
+        "file": ["../configs/" + conf_file, figures_path + 'loss_evolution.png', figures_path + 'loss_evolution_200.png', figures_path + description + '_benchmark.png', \
+                 figures_path + description + '_general_skills.png', \
+                 figures_path + description + '_0_maps.png', figures_path + description + '_19_maps.png', ]
+
+    }
+    send_info_mail(mailInfo=mail, configFile=mailConf)
+
+
+
+    return train_loss, val_loss, train_loss_it, times_it
 
 if __name__=="__main__":
     main()
