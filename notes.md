@@ -138,3 +138,32 @@ Explore architectures with resiudal connections.
                 RMSE | Z500   (ORIGINAL)         |  T850 (ORIGINAL)
                 t0   | 68.12  (77.87)    -12.5%  |  0.70 (0.72)      -3%
                 t120 | 1059   (1049.97)  +1%     |  3.86 (3.81)      +1%
+                
+                
+### ARCHITECTURES TO COMPARE:
+
+- including residual connection in the decoder produced non-sense results. After 1-2 epochs, the results shifted from 
+values between -3 to 3 (standardized normal distribution range) to plus-minus 16, as if the inputs were not standardized.
+I checked the inputs and all were comprised in the expected range of values, moreover the error only appeared after at
+least one epoch was completed. Removing the residual connection from the encoder part solved the issue. 
+
+- Number of levels of compression. Using residual connections (1DConv) in the encoder part, explore different levels 
+of compression. Values explored are from 1 pooling layer (2 levels) to 3 pooling layers (4 levels). For a single level
+(fully convolutional network without pooling/unpooling layers), a bottleneck architecture (I got it from a paper
+ but I don't remember which one exactly -Weyn maybe?- and it was muuuuch shorter than the originally proposed)
+
+* all_const_len2_delta_6_architecture_spherical_unet_residual_short_bottleneck
+* all_const_len2_delta_6_architecture_spherical_unet_residual_short_4levels_2epochs
+* all_const_len2_delta_6_architecture_spherical_unet_residual_short_2levels_8epochs
+* all_const_len2_delta_6_architecture_spherical_unet_residual_short_4levels_5epochs_nodecoder
+* all_const_len2_delta_6_architecture_spherical_unet_residual_3levels_long
+* all_const_len2_delta_6_architecture_spherical_unet_residual_3levels_long_12epochs
+* all_const_len2_delta_6_architecture_spherical_unet_residual_short_4levels_5epochs_nolong
+* all_const_len2_delta_6_architecture_spherical_unet_residual_3levels_encoder
+* all_const_len2_delta_6_architecture_spherical_unet_residual_short_3levels
+
+
+Results:
+
+
+- Extend number of ahead time-step predictions included in the loss. 
