@@ -776,6 +776,7 @@ class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
         x : torch.tensor of shape batch x unpooled pixels x features
             Layer output
         """
+
         x = x.permute(0, 2, 1)
         x = F.max_unpool1d(x, indices, self.kernel_size)
         x = x.permute(0, 2, 1)
