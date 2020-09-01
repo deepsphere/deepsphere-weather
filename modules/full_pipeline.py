@@ -142,6 +142,107 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
         return X, y
 
 
+class WeatherBenchDatasetXarrayHealpixTempMultiple(Dataset):
+    """ Dataset used for graph models (1D), where data is loaded from stored numpy arrays.
+
+    Parameters
+    ----------
+    ds : xarray Dataset
+        Dataset containing the input data
+    out_features : int
+        Number of output features
+    delta_t : int
+        Temporal spacing between samples in temporal sequence (in hours)
+    len_sqce : int
+        Length of the input and output (predicted) sequences
+    years : tuple(str)
+        Years used to split the data
+    nodes : float
+        Number of nodes each sample has
+    max_lead_time : int
+        Maximum lead time (in case of iterative predictions) in hours
+    load : bool
+        If true, load dataset to RAM
+    mean : np.ndarray of shape 2
+        Mean to use for data normalization. If None, mean is computed from data
+    std : np.ndarray of shape 2
+        std to use for data normalization. If None, mean is computed from data
+    """
+
+    def __init__(self, ds, out_features, delta_t, len_sqce_input, len_sqce_output, years, nodes, nb_timesteps,
+                 max_lead_time=None, load=True, mean=None, std=None, requires_st=None):
+
+        self.delta_t = delta_t
+        self.len_sqce = len_sqce_input
+        self.len_output = len_sqce_output
+        self.years = years
+
+        self.nodes = nodes
+        self.out_features = out_features
+        self.max_lead_time = max_lead_time
+        self.nb_timesteps = nb_timesteps
+
+        self.data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
+        self.in_features = self.data.shape[-1]
+
+        self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean
+        self.std = self.data.std(('time', 'node')).compute() if std is None else std
+
+        eps = 0.001  # add to std to avoid division by 0
+
+        # Count total number of samples
+        total_samples = self.data.shape[0]
+
+        if max_lead_time is None:
+            self.n_samples = total_samples - (len_sqce_output + 1) * delta_t
+        else:
+            self.n_samples = total_samples - (len_sqce_output + 1) * delta_t - max_lead_time
+
+        # Normalize
+
+        if requires_st:
+            self.data = self.data.groupby('time.month') - self.mean.to_array(dim='level')
+            self.data = self.data.groupby('time.month') / self.std.to_array(dim='level')
+            self.data.compute()
+        else:
+            self.data = (self.data - self.mean.to_array(dim='level')) / (
+                    self.std.to_array(dim='level') + eps)
+        self.data.persist()
+
+        self.idxs = np.array(range(self.n_samples))
+
+        print('Loading data to RAM...')
+        t = time.time()
+        self.data.load()
+        print('Time: {:.2f}s'.format(time.time() - t))
+
+    def __len__(self):
+        return self.n_samples
+
+    def __getitem__(self, idx):
+        """ Returns sample and label corresponding to an index as torch.Tensor objects
+            The return tensor shapes are (for the sample and the label): [n_vertex, len_sqce, n_features]
+
+        """
+        idx_data = idx
+        idx_full = np.concatenate(
+            np.array([[idx_data + self.delta_t * k] for k in range(self.len_sqce + self.len_output)])).reshape(-1)
+        dat = self.data.isel(time=idx_full).values
+
+        X = (
+            torch.tensor(dat[:len(idx) * self.len_sqce, :, :], \
+                         dtype=torch.float).reshape(len(idx) * self.len_sqce, self.nodes, -1),
+        )
+
+        y = [
+
+            torch.tensor(dat[len(idx) * (self.len_sqce + k - 1):len(idx) * (self.len_sqce + k + 1), :, :], \
+                         dtype=torch.float).reshape(len(idx) * self.len_sqce, self.nodes, -1)
+            for k in range(self.len_output)
+        ]
+        return X, y
+
+
 def train_model_2steps_error(model, device, training_ds, constants, batch_size, max_error, lr, validation_ds):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
@@ -412,6 +513,7 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
               .format(e=epoch+1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2-time1))
         
     return train_losses, val_losses, train_loss_it, times_it, train_loss_steps
+
 
 
 def train_model_multiple_steps(model, device, training_ds, constants, batch_size, epochs, lr, validation_ds):
