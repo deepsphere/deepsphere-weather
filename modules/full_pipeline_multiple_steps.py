@@ -30,7 +30,7 @@ def main():
         return w
 
 
-    def train_model_multiple_steps(model, device, training_ds, len_output, constants, batch_size, \
+    def train_model_multiple_steps(model, weights_loss, device, training_ds, len_output, constants, batch_size, \
                                    epochs, lr, validation_ds, model_filename):
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
@@ -49,7 +49,10 @@ def main():
         idxs_val = validation_ds.idxs
 
         # initially give full weight to first output
-        weights_loss = [1] + [0] * (len_output - 1)
+        #weights_loss = [1] + [0] * (len_output - 1)
+        # latest prediction included in the loss
+        required_output = np.max(np.where(weights_loss > 0)) + 1
+
         weight_variations = [(weights_loss, 0, 0)]
         count_upd = 0
         train_loss_steps = {}
@@ -102,7 +105,7 @@ def main():
                 loss_ahead = weights_loss[0] * l0
                 train_loss_steps['t0'].append(l0.item())
 
-                for step_ahead in range(1, len_output):
+                for step_ahead in range(1, required_output):
                     # input t-2
                     inp_t2 = batch1[:, :, num_in_features:]
 
@@ -125,6 +128,7 @@ def main():
                 if len(train_loss_it) > 5:
                     if (np.std(train_loss_it[-10:]) < threshold) and count_upd > 2e2:
                         weights_loss = update_w(weights_loss)
+                        required_output = np.max(np.where(weights_loss > 0)) + 1
                         count_upd = 0
                         # print('New weights ', weights_loss, ' Epoch {} Iter {}'.format(epoch, i))
                         weight_variations.append((weights_loss, epoch, len(train_loss_steps['t0'])))
@@ -173,7 +177,7 @@ def main():
                     loss_ahead = weights_loss[0] * l0
                     test_loss_steps['t0'].append(l0)
 
-                    for step_ahead in range(1, len_output):
+                    for step_ahead in range(1, required_output):
                         # input t-2
                         inp_t2 = batch1[:, :, num_in_features:]
 
@@ -199,9 +203,9 @@ def main():
             print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
                   .format(e=epoch + 1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2 - time1))
 
-            torch.save(model.state_dict(), model_filename + '_epoch{}'.format(epoch))
+            torch.save(model.state_dict(), model_filename[:-3] + '_epoch{}'.format(epoch) + '.h5')
 
-        return train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, weight_variations
+        return train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, weight_variations, weights_loss
 
     # Define paths
     datadir = "../data/healpix/"
@@ -228,7 +232,7 @@ def main():
     nb_timesteps = 2
 
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]="2"
+    os.environ["CUDA_VISIBLE_DEVICES"]="0"
     gpu = [0]
     num_workers = 10
     pin_memory = True
@@ -267,7 +271,7 @@ def main():
     train_std_ = xr.open_mfdataset(f'{input_dir}std_train_features_dynamic.nc')
 
     # define model name
-    architecture_name = "loss_v0_8steps_residual_only_enc_l3_per_epoch"
+    architecture_name = "loss_v0_8steps_variation0_residual_only_enc_l3_per_epoch"
     description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
 
     model_filename = model_save_path + description + ".h5"
@@ -307,6 +311,9 @@ def main():
 
 
     w = [1] + [0] * 7
+    #w = [1] * 8
+    w = np.array(w)
+    w = w / sum(w)
     f, ax = plt.subplots(4, 4, figsize=(15, 10), sharex=True, sharey=True)
     ax = ax.flatten()
 
@@ -341,8 +348,8 @@ def main():
 
         spherical_unet.train()
 
-        train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, weight_variations = \
-            train_model_multiple_steps(spherical_unet, device, training_ds, 8, constants_tensor.transpose(1, 0), \
+        train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, weight_variations, w = \
+            train_model_multiple_steps(spherical_unet, w, device, training_ds, 8, constants_tensor.transpose(1, 0), \
                                        batch_size=batch_size, epochs=1, lr=learning_rate, validation_ds=validation_ds, \
                                        model_filename=model_filename)
 
@@ -355,7 +362,7 @@ def main():
         predictions, lead_times, times, nodes, out_lat, out_lon = \
             create_iterative_predictions_healpix_temp(spherical_unet, device, testing_ds, constants_tensor.transpose(1, 0))
 
-        das = [];
+        das = []
         lev_idx = 0
         for var in ['z', 't']:
             das.append(xr.DataArray(
@@ -380,6 +387,8 @@ def main():
 
         print('Z500 - 120h:', rmse.z.values[-1])
         print('T850 - 120h:', rmse.t.values[-1])
+
+        print('Current state of weights: ', w)
 
         plot_rmses(rmse, rmses_weyn.rename({'z500': 'z', 't850': 't'}).isel(lead_time=list(range(20))), lead_time=6)
 
