@@ -1,0 +1,40 @@
+{
+    "directories":
+            {
+            "datadir": "../data/healpix/",
+            "input_dir": "5.625deg_nearest/",
+            "model_save_path": "models/",
+            "pred_save_path": "predictions/",
+            "obs_file_name": "observations_nearest.nc",
+            "rmse_weyn_name": "metrics/rmses_weyn.nc",
+            "constants": "constants/constants_5.625deg_standardized.nc",
+            "train_mean_file": "mean_train_features_dynamic.nc",
+            "train_std_file": "std_train_features_dynamic.nc",
+            "metrics_path": "metrics/",
+            "standardized_data": "None"
+            },
+    "training_constants":
+    {
+            "chunk_size": 521,
+            "train_years": ["1990","2012"],
+            "val_years": ["2013", "2016"],
+            "test_years": ["2017", "2018"],
+            "nodes":3072,
+            "max_lead_time": 120,
+            "nb_timesteps": 2,
+            "nb_epochs": 10,
+            "learning_rate": 0.008,
+            "batch_size": 60
+    },
+    "model_parameters":
+    {
+            "len_sqce": 2,
+            "delta_t": 6,
+            "in_features": 7,
+            "out_features":2,
+            "architecture_name": "spherical_unet_residual_short_3levels_enc_only",
+            "resolution": 5.625,
+            "kernel_size_pooling": 4,
+            "model": "UNetSphericalHealpixResidualShort3LevelsOnlyEncoder"
+    }
+}
