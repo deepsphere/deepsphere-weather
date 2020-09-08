@@ -3,15 +3,17 @@ import numpy as np
 import time
 import os
 import random
+import json
 import matplotlib.pyplot as plt
 
 
 import torch
 from torch import nn, optim
+from torch.nn.parameter import Parameter
 
 from modules.plotting import plot_rmses
 from modules.utils import init_device
-from modules.architectures import UNetSphericalHealpixResidualShort3LevelsOnlyEncoder
+import modules.architectures as modelArchitectures
 from modules.test import compute_rmse_healpix
 from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTemp, \
     train_model_2steps, create_iterative_predictions_healpix_temp, \
@@ -21,20 +23,27 @@ from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHeal
 import warnings
 warnings.filterwarnings("ignore")
 
-def main():
+def main(config_file, load_model=False, model_name_epochs=None):
+# def main(architecture_name, load_model=False, model_name_epochs=None):
     def update_w(w):
-        for i in range(1,8):
-            w[8 - i] += w[8 - i -1]*0.4
-            w[8 - i - 1] *= 0.8
+        """
+        Update array of weights for the loss function
+        :param w: array of weights from earlier step [0] to latest one [-1]
+        :return: array of weights modified
+        """
+        for i in range(1, len(w)):
+            len_w = len(w)
+            w[len_w - i] += w[len_w - i -1]*0.4
+            w[len_w - i - 1] *= 0.8
         w = np.array(w)/sum(w)
         return w
 
 
-    def train_model_multiple_steps(model, weights_loss, device, training_ds, len_output, constants, batch_size, \
-                                   epochs, lr, validation_ds, model_filename):
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
+    def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device, training_ds, len_output, constants, batch_size, \
+                                   epochs, validation_ds, model_filename):
 
+
+        t1 = time.time()
         train_losses = []
         val_losses = []
         n_samples = training_ds.n_samples
@@ -48,9 +57,6 @@ def main():
         constants1 = constants_expanded.to(device)
         idxs_val = validation_ds.idxs
 
-        # initially give full weight to first output
-        #weights_loss = [1] + [0] * (len_output - 1)
-        # latest prediction included in the loss
         required_output = np.max(np.where(weights_loss > 0)) + 1
 
         weight_variations = [(weights_loss, 0, 0)]
@@ -64,6 +70,8 @@ def main():
             test_loss_steps['t{}'.format(step_ahead)] = []
 
         threshold = 1e-4
+
+        print('Time initial steps: {:.3f}s'.format(time.time() - t1))
 
         for epoch in range(epochs):
 
@@ -84,6 +92,7 @@ def main():
             times_it = []
             t0 = time.time()
             for i in range(0, n_samples - batch_size, batch_size):
+                #tbatch0 = time.time()
                 i_next = min(i + batch_size, n_samples)
 
                 if len(idxs[i:i_next]) < batch_size:
@@ -105,6 +114,7 @@ def main():
                 loss_ahead = weights_loss[0] * l0
                 train_loss_steps['t0'].append(l0.item())
 
+                #tbatch1 = time.time()
                 for step_ahead in range(1, required_output):
                     # input t-2
                     inp_t2 = batch1[:, :, num_in_features:]
@@ -119,9 +129,12 @@ def main():
                     loss_ahead += weights_loss[step_ahead] * l0
                     train_loss_steps['t{}'.format(step_ahead)].append(l0.item())
 
+                #tbatch2 = time.time()
                 optimizer.zero_grad()
                 loss_ahead.backward()
                 optimizer.step()
+
+                #tbatch3 = time.time()
 
                 train_loss += loss_ahead.item() * batch_size
                 train_loss_it.append(train_loss / (batch_size * (batch_idx + 1)))
@@ -136,6 +149,7 @@ def main():
                     else:
                         count_upd += 1
 
+                #tbatch4 = time.time()
                 times_it.append(time.time() - t0)
                 t0 = time.time()
 
@@ -145,6 +159,9 @@ def main():
                                   count_upd),
                           end="")
                 batch_idx += 1
+
+
+
 
             train_loss = train_loss / n_samples
             train_losses.append(train_loss)
@@ -205,14 +222,19 @@ def main():
 
             torch.save(model.state_dict(), model_filename[:-3] + '_epoch{}'.format(epoch) + '.h5')
 
-        return train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, weight_variations, weights_loss
+        return train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, \
+               weight_variations, weights_loss, criterion, optimizer
+
+
+    with open("../configs/" + config_file) as json_data_file:
+        cfg = json.load(json_data_file)
 
     # Define paths
-    datadir = "../data/healpix/"
-    input_dir = datadir + "5.625deg_nearest/"
-    model_save_path = datadir + "models/"
-    pred_save_path = datadir + "predictions/"
-    prediction_path = '../data/healpix/predictions/'
+    datadir = cfg['directories']['datadir']
+    input_dir = datadir + cfg['directories']['input_dir']
+    model_save_path = datadir + cfg['directories']['model_save_path']
+    pred_save_path = datadir + cfg['directories']['pred_save_path']
+    metrics_path = datadir + cfg['directories']['metrics_path']
 
     if not os.path.isdir(model_save_path):
         os.mkdir(model_save_path)
@@ -221,15 +243,30 @@ def main():
         os.mkdir(pred_save_path)
 
     # Define constants
-    chunk_size = 521
+    chunk_size = cfg['training_constants']['chunk_size']
 
-    train_years = ('1990', '2012')#('1979', '2012')
-    val_years = ('2013', '2016')
-    test_years = ('2017', '2018')
+    train_years = (cfg['training_constants']['train_years'][0], cfg['training_constants']['train_years'][1])
+    val_years = (cfg['training_constants']['val_years'][0], cfg['training_constants']['val_years'][1])
+    test_years = (cfg['training_constants']['test_years'][0], cfg['training_constants']['test_years'][1])
 
-    nodes = 12*16*16
-    max_lead_time = 5*24
-    nb_timesteps = 2
+    # training parameters
+    nodes = cfg['training_constants']['nodes']
+    max_lead_time = cfg['training_constants']['max_lead_time']
+    nb_timesteps = cfg['training_constants']['nb_timesteps']
+    epochs = cfg['training_constants']['nb_epochs']
+    learning_rate = cfg['training_constants']['learning_rate']
+    batch_size = cfg['training_constants']['batch_size']
+
+    # model parameters
+    len_sqce = cfg['model_parameters']['len_sqce']
+    delta_t = cfg['model_parameters']['delta_t']
+    in_features = cfg['model_parameters']['in_features']
+    out_features = cfg['model_parameters']['out_features']
+    architecture_name = cfg['model_parameters']['architecture_name']
+    model = cfg['model_parameters']['model']
+
+    description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
+
 
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]="0"
@@ -237,23 +274,6 @@ def main():
     num_workers = 10
     pin_memory = True
 
-    batch_size = 10
-    epochs = 10
-    learning_rate = 8e-3
-
-    len_sqce = 2
-    # define time resolution
-    delta_t = 6
-
-    # predict 5days data
-    max_lead_time = 5*24
-    in_features = 7
-    out_features = 2
-
-
-
-    obs = xr.open_mfdataset(pred_save_path + 'observations_nearest.nc', combine='by_coords', chunks={'time':chunk_size})
-    rmses_weyn = xr.open_dataset(datadir + 'metrics/rmses_weyn.nc')
 
     # get training, validation and test data
     ds_train, ds_valid, ds_test = load_data_split(input_dir, train_years, val_years, test_years, chunk_size)
@@ -271,13 +291,10 @@ def main():
     train_std_ = xr.open_mfdataset(f'{input_dir}std_train_features_dynamic.nc')
 
     # define model name
-    architecture_name = "loss_v0_8steps_variation0_residual_only_enc_l3_per_epoch"
+
     description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
 
     model_filename = model_save_path + description + ".h5"
-    pred_filename = pred_save_path +  description + ".nc"
-    rmse_filename = datadir + 'metrics/rmse_' + description + '.nc'
-    metrics_path = '../data/healpix/metrics/'
     figures_path = '../data/healpix/figures/' + description + '/'
 
     if not os.path.isdir(figures_path):
@@ -295,29 +312,51 @@ def main():
                                                          mean=train_mean_, std=train_std_)
 
     # generate model
-    spherical_unet = UNetSphericalHealpixResidualShort3LevelsOnlyEncoder(N=nodes, in_channels=in_features*len_sqce, out_channels=out_features, kernel_size=3)
+    print('Define model...')
+    print('Model name: ', description)
+    modelClass = getattr(modelArchitectures, model)
+    spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce,
+                                out_channels=out_features, kernel_size=3)
+
+    # use pretrained model to start training
+    if load_model:
+        model_path = '../data/healpix/models/'
+        #model_name_epochs = 'all_const_len2_delta_6_architecture_loss_v0_8steps_variation0_residual_only_enc_l3_per_epoch'
+        model_name = model_path + model_name_epochs
+
+        state_to_load = torch.load(model_name)
+
+        own_state = spherical_unet.state_dict()
+        for name, param in state_to_load.items():
+            if name not in own_state:
+                # own_state[name] = param
+                print(name)
+                continue
+            if isinstance(param, Parameter):
+                # backwards compatibility for serialized parameters
+                param = param.data
+            own_state[name].copy_(param)
+
     spherical_unet, device = init_device(spherical_unet, gpu=gpu)
 
-    iterations_per_epoch = int(np.ceil(training_ds.n_samples / batch_size))
 
     constants_tensor = torch.tensor(xr.merge([orog, lats, lsm, slt], compat='override').to_array().values, \
-                                dtype=torch.float)
+                                    dtype=torch.float)
+    # standardize
+    constants_tensor = (constants_tensor - torch.mean(constants_tensor, dim=1).view(-1, 1).expand(4, 3072)) / \
+                       torch.std(constants_tensor, dim=1).view(-1, 1).expand(4, 3072)
 
-    # standardize
-    constants_tensor = (constants_tensor - torch.mean(constants_tensor, dim=1).view(-1,1).expand(4, 3072)) / \
-                        torch.std(constants_tensor, dim=1).view(-1,1).expand(4, 3072)
-
-
-
-
-    w = [1] + [0] * 7
+    # initialize weights
+    #w = [1] + [0] * 7
     #w = [1] * 8
+    w = cfg['model_parameters']['initial_weights']
     w = np.array(w)
     w = w / sum(w)
+
+    # plot variation of weights
     f, ax = plt.subplots(4, 4, figsize=(15, 10), sharex=True, sharey=True)
     ax = ax.flatten()
-
-    x_vals = list(range(8))
+    x_vals = list(range(len(w)))
     ax[0].scatter(x_vals, w)
     ax[0].set_title('Initial weights')
 
@@ -332,67 +371,41 @@ def main():
     plt.savefig(figures_path + 'weight_updates.png')
     plt.show()
 
-    # Testing data
-    testing_ds = WeatherBenchDatasetXarrayHealpixTemp(ds=ds_test, out_features=out_features,
-                                                      len_sqce=len_sqce, delta_t=delta_t, years=test_years,
-                                                      nodes=nodes, nb_timesteps=nb_timesteps,
-                                                      mean=train_mean_, std=train_std_,
-                                                      max_lead_time=max_lead_time)
+    train_loss_ev = []
+    val_loss_ev = []
+    train_loss_steps_ev = []
+    test_loss_steps_ev = []
+    weight_variations_ev = []
 
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(spherical_unet.parameters(), lr=learning_rate, eps=1e-7, weight_decay=0, amsgrad=False)
 
-
-
+    # train model
     for ep in range(epochs):
 
         print('Starting epoch {}'.format(ep + 1))
 
         spherical_unet.train()
 
-        train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, weight_variations, w = \
-            train_model_multiple_steps(spherical_unet, w, device, training_ds, 8, constants_tensor.transpose(1, 0), \
-                                       batch_size=batch_size, epochs=1, lr=learning_rate, validation_ds=validation_ds, \
-                                       model_filename=model_filename)
+        train_losses, val_losses, _, _, train_loss_steps, test_loss_steps, weight_variations, \
+        w, criterion, optimizer = \
+            train_model_multiple_steps(spherical_unet, w, criterion, optimizer, device, training_ds, len_output=8, \
+                                       constants=constants_tensor.transpose(1, 0), batch_size=batch_size, epochs=1, \
+                                       validation_ds=validation_ds, model_filename=model_filename)
+
+        train_loss_ev.append(train_losses)
+        val_loss_ev.append(val_losses)
+        train_loss_steps_ev.append(train_loss_steps)
+        test_loss_steps_ev.append(test_loss_steps)
+        weight_variations_ev.append(weight_variations)
 
         # save model
         torch.save(spherical_unet.state_dict(), model_filename[:-3] + '_epoch_{}'.format(ep) + '.h5')
 
         torch.cuda.empty_cache()
 
-        print('Generating predictions...')
-        predictions, lead_times, times, nodes, out_lat, out_lon = \
-            create_iterative_predictions_healpix_temp(spherical_unet, device, testing_ds, constants_tensor.transpose(1, 0))
+    return train_loss_ev, val_loss_ev, train_loss_steps_ev, test_loss_steps_ev, weight_variations_ev
 
-        das = []
-        lev_idx = 0
-        for var in ['z', 't']:
-            das.append(xr.DataArray(
-                predictions[:, :, :, lev_idx],
-                dims=['lead_time', 'time', 'node'],
-                coords={'lead_time': lead_times, 'time': times[:predictions.shape[1]], 'node': np.arange(nodes)},
-                name=var
-            ))
-            lev_idx += 1
-
-        prediction_ds = xr.merge(das)
-        prediction_ds = prediction_ds.assign_coords({'lat': out_lat, 'lon': out_lon})
-
-        prediction_ds.to_netcdf(pred_filename[:-3] + '_epoch_{}'.format(ep) + '.nc')
-
-        print('Computing error...')
-        rmse = compute_rmse_healpix(prediction_ds, obs).load()
-        rmse.to_netcdf(rmse_filename[:-3] + '_epoch_{}'.format(ep) + '.nc')
-
-        print('Z500 - 0:', rmse.z.values[0])
-        print('T850 - 0:', rmse.t.values[0])
-
-        print('Z500 - 120h:', rmse.z.values[-1])
-        print('T850 - 120h:', rmse.t.values[-1])
-
-        print('Current state of weights: ', w)
-
-        plot_rmses(rmse, rmses_weyn.rename({'z500': 'z', 't850': 't'}).isel(lead_time=list(range(20))), lead_time=6)
-
-        del prediction_ds, rmse
 
 if __name__=="__main__":
     main()
