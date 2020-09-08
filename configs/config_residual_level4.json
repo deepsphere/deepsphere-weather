@@ -22,9 +22,9 @@
             "nodes":3072,
             "max_lead_time": 120,
             "nb_timesteps": 2,
-            "nb_epochs": 2,
+            "nb_epochs": 5,
             "learning_rate": 0.008,
-            "batch_size": 30
+            "batch_size": 50
     },
     "model_parameters":
     {
@@ -32,9 +32,9 @@
             "delta_t": 6,
             "in_features": 7,
             "out_features":2,
-            "architecture_name": "spherical_unet_residual_short_4levels_2epochs",
+            "architecture_name": "spherical_unet_residual_short_4levels_ND_5epochs",
             "resolution": 5.625,
             "kernel_size_pooling": 4,
-            "model": "UNetSphericalHealpixResidualShort4Levels"
+            "model": "UNetSphericalHealpixResidualShort4LevelsNoDec"
     }
 }

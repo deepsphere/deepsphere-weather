@@ -16,15 +16,15 @@
     "training_constants":
     {
             "chunk_size": 521,
-            "train_years": ["2005","2012"],
+            "train_years": ["1990","2012"],
             "val_years": ["2013", "2016"],
             "test_years": ["2017", "2018"],
             "nodes":3072,
             "max_lead_time": 120,
             "nb_timesteps": 2,
-            "nb_epochs": 8,
+            "nb_epochs": 10,
             "learning_rate": 0.008,
-            "batch_size": 30
+            "batch_size": 60
     },
     "model_parameters":
     {
@@ -32,9 +32,9 @@
             "delta_t": 6,
             "in_features": 7,
             "out_features":2,
-            "architecture_name": "spherical_unet_residual_short_3levels",
+            "architecture_name": "spherical_unet_residual_short_3levels_enc_only",
             "resolution": 5.625,
             "kernel_size_pooling": 4,
-            "model": "UNetSphericalHealpixResidualShort3Levels"
+            "model": "UNetSphericalHealpixResidualShort3LevelsOnlyEncoder"
     }
 }

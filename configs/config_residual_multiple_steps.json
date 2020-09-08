@@ -22,9 +22,9 @@
             "nodes":3072,
             "max_lead_time": 120,
             "nb_timesteps": 2,
-            "nb_epochs": 10,
+            "nb_epochs": 12,
             "learning_rate": 0.008,
-            "batch_size": 60
+            "batch_size": 24
     },
     "model_parameters":
     {
@@ -32,9 +32,10 @@
             "delta_t": 6,
             "in_features": 7,
             "out_features":2,
-            "architecture_name": "spherical_unet_residual_short_3levels_enc_only",
+            "architecture_name": "loss_v0_4steps_variation0_residual_l3_long_connections_per_epoch",
             "resolution": 5.625,
             "kernel_size_pooling": 4,
-            "model": "UNetSphericalHealpixResidualShort3LevelsOnlyEncoder"
+            "initial_weights": [1, 0,0,0],
+            "model": "UNetSphericalHealpixResidualLongConnections"
     }
 }
