@@ -28,3 +28,13 @@ ds = ds.groupby({time.month}) - ds_mean.to_array(dim='level)
 ds = ds.groupby({time.month}) / ds_std.to_array(dim='level)
 ds.compute()
 ```
+
+## Download data from ERA5 and rmse metrics for benchmarking
+
+Follow the instructions from [WeatherBench](https://github.com/pangeo-data/WeatherBench)
+
+Data used is ERA5 @ 5.625deg
+
+The rmse values used for comparison can be found [here](https://dataserv.ub.tum.de/index.php/s/m1524895?path=%2Fbaselines)
+You only need the file ```rmse.pkl```
+
