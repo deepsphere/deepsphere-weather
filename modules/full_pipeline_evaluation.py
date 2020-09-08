@@ -14,15 +14,12 @@ import torch
 
 import modules.architectures as modelArchitectures
 from modules.utils import init_device
-from modules.healpix_models import UNetSphericalHealpix, UNetSphericalTempHealpix, Conv1dAuto, \
-    UNetSphericalHealpixResidual, _compute_laplacian_healpix, ConvBlock, ConvCheb, UNetSphericalHealpixResidual_2, \
-    UNetSphericalHealpixDeep, weights_init
 from modules.test import compute_rmse_healpix
 from modules.plotting import plot_rmses
 from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTemp, \
                                   train_model_2steps, create_iterative_predictions_healpix_temp, \
-                                  compute_errors, plot_climatology, train_model_2steps_error
-from modules.plotting import plot_general_skills, plot_benchmark, plot_skillmaps, plot_benchmark_simple
+                                  compute_errors, plot_climatology
+from modules.plotting import plot_general_skills, plot_skillmaps, plot_benchmark_simple
 from modules.data import hp_to_equiangular
 from modules.mail import send_info_mail
 
@@ -37,7 +34,7 @@ def main(conf_file):
 
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "4"
     gpu = [0]
     num_workers = 10
     pin_memory = True
@@ -154,8 +151,10 @@ def main(conf_file):
     #  \
     train_loss, val_loss, train_loss_it, times_it, train_loss_steps =\
         train_model_2steps(spherical_unet, device, training_ds, constants_tensor.transpose(1,0), \
-                                 batch_size, epochs=epochs, lr=learning_rate, validation_ds=validation_ds)
-    #return batch1, batch2, label1, label2, output1, output2
+                                 batch_size, epochs=epochs, lr=learning_rate, validation_ds=validation_ds, \
+                                 model_name=model_filename)
+
+
     # save model
     torch.save(spherical_unet.state_dict(), model_filename)
 
