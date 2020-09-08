@@ -126,13 +126,24 @@ def plot_signal(f, sample, var, ax, vmin, vmax, proj, cmap, colorbar, cbar_label
         
         
 def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, output_dir, title=True):
+    """
+    Plot rmse values at different lead times from different models
+
+    :param rmses_spherical: xarray
+    :param model_description: string
+    :param lead_times: xarray
+    :param input_dir: string
+    :param output_dir: string
+    :param title: string
+    :return: None
+    """
     
     lead_times0 = np.arange(6, lead_times[-1]+6, 6)
     
     xlabels = [str(t) if t%4 == 0 else '' for t in lead_times] if lead_times[0] < 12 else lead_times
     
     # RMSE baselines
-    rmses_baselines = pickle.load(open(input_dir+'rmse.pkl', 'rb'))
+    rmses_baselines = pickle.load(open('../data/models/baselines/'+'rmse.pkl', 'rb'))
     
     rmses_rasp_direct = rmses_baselines['CNN (direct)']
     rmses_rasp_iter = rmses_baselines['CNN (iterative)']
@@ -142,7 +153,7 @@ def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, ou
     rmses_ifs = rmses_baselines['Operational'].sel(lead_time=lead_times)
     rmses_ifs_t42 = rmses_baselines['IFS T42'].sel(lead_time=lead_times)
     rmses_ifs_t63 = rmses_baselines['IFS T63'].sel(lead_time=slice(lead_times[0], lead_times[-1]))
-    rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc')
+    rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc').rename({'z500':'z', 't850':'t'})
     
     f, axs = plt.subplots(1, 2, figsize=(17, 6))
     if title:
@@ -155,8 +166,8 @@ def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, ou
     #axs[0].plot(lead_times0, rmses_ifs_t42.z.values, label='IFS T42', linestyle='--')
     #axs[0].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.z.values, label='IFS T63', linestyle='--')
     axs[0].scatter([72, 120], rmses_rasp_direct.z.values, label='Rasp 2020 (direct)', color='maroon')
-    axs[0].plot(lead_times0, rmses_rasp_iter.z.values, label='Rasp 2020 (iter)', linestyle='-')
-    axs[0].plot(lead_times0, rmses_weyn.z.values, label='Weyn 2020', linestyle='-')
+    #axs[0].plot(lead_times0, rmses_rasp_iter.z.values, label='Rasp 2020 (iter)', linestyle='-')
+    axs[0].plot(lead_times0, rmses_weyn.z.values[:len(lead_times0)], label='Weyn 2020', linestyle='-')
     axs[0].plot(lead_times, rmses_spherical.z.values, label='Ours', color='black', marker='o')
 
     axs[0].set_ylabel('RMSE [$m^2 s^{−2}$]', fontsize=18)
@@ -175,8 +186,8 @@ def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, ou
     #axs[1].plot(lead_times0, rmses_ifs_t42.t.values, label='IFS T42', linestyle='--')
     #axs[1].plot(rmses_ifs_t63.lead_time.values, rmses_ifs_t63.t.values, label='IFS T63', linestyle='--')
     axs[1].scatter([72, 120], rmses_rasp_direct.t.values, label='Rasp 2020 (direct)', color='maroon')
-    axs[1].plot(lead_times0, rmses_rasp_iter.t.values, label='Rasp 2020 (iter)', linestyle='-')
-    axs[1].plot(lead_times0, rmses_weyn.t.values, label='Weyn 2020', linestyle='-')
+    #axs[1].plot(lead_times0, rmses_rasp_iter.t.values, label='Rasp 2020 (iter)', linestyle='-')
+    axs[1].plot(lead_times0, rmses_weyn.t.values[:len(lead_times0)], label='Weyn 2020', linestyle='-')
     axs[1].plot(lead_times, rmses_spherical.t.values, label='Ours', color='black', marker='o')
 
 
@@ -195,6 +206,72 @@ def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, ou
     plt.savefig(output_dir + filename, bbox_inches='tight')
 
     plt.show()
+    
+def plot_benchmark_simple(rmses_spherical, model_description, lead_times, input_dir, output_dir, \
+                          title=True, filename=None, names=[]):
+    """
+    Plot rmse of different models vs Weyn et al
+
+    :param rmses_spherical: list of xarrays or xarray
+    :param model_description: string
+    :param lead_times: xarray
+    :param input_dir: string
+    :param output_dir: string
+    :param title: boolean
+    :param filename: string
+    :param names: if rmses_spherical is a list, names should be a list of same length with the name of each model
+    :return:
+    """
+    
+    lead_times0 = np.arange(6, lead_times[-1]+6, 6)
+    colors = cm.Spectral(np.linspace(0,1,len(rmses_spherical)))
+    
+    xlabels = [str(t) if t%4 == 0 else '' for t in lead_times] if lead_times[0] < 12 else lead_times
+    
+    # RMSE baselines
+    
+    rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc').rename({'z500':'z', 't850':'t'})
+    
+    f, axs = plt.subplots(1, 2, figsize=(17, 6))
+    if title:
+        f.suptitle('RMSE between forecast and observation as a function of forecast time', fontsize=24, y=1.07)
+
+    axs[0].plot(lead_times0, rmses_weyn.z.values[:len(lead_times0)], label='Weyn 2020', linestyle='-')
+    axs[1].plot(lead_times0, rmses_weyn.t.values[:len(lead_times0)], label='Weyn 2020', linestyle='-')
+
+    if len(names) == 0:
+        axs[0].plot(lead_times, rmses_spherical.z.values, label='Ours', color='black', marker='o')
+        axs[1].plot(lead_times, rmses_spherical.t.values, label='Ours', color='black', marker='o')
+    else:
+        for rmse, name, c in zip(rmses_spherical, names, colors):
+            axs[0].plot(lead_times, rmse.z.values, label=name, color=c, marker='o')
+            axs[1].plot(lead_times, rmse.t.values, label=name, color=c, marker='o')
+
+    axs[0].set_ylabel('RMSE [$m^2 s^{−2}$]', fontsize=18)
+    axs[0].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[0].set_title('Z500', fontsize=22)
+    axs[0].tick_params(axis='both', which='major', labelsize=16)
+    axs[0].set_xticks(lead_times)
+    axs[0].set_xticklabels(xlabels, fontsize=16)
+    axs[0].legend(loc='upper left', fontsize=15)
+
+    axs[1].set_ylabel('RMSE [K]', fontsize=18)
+    axs[1].set_xlabel('Forecast time [h]', fontsize=18)
+    axs[1].set_title('T850', fontsize=22)
+    axs[1].set_xticks(lead_times)
+    axs[1].set_xticklabels(xlabels, fontsize=16)
+    axs[1].tick_params(axis='both', which='major', labelsize=16)
+    axs[1].legend(loc='upper left', fontsize=15)
+
+
+    if not filename:
+        filename = model_description + '_benchmark.png'
+    
+    plt.tight_layout()
+    plt.savefig(output_dir + filename, bbox_inches='tight')
+
+    plt.show()
+
 
 def plot_benchmark_MAE(rmses_spherical, model_description, lead_times, input_dir, output_dir, title=True):
     
