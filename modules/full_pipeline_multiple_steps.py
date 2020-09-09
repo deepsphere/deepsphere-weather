@@ -30,12 +30,13 @@ def main(config_file, load_model=False, model_name_epochs=None):
         Update array of weights for the loss function
         :param w: array of weights from earlier step [0] to latest one [-1]
         :return: array of weights modified
-        """
-        for i in range(1, len(w)):
+
+                for i in range(1, len(w)):
             len_w = len(w)
             w[len_w - i] += w[len_w - i -1]*0.4
             w[len_w - i - 1] *= 0.8
         w = np.array(w)/sum(w)
+        """
         return w
 
 
@@ -262,6 +263,7 @@ def main(config_file, load_model=False, model_name_epochs=None):
     delta_t = cfg['model_parameters']['delta_t']
     in_features = cfg['model_parameters']['in_features']
     out_features = cfg['model_parameters']['out_features']
+    num_steps_ahead = cfg['model_parameters']['num_steps_ahead']
     architecture_name = cfg['model_parameters']['architecture_name']
     model = cfg['model_parameters']['model']
 
@@ -269,8 +271,8 @@ def main(config_file, load_model=False, model_name_epochs=None):
 
 
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]="0"
-    gpu = [0]
+    os.environ["CUDA_VISIBLE_DEVICES"]="1,4"
+    gpu = [0,1]
     num_workers = 10
     pin_memory = True
 
@@ -302,12 +304,12 @@ def main(config_file, load_model=False, model_name_epochs=None):
 
     # generate dataloaders
     training_ds = WeatherBenchDatasetXarrayHealpixTempMultiple(ds=ds_train, out_features=out_features, delta_t=delta_t,
-                                                       len_sqce_input=len_sqce, len_sqce_output=8, max_lead_time=max_lead_time,
+                                                       len_sqce_input=len_sqce, len_sqce_output=num_steps_ahead, max_lead_time=max_lead_time,
                                                        years=train_years, nodes=nodes, nb_timesteps=nb_timesteps,
                                                        mean=train_mean_, std=train_std_)
 
     validation_ds = WeatherBenchDatasetXarrayHealpixTempMultiple(ds=ds_valid, out_features=out_features, delta_t=delta_t,
-                                                         len_sqce_input=len_sqce, len_sqce_output=8, max_lead_time=max_lead_time,
+                                                         len_sqce_input=len_sqce, len_sqce_output=num_steps_ahead, max_lead_time=max_lead_time,
                                                          years=val_years, nodes=nodes, nb_timesteps=nb_timesteps,
                                                          mean=train_mean_, std=train_std_)
 
@@ -389,7 +391,7 @@ def main(config_file, load_model=False, model_name_epochs=None):
 
         train_losses, val_losses, _, _, train_loss_steps, test_loss_steps, weight_variations, \
         w, criterion, optimizer = \
-            train_model_multiple_steps(spherical_unet, w, criterion, optimizer, device, training_ds, len_output=8, \
+            train_model_multiple_steps(spherical_unet, w, criterion, optimizer, device, training_ds, len_output=num_steps_ahead, \
                                        constants=constants_tensor.transpose(1, 0), batch_size=batch_size, epochs=1, \
                                        validation_ds=validation_ds, model_filename=model_filename)
 
