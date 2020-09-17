@@ -31,7 +31,7 @@ def main(config_file, load_model=False, model_name_epochs=None):
         :param w: array of weights from earlier step [0] to latest one [-1]
         :return: array of weights modified
 
-                for i in range(1, len(w)):
+        for i in range(1, len(w)):
             len_w = len(w)
             w[len_w - i] += w[len_w - i -1]*0.4
             w[len_w - i - 1] *= 0.8
@@ -271,8 +271,8 @@ def main(config_file, load_model=False, model_name_epochs=None):
 
 
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]="1,4"
-    gpu = [0,1]
+    os.environ["CUDA_VISIBLE_DEVICES"]="2"
+    gpu = [0]
     num_workers = 10
     pin_memory = True
 
@@ -388,6 +388,10 @@ def main(config_file, load_model=False, model_name_epochs=None):
         print('Starting epoch {}'.format(ep + 1))
 
         spherical_unet.train()
+
+        w = cfg['model_parameters']['initial_weights']
+        w = np.array(w)
+        w = w / sum(w)
 
         train_losses, val_losses, _, _, train_loss_steps, test_loss_steps, weight_variations, \
         w, criterion, optimizer = \

@@ -377,7 +377,7 @@ def train_model_2steps_error(model, device, training_ds, constants, batch_size, 
     return train_losses, val_losses, train_loss_it, times_it
     
     
-def train_model_2steps(model, device, training_ds, constants, batch_size, epochs, lr, validation_ds):
+def train_model_2steps(model, device, training_ds, constants, batch_size, epochs, lr, validation_ds, model_name):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, eps=1e-7, weight_decay=0, amsgrad=False)
     
@@ -511,6 +511,8 @@ def train_model_2steps(model, device, training_ds, constants, batch_size, epochs
         # Print stuff
         print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
               .format(e=epoch+1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2-time1))
+
+        torch.save(model.state_dict(), model_name[:-3] + '_epoch{}'.format(epoch) + '.h5')
         
     return train_losses, val_losses, train_loss_it, times_it, train_loss_steps
 

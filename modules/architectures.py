@@ -1,7 +1,113 @@
 import torch
+import pygsp
+import numpy as np
+from torch.nn import Conv1d
 
+
+from torch.nn import functional as F
+from torch.nn import BatchNorm1d, Conv1d, Identity
+
+from modules import layers
 from modules.layers import ConvCheb, PoolMaxHealpix, UnpoolMaxHealpix
-from modules.healpix_models import _compute_laplacian_healpix, ConvBlock, Conv1dAuto, BottleNeckBlock
+
+
+
+def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
+    """ Computes laplacian of spherical graph sampled as a HEALpix grid
+
+    Parameters
+    ----------
+    nodes : int
+        Number of nodes in the graph
+    laplacian_type : string
+        Type of laplacian. Options are {´normalized´, ´combinatorial´}
+
+    Returns
+    -------
+    laplacian : torch.sparse_coo_tensor
+        Graph laplacian
+    """
+    resolution = int(np.sqrt(nodes / 12))
+
+    G = pygsp.graphs.SphereHealpix(nside=resolution, n_neighbors=20)
+    G.compute_laplacian(laplacian_type)
+    laplacian = layers.prepare_laplacian(G.L.astype(np.float32))
+
+    return laplacian
+
+
+class Conv1dAuto(Conv1d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.padding = (self.kernel_size[0] // 2)  # dynamic add padding based on the kernel_size
+
+
+class ConvBlock(torch.nn.Module):
+    """ Spherical graph convolution block
+
+    Parameters
+    ----------
+    in_channels : int
+        Number of channels in the input graph.
+    out_channels : int
+        Number of channels in the output graph.
+    kernel_size : int
+        Chebychev polynomial degree
+    laplacian : torch.sparse_coo_tensor
+        Graph laplacian
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, laplacian):
+        super().__init__()
+
+        self.conv = ConvCheb(in_channels, out_channels, kernel_size, laplacian)
+        self.bn = BatchNorm1d(out_channels)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
+        x = F.relu(x)
+        return x
+
+
+class BottleNeckBlock(torch.nn.Module):
+    """ Spherical graph convolution block
+
+    Parameters
+    ----------
+    in_channels : int
+        Number of channels in the input graph.
+    out_channels : int
+        Number of channels in the output graph.
+    kernel_size : int
+        Chebychev polynomial degree
+    laplacian : torch.sparse_coo_tensor
+        Graph laplacian
+    """
+
+    def __init__(self, in_channels, out_channels, laplacian):
+        super().__init__()
+
+        self.conv1 = ConvCheb(in_channels, out_channels, 1, laplacian)
+        self.conv2 = ConvCheb(out_channels, out_channels, 3, laplacian)
+        self.conv3 = ConvCheb(out_channels, in_channels, 1, laplacian)
+        self.bn1 = BatchNorm1d(out_channels)
+        self.bn2 = BatchNorm1d(out_channels)
+        self.bn3 = BatchNorm1d(in_channels)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x.permute(0, 2, 1)).permute(0, 2, 1)
+        x = F.relu(x)
+
+        x = self.conv2(x)
+        x = self.bn2(x.permute(0, 2, 1)).permute(0, 2, 1)
+        x = F.relu(x)
+
+        x = self.conv3(x)
+        x = self.bn3(x.permute(0, 2, 1)).permute(0, 2, 1)
+        return x
+
 
 class UNetSphericalHealpixResidualShort4Levels(torch.nn.Module):
     """Spherical GCNN UNet
@@ -492,7 +598,7 @@ class UNetSphericalHealpixResidualShort3LevelsOnlyEncoder(torch.nn.Module):
         x = self.uconv13(x)
 
         return x
-
+    
     def state_dict(self, *args, **kwargs):
         """
         This function overrides the state dict in order to be able to save the model.
@@ -506,6 +612,7 @@ class UNetSphericalHealpixResidualShort3LevelsOnlyEncoder(torch.nn.Module):
         for key in del_keys:
             del state_dict[key]
         return state_dict
+
 
     def forward(self, x):
         """Forward Pass
