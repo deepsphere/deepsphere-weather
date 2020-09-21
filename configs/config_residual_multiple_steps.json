@@ -24,7 +24,7 @@
             "nb_timesteps": 2,
             "nb_epochs": 12,
             "learning_rate": 0.008,
-            "batch_size": 24
+            "batch_size": 15
     },
     "model_parameters":
     {
@@ -32,10 +32,11 @@
             "delta_t": 6,
             "in_features": 7,
             "out_features":2,
-            "architecture_name": "loss_v0_4steps_variation0_residual_l3_long_connections_per_epoch",
+            "num_steps_ahead": 8,
+            "architecture_name": "loss_v0_8steps_constant_increasing_static_l3_long_connections_per_epoch",
             "resolution": 5.625,
             "kernel_size_pooling": 4,
-            "initial_weights": [1, 0,0,0],
+            "initial_weights": [1,2,3,4,5,6,7,8],
             "model": "UNetSphericalHealpixResidualLongConnections"
     }
 }
