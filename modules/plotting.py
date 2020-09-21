@@ -155,6 +155,7 @@ def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, ou
     rmses_ifs_t63 = rmses_baselines['IFS T63'].sel(lead_time=slice(lead_times[0], lead_times[-1]))
     rmses_weyn = xr.open_dataset(input_dir + 'rmses_weyn.nc').rename({'z500':'z', 't850':'t'})
     rmse_iciar = rmses_baselines['Iciar20']
+    rmse_direct = rmses_baselines['Direct_ours']
     
     f, axs = plt.subplots(1, 2, figsize=(17, 6))
     if title:
@@ -169,8 +170,10 @@ def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, ou
     axs[0].scatter([72, 120], rmses_rasp_direct.z.values, label='Rasp 2020 (direct)', color='maroon')
     #axs[0].plot(lead_times0, rmses_rasp_iter.z.values, label='Rasp 2020 (iter)', linestyle='-')
     axs[0].plot(lead_times0, rmses_weyn.z.values[:len(lead_times0)], label='Weyn 2020', linestyle='-')
-    axs[0].plot(lead_times, rmse_iciar.z.values, label='Iciar 2020',  marker='o')
+    axs[0].plot(lead_times, rmse_iciar.z.values, label='Iciar 2020',  marker='o', alpha=0.6)
+    axs[0].scatter(rmse_direct.lead_times, rmse_direct.z.values, label='Direct', marker='o')
     axs[0].plot(lead_times, rmses_spherical.z.values, label='Ours', color='black', marker='o')
+
 
     axs[0].set_ylabel('RMSE [$m^2 s^{−2}$]', fontsize=18)
     axs[0].set_xlabel('Forecast time [h]', fontsize=18)
@@ -190,7 +193,8 @@ def plot_benchmark(rmses_spherical, model_description, lead_times, input_dir, ou
     axs[1].scatter([72, 120], rmses_rasp_direct.t.values, label='Rasp 2020 (direct)', color='maroon')
     #axs[1].plot(lead_times0, rmses_rasp_iter.t.values, label='Rasp 2020 (iter)', linestyle='-')
     axs[1].plot(lead_times0, rmses_weyn.t.values[:len(lead_times0)], label='Weyn 2020', linestyle='-')
-    axs[1].plot(lead_times, rmse_iciar.t.values, label='Iciar 2020',  marker='o')
+    axs[1].plot(lead_times, rmse_iciar.t.values, label='Iciar 2020',  marker='o', alpha=0.6)
+    axs[1].scatter(rmse_direct.lead_times, rmse_direct.t.values, label='Direct', marker='o')
     axs[1].plot(lead_times, rmses_spherical.t.values, label='Ours', color='black', marker='o')
 
 

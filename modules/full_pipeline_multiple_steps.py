@@ -30,13 +30,13 @@ def main(config_file, load_model=False, model_name_epochs=None):
         Update array of weights for the loss function
         :param w: array of weights from earlier step [0] to latest one [-1]
         :return: array of weights modified
-
+        """
         for i in range(1, len(w)):
             len_w = len(w)
             w[len_w - i] += w[len_w - i -1]*0.4
             w[len_w - i - 1] *= 0.8
         w = np.array(w)/sum(w)
-        """
+
         return w
 
 
