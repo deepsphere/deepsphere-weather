@@ -21,9 +21,10 @@ Weyn et al | 103.17 | 1.0380 | 611.33 | 2.957
 Iciar June 2020 | 67.46 | 0.7172 | 861.7 | 3.432
 Ours Sep 2020 | 61.58 | 0.7110 | 680.024 | 2.901
   
-  Results can be checked at [Plot Results][plots]
+  * Results can be checked at [Plot Results][plots]
+  
 
-[plots]: https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/plot_results.ipynb
+
 
 
 Ressources:
@@ -123,6 +124,16 @@ Previous architectures used can be found in the folder ``` modules/old_architect
 
 ## Notebooks
 
+The main notebooks to explore are:
+1. [Train of model using multiple-steps weighted loss][train_notebook]
+Contains an example of how to use the functions that train the model that reported the best results mentioned earlier.
+
+1. [Generate predictions using saved models][pred]
+Generate values on validation set using the weights of the desired saved model 
+
+1. [Evaluate predictions][plots]
+Generate loss plots and comparison plots against different benchmark models
+
 The below notebooks contain all experiments used to create our obtained results reported on the Msc Thesis of [Icíar Lloréns Jover][illorens]. 
 
 1. [Effect of static features on predictability.][static_features]
@@ -150,6 +161,13 @@ The below notebooks show how to evaluate the performance of our models.
 [evaluation]: https://nbviewer.jupyter.org/github/illorens/weather_prediction/blob/master/notebooks/evaluate_model.ipynb
 
 [error_vid]: https://nbviewer.jupyter.org/github/illorens/weather_prediction/blob/master/notebooks/error_video.ipynb
+
+[train_notebook]: https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/Restarting_weights_per_epoch.ipynb
+
+[pred]: https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/generate_evaluate_predictions.ipynb
+
+[plots]: https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/plot_results.ipynb
+
 
 
 ## License
