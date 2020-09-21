@@ -1,12 +1,30 @@
 # Geometric deep learning for medium-range weather prediction
 
-[Icíar Lloréns Jover][illorens], [Michaël Defferrard][mdeff], [Gionata Ghiggi][gg]
+[Icíar Lloréns Jover][illorens], [Michaël Defferrard][mdeff], [Gionata Ghiggi][gg], [Natalie Bolón Brun][nbolon]
 
 [illorens]: https://www.linkedin.com/in/iciar-llorens-jover/
 [mdeff]: http://deff.ch
 [gg]: https://people.epfl.ch/gionata.ghiggi
+[nbolon]: https://www.linkedin.com/in/nataliebolonbrun/
 
-The code in this repository provides a framework for a deep learning medium range weather prediction method based on graph spherical convolutions. The results obtained with this code are detailed in the Masters thesis [report and slides][info_link]. 
+The code in this repository provides a framework for a deep learning medium range weather prediction method based on graph spherical convolutions. 
+
+[June 2020]: The results obtained with this code are detailed in the Masters thesis [report and slides][info_link].
+
+[September 2020]: Results have been improved from the initial basis thanks to:
+  * Introduction of residual connections in the architecture 
+  * Inclusion of further consecutive steps in the loss with different weighting schemes to reduce the loss at long term predictions
+  
+ Model | Z500 (6h) | t850 (6h) | Z500 (120h) | t850 (120h)
+------------ | ------------- | ------------- | ------------- | -------------
+Weyn et al | 103.17 | 1.0380 | 611.33 | 2.957
+Iciar June 2020 | 67.46 | 0.7172 | 861.7 | 3.432
+Ours Sep 2020 | 61.580 | 0.711 | 680.024 | 2.901
+  
+  Results can be checked at [Plot Results][plots]
+[plots]: https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/plot_results.ipynb
+
+
 
 
 Ressources:
@@ -68,7 +86,7 @@ Attention:
 
 ## Modules
 
-* ```full_pipeline_evalution.py``` 
+* ```full_pipeline_evaluation.py``` 
 
 Allows to train, test, generate predictions and evaluate them for a model trained 
 with a loss function that includes 2 steps. All parameters, except GPU configuration, are defined in a config
@@ -106,7 +124,7 @@ Previous architectures used can be found in the folder ``` modules/old_architect
 
 ## Notebooks
 
-The below notebooks contain all experiments used to create our obtained results. 
+The below notebooks contain all experiments used to create our obtained results reported on the Msc Thesis of [Icíar Lloréns Jover][illorens]. 
 
 1. [Effect of static features on predictability.][static_features]
    Shows the effect of the removal of all static features from the model training. The notebook shows the training, results and comparison of the models. 
