@@ -44,15 +44,21 @@ You only need the file ```rmse.pkl```
 The file ```data/healpix/metrics/final_models_rmse.pkl``` contains the rmse of the following models:
 
 
-'varying (ep 7)' = 'all_const_len2_delta_6_architecture_loss_v0_8steps_increas_reinitialize_residual_l3_per_epoch_epoch_7'
-'varying (ep 11)' = 'all_const_len2_delta_6_architecture_loss_v0_8steps_increas_reinitialize_residual_l3_per_epoch_epoch_10'
-'varying - long' = 'all_const_len2_delta_6_architecture_loss_v0_8steps_increas_reinitialize_residual_l3_long_connections_per_epoch_epoch_5'
-'constant decr' = 'all_const_len2_delta_6_architecture_loss_v0_8steps_constant_decresing_l3_per_epoch_epoch_6'
-'constant incr' = 'all_const_len2_delta_6_architecture_loss_v0_8steps_constant_increasing_l3_per_epoch_epoch_5'
-'constant incr long' = 'spherical_unet_3days_direct_forecast_epoch6'
-'direct-6h'= 'all_const_len2_delta_6_architecture_loss_v0_8steps_constant_increasing_static_l3_long_connections_per_epoch_epoch_7'
+```varying (ep 7)``` = 'all_const_len2_delta_6_architecture_loss_v0_8steps_increas_reinitialize_residual_l3_per_epoch_epoch_7'
 
-varying --> weights are updated based on the learning curve of the model during training. Initially full weight is given 
+```varying (ep 11)``` = 'all_const_len2_delta_6_architecture_loss_v0_8steps_increas_reinitialize_residual_l3_per_epoch_epoch_10'
+
+```varying - long``` = 'all_const_len2_delta_6_architecture_loss_v0_8steps_increas_reinitialize_residual_l3_long_connections_per_epoch_epoch_5'
+
+```constant decr``` = 'all_const_len2_delta_6_architecture_loss_v0_8steps_constant_decresing_l3_per_epoch_epoch_6'
+
+```constant incr``` = 'all_const_len2_delta_6_architecture_loss_v0_8steps_constant_increasing_l3_per_epoch_epoch_5'
+
+```constant incr long``` = 'spherical_unet_3days_direct_forecast_epoch6'
+
+```direct-6h``` = 'all_const_len2_delta_6_architecture_loss_v0_8steps_constant_increasing_static_l3_long_connections_per_epoch_epoch_7'
+
+*varying* --> weights are updated based on the learning curve of the model during training. Initially full weight is given 
 for the first prediction (6h). The evolution of the weight is given by the function 
 
 ```python
@@ -72,10 +78,10 @@ for the first prediction (6h). The evolution of the weight is given by the funct
 
 ```
 
-constant --> weights are not updated. Increasing stands for weights distributed in an increasing fashion (more weight is
+*constant* --> weights are not updated. Increasing stands for weights distributed in an increasing fashion (more weight is
 attributed to further prediction steps in time).  Decreasing acts in the opposite way. 
 
-long --> implies the usage of the architecture names ``` UNetSphericalHealpixResidualLongConnections ``` . If not indicated,
+*long* --> implies the usage of the architecture names ``` UNetSphericalHealpixResidualLongConnections ``` . If not indicated,
 the architecture used was ``` UNetSphericalHealpixResidualShort3LevelsOnlyEncoder ```
 
-direct --> only the first prediction step is taken into account for the loss for training. 
+*direct* --> only the first prediction step is taken into account for the loss for training. 
