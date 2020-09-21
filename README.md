@@ -19,12 +19,11 @@ The code in this repository provides a framework for a deep learning medium rang
 ------------ | ------------- | ------------- | ------------- | -------------
 Weyn et al | 103.17 | 1.0380 | 611.33 | 2.957
 Iciar June 2020 | 67.46 | 0.7172 | 861.7 | 3.432
-Ours Sep 2020 | 61.580 | 0.711 | 680.024 | 2.901
+Ours Sep 2020 | 61.58 | 0.7110 | 680.024 | 2.901
   
   Results can be checked at [Plot Results][plots]
+
 [plots]: https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/plot_results.ipynb
-
-
 
 
 Ressources:
