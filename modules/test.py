@@ -156,6 +156,89 @@ def create_iterative_predictions_healpix(model, device, dg):
     return prediction_ds
 
 
+def create_iterative_predictions_healpix_temp(model, device, dg):
+    
+    out_feat = dg.dataset.out_features
+    
+    train_std =  dg.dataset.std.values[:out_feat]
+    train_mean = dg.dataset.mean.values[:out_feat]
+    
+    delta_t = dg.dataset.delta_t
+    len_sqce = dg.dataset.len_sqce
+    max_lead_time = dg.dataset.max_lead_time
+    initial_lead_time = delta_t * len_sqce
+    nodes = dg.dataset.nodes
+    nside = int(np.sqrt(nodes/12))
+    n_samples = dg.dataset.n_samples
+    in_feat = dg.dataset.in_features
+    
+    # Lead times
+    lead_times = np.arange(delta_t, max_lead_time + delta_t, delta_t)
+    
+    # Lat lon coordinates
+    out_lon, out_lat = hp.pix2ang(nside, np.arange(nodes), lonlat=True)
+    
+    # Actual times
+    start = np.datetime64(dg.dataset.years[0], 'h') + np.timedelta64(initial_lead_time, 'h')
+    stop = start + np.timedelta64(dg.dataset.n_samples, 'h')
+    times = np.arange(start, stop)
+    
+    # Variables
+    var_dict_out = {var: None for var in ['z', 't']}
+    
+    # Constants
+    constants = np.array(dg.dataset.data.isel(level=slice(out_feat, None)).values)
+    
+    dataloader = dg
+    predictions = []
+    model.eval()
+    for lead in lead_times:
+        outputs = []
+        next_batch_ = []
+        states = np.empty((n_samples, nodes, in_feat*len_sqce))
+        
+        time1 = time.time()
+
+        for i, (sample, _) in enumerate(dataloader):
+            inputs = sample[0].to(device)
+            output = model(inputs)
+            
+            next_batch_.append(inputs[:, :, in_feat:].detach().cpu().clone().numpy())
+            outputs.append(output.detach().cpu().clone().numpy()[:, :, :out_feat])
+            
+            
+        next_batch = np.concatenate(next_batch_)    
+        preds = np.concatenate(outputs)
+        states[:, :, :(len_sqce-1)*in_feat] = next_batch
+        states[:, :, (len_sqce-1)*in_feat:(len_sqce-1)*in_feat + out_feat] = preds
+        states[:, :, -(in_features - out_features):] =  constants[(len_sqce-1)*delta_t+
+                                                                  lead:n_samples+(len_sqce-1)*delta_t+lead, :]
+
+        predictions.append(preds * train_std + train_mean)
+
+        new_set = WeatherBenchDatasetIterative(states)
+        dataloader = DataLoader(new_set, batch_size=batch_size, shuffle=False, num_workers=10)
+        
+        time2 = time.time()
+        
+    predictions = np.array(predictions)
+    
+    das = [];
+    lev_idx = 0
+    for var in ['z', 't']:       
+        das.append(xr.DataArray(
+            predictions[:, :, :, lev_idx],
+            dims=['lead_time', 'time', 'node'],
+            coords={'lead_time': lead_times, 'time': times, 'node': np.arange(nodes)},
+            name=var
+        ))
+        lev_idx += 1
+            
+    prediction_ds = xr.merge(das)
+    prediction_ds = prediction_ds.assign_coords({'lat': out_lat, 'lon': out_lon})
+    return prediction_ds
+
+
 def create_predictions(model, device, dg):
     """Create direct predictions for models using 1D signals (eg GCNN)
     

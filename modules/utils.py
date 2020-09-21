@@ -25,6 +25,7 @@ def train_model_2steps(model, device, train_generator, epochs, lr, validation_da
     val_losses = []
     
     for epoch in range(epochs):
+        print('\rEpoch : {}'.format(epoch), end="")
         
         time1 = time.time()
         
@@ -33,6 +34,7 @@ def train_model_2steps(model, device, train_generator, epochs, lr, validation_da
         
         model.train()  
         for batch_idx, (batch, labels) in enumerate(train_generator):
+            print('\rBatch idx: {}'.format(batch_idx), end="")
             # Transfer to GPU
             batch1 = batch[0].to(device)
             constants1 = batch[1].to(device)
