@@ -39,13 +39,13 @@ For a local installation, follow the below instructions.
 
 1. Clone this repository.
    ```sh
-   git clone https://github.com/illorens/weather_prediction.git
+   git clone https://github.com/natbolon/weather_prediction.git
    cd weather_prediction
    ```
 
 2. Install the dependencies.
    ```sh
-   conda env create -f environment.yml
+   conda env create -f weather.yml
    ```
    
    
