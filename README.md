@@ -3,7 +3,7 @@
 - ~~Benchmark_time_training.txt~~
 - LICENSE.txt
 - README.md
-- configs (Doing by W)
+- configs
   - config_bottleneck.json
   - config_original_less_channels.json
   - config_residual_level2.json
@@ -35,27 +35,27 @@
     - test.py
     - utils.py
 - notebooks
-    - Iciar-report-notebooks
-      - error_video.ipynb
-      - test_dynamic_features.ipynb
-      - test_static_features-nearest.ipynb
-      - test_static_features.ipynb
-      - test_temporal_dimension.ipynb
+    - ~~Iciar-report-notebooks~~
+      - ~~error_video.ipynb~~
+      - ~~test_dynamic_features.ipynb~~
+      - ~~test_static_features-nearest.ipynb~~
+      - ~~test_static_features.ipynb~~
+      - ~~test_temporal_dimension.ipynb~~
     - Restarting_weights_per_epoch.ipynb
-    - full_pipeline.ipynb
+    - ~~full_pipeline.ipynb~~
     - generate_evaluate_predictions.ipynb
     - generate_observations.ipynb
     - healpix_resampling.ipynb
-    - other_notebooks
-      - benchmark_chunks.ipynb
-      - benchmark_training_time.ipynb
-      - effect_size_training_ds.ipynb
-      - pytorch_weatherbench.ipynb
-      - standardize_data.ipynb
+    - ~~other_notebooks~~
+      - ~~benchmark_chunks.ipynb~~
+      - ~~benchmark_training_time.ipynb~~
+      - ~~effect_size_training_ds.ipynb~~
+      - ~~pytorch_weatherbench.ipynb~~
+      - ~~standardize_data.ipynb~~
     - plot_results.ipynb
-    - running\ with\ variable\ weights\ multiple\ steps.ipynb
-    - train_direct_prediction.ipynb
-    - train_last_model_l1.ipynb
+    - ~~running with variable weights multiple steps.ipynb~~
+    - ~~train_direct_prediction.ipynb~~
+    - ~~train_last_model_l1.ipynb~~
 - ~~notes.md~~
 - ~~scripts~~
   - ~~config_data_interpolation.yml~~
