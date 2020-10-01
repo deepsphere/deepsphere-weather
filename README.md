@@ -86,13 +86,13 @@ Attention:
 
 ## Reproduce latest results
 
-* Train model: 
+### Train model: 
 
 The model listed as "Ours 2020" is trained using the module ```full_pipeline_multiple_steps.py```. An example of how to use it can be found on the notebook ```Restarting_weights_per_epoch.ipynb```. 
 
 The config file to be used is ```configs/config_residual_multiple_steps.json```. You may want to modify the model name and/or the data paths if the data has been relocated. 
 
-* Evaluate model: 
+### Evaluate model: 
 
 You can generate the model predictions using the notebook ```generate_evaluate_predictions.ipynb```. The parameters to be modified are:
  - model name (third cell)
@@ -100,7 +100,7 @@ You can generate the model predictions using the notebook ```generate_evaluate_p
  
 In order to evaluate the performance of the model, you only need to run up to "Generate plots for evaluation". This sencond part will generate the skill and climatology plots (you may be interested in generate them for a single epoch usually, not all of them)
 
-* Compare models: 
+### Compare models: 
 
 In order to compare the performance of different models, or the same model at different epochs or simply a model against different baselines, you can use the notebook  ```plot_results.ipynb```. Depending on the purpose of the comparison, you may want to run a different section of the notebook. An explanation of each section and its use case can be found under the heading of the notebook. 
 
@@ -154,19 +154,19 @@ Contains code to train model with 2step-ahead prediction such as the one used fo
 ## Notebooks
 
 The main notebooks to explore are:
-1. [Train of model using multiple-steps weighted loss][train_notebook]
+1. `Restarting_weights_per_epoch.ipynb`
 Contains an example of how to use the functions that train the model that reported the best results mentioned earlier.
 
-1. [Generate predictions using saved models][pred]
+1. `generate_evaluate_predictions.ipynb`
 Generate values on validation set using the weights of the desired saved model 
 
-1. [Evaluate predictions][plots]
+1. `plot_results.ipynb`
 Generate loss plots and comparison plots against different benchmark models
 
-1. [healpix_resampling](https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/healpix_resampling.ipynb)
+1. `healpix_resampling.ipynb`
 Generate healpix data from equiangular data
 
-1. [generate_observations](https://nbviewer.jupyter.org/github/natbolon/weather_prediction/blob/master/notebooks/generate_observations.ipynb)
+1. `generate_observations.ipynb`
 Generate ground-truth data for evaluation of the models 
 
 
