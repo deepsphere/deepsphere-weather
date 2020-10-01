@@ -223,7 +223,7 @@ def create_iterative_predictions_healpix_temp(model, device, dg):
         
     predictions = np.array(predictions)
     
-    das = [];
+    das = []
     lev_idx = 0
     for var in ['z', 't']:       
         das.append(xr.DataArray(
