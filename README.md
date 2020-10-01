@@ -21,7 +21,7 @@ Weyn et al | 103.17 | 1.0380 | 611.33 | 2.957
 Iciar June 2020 | 67.46 | 0.7172 | 861.7 | 3.432
 Ours Sep 2020 | 61.58 | 0.7110 | 680.024 | 2.901
   
-  * Results can be checked at [Plot Results][plots]
+  * Results can be checked at `plot_results.ipynb`
   
 
 
