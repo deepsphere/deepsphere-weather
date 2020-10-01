@@ -1,6 +1,6 @@
 # Cleanup check list
 
-- Benchmark_time_training.txt
+- ~~Benchmark_time_training.txt~~
 - LICENSE.txt
 - README.md
 - configs (Doing by W)
@@ -16,7 +16,7 @@
 - data
   - final_models_rmse.pkl
   - weatherbench_training.npy
-- environment.yml
+- ~~environment.yml~~
 - modules
   - __init__.py
   - architectures.py
@@ -56,13 +56,13 @@
     - running\ with\ variable\ weights\ multiple\ steps.ipynb
     - train_direct_prediction.ipynb
     - train_last_model_l1.ipynb
-- notes.md
-- scripts
-  - config_data_interpolation.yml
-  - config_data_preprocessing.yml
-  - data_interpolation.py
-  - scores_Weyn.py
-- tips.md
+- ~~notes.md~~
+- ~~scripts~~
+  - ~~config_data_interpolation.yml~~
+  - ~~config_data_preprocessing.yml~~
+  - ~~data_interpolation.py~~
+  - ~~scores_Weyn.py~~
+- ~~tips.md~~
 - weather.yml
 
 # Geometric deep learning for medium-range weather prediction
