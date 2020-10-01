@@ -1,3 +1,70 @@
+# Cleanup check list
+
+- Benchmark_time_training.txt
+- LICENSE.txt
+- README.md
+- configs (Doing by W)
+  - config_bottleneck.json
+  - config_original_less_channels.json
+  - config_residual_level2.json
+  - config_residual_level3.json
+  - config_residual_level3_long_connections.json
+  - config_residual_level4.json
+  - config_residual_level4_nolong.json
+  - config_residual_multiple_steps.json
+  - config_train.json
+- data
+  - final_models_rmse.pkl
+  - weatherbench_training.npy
+- environment.yml
+- modules
+  - __init__.py
+  - architectures.py
+  - data.py
+  - full_pipeline.py
+  - full_pipeline_evaluation.py
+  - full_pipeline_multiple_steps.py
+  - layers.py
+  - mail.py
+  - old_architectures
+    - __init__.py
+    - healpix_models.py
+    - models.py
+    - other_architectures.py
+    - plotting.py
+    - test.py
+    - utils.py
+- notebooks
+    - Iciar-report-notebooks
+      - error_video.ipynb
+      - test_dynamic_features.ipynb
+      - test_static_features-nearest.ipynb
+      - test_static_features.ipynb
+      - test_temporal_dimension.ipynb
+    - Restarting_weights_per_epoch.ipynb
+    - full_pipeline.ipynb
+    - generate_evaluate_predictions.ipynb
+    - generate_observations.ipynb
+    - healpix_resampling.ipynb
+    - other_notebooks
+      - benchmark_chunks.ipynb
+      - benchmark_training_time.ipynb
+      - effect_size_training_ds.ipynb
+      - pytorch_weatherbench.ipynb
+      - standardize_data.ipynb
+    - plot_results.ipynb
+    - running\ with\ variable\ weights\ multiple\ steps.ipynb
+    - train_direct_prediction.ipynb
+    - train_last_model_l1.ipynb
+- notes.md
+- scripts
+  - config_data_interpolation.yml
+  - config_data_preprocessing.yml
+  - data_interpolation.py
+  - scores_Weyn.py
+- tips.md
+- weather.yml
+
 # Geometric deep learning for medium-range weather prediction
 
 [Icíar Lloréns Jover][illorens], [Michaël Defferrard][mdeff], [Gionata Ghiggi][gg], [Natalie Bolón Brun][nbolon]
