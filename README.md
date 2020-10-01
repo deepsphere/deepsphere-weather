@@ -192,7 +192,7 @@ The content of this repository is released under the terms of the [MIT license](
 - data
   - final_models_rmse.pkl
   - weatherbench_training.npy
-- ~~environment.yml~~
+- environment.yml
 - modules
   - \_\_init__.py
   - architectures.py
@@ -239,4 +239,4 @@ The content of this repository is released under the terms of the [MIT license](
   - ~~data_interpolation.py~~
   - ~~scores_Weyn.py~~
 - ~~tips.md~~
-- weather.yml
+- ~~weather.yml~~
