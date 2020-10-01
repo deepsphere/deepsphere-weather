@@ -46,7 +46,7 @@ For a local installation, follow the below instructions.
 
 2. Install the dependencies.
    ```sh
-   conda env create -f weather.yml
+   conda env create -f environment.yml
    ```
    
    
