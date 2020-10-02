@@ -5,9 +5,11 @@ from scipy import sparse
 import scipy.sparse.linalg
 import torch
 from torch.nn import functional as F
+from torch.nn import Conv1d
 
 from deepsphere.utils.samplings import equiangular_dimension_unpack
 from deepsphere.layers.samplings.equiangular_pool_unpool import reformat
+
 
 # 2D CNN layers
 class Conv2dPeriodic(torch.nn.Module):
@@ -23,28 +25,28 @@ class Conv2dPeriodic(torch.nn.Module):
         Width of the square convolutional kernel.
         The actual size of the kernel is kernel_size*+2
     """
-    
+
     def __init__(self, in_channels, out_channels, kernel_size):
         super().__init__()
-        
+
         self.kernel_size = kernel_size
-        self.pad_width = int((self.kernel_size - 1)/2)
-        
+        self.pad_width = int((self.kernel_size - 1) / 2)
+
         self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size, padding=0)
-        
+
         torch.nn.init.xavier_uniform_(self.conv.weight)
         torch.nn.init.zeros_(self.conv.bias)
-    
+
     def pad(self, x):
         padded = torch.cat((x[:, :, :, -self.pad_width:], x, x[:, :, :, :self.pad_width]), dim=3)
         padded = F.pad(padded, (0, 0, self.pad_width, self.pad_width), 'constant', 0)
-        
+
         return padded
-    
+
     def forward(self, x):
         padded = self.pad(x)
         output = self.conv(padded)
-        
+
         return output
 
 
@@ -68,7 +70,7 @@ def prepare_laplacian(laplacian):
                                    ncv=min(laplacian.shape[0], 10),
                                    return_eigenvectors=False)
         lmax = lmax[0]
-        lmax *= 1 + 2*tol  # Be robust to errors.
+        lmax *= 1 + 2 * tol  # Be robust to errors.
         return lmax
 
     def scale_operator(L, lmax, scale=1):
@@ -109,38 +111,38 @@ def cheb_conv(laplacian, inputs, weight):
     x : torch.Tensor
         Inputs after applying Chebyshev convolution.
     """
-    
+
     B, V, Fin1 = inputs.shape
-    #print('B: {}, V. {}, Fin: {}'.format(B,V,Fin1))
+    # print('B: {}, V. {}, Fin: {}'.format(B,V,Fin1))
     Fin, K, Fout = weight.shape
-    #print('Fin: {}, K: {}, Fout: {}'.format(Fin, K, Fout))
+    # print('Fin: {}, K: {}, Fout: {}'.format(Fin, K, Fout))
     assert Fin1 == Fin
     # B = batch size
     # V = nb vertices
     # Fin = nb input features
     # Fout = nb output features
     # K = order of Chebyshev polynomials (kenel size)
-    
+
     # transform to Chebyshev basis    
     x0 = inputs.permute(1, 2, 0).contiguous()  # V x Fin x B
-    x0 = x0.view([V, Fin*B])              # V x Fin*B
-    x = x0.unsqueeze(0)                   # 1 x V x Fin*B
+    x0 = x0.view([V, Fin * B])  # V x Fin*B
+    x = x0.unsqueeze(0)  # 1 x V x Fin*B
 
     if K > 1:
-        x1 = torch.sparse.mm(laplacian, x0)     # V x Fin*B
+        x1 = torch.sparse.mm(laplacian, x0)  # V x Fin*B
         x = torch.cat((x, x1.unsqueeze(0)), 0)  # 2 x V x Fin*B
     for _ in range(2, K):
         x2 = 2 * torch.sparse.mm(laplacian, x1) - x0
         x = torch.cat((x, x2.unsqueeze(0)), 0)  # M x Fin*B
         x0, x1 = x1, x2
 
-    x = x.view([K, V, Fin, B])              # K x V x Fin x B
+    x = x.view([K, V, Fin, B])  # K x V x Fin x B
     x = x.permute(3, 1, 2, 0).contiguous()  # B x V x Fin x K
-    x = x.view([B*V, Fin*K])                # B*V x Fin*K
+    x = x.view([B * V, Fin * K])  # B*V x Fin*K
 
     # Linearly compose Fin features to get Fout features
-    weight = weight.view(Fin*K, Fout)
-    x = x.matmul(weight)      # B*V x Fout
+    weight = weight.view(Fin * K, Fout)
+    x = x.matmul(weight)  # B*V x Fout
     x = x.view([B, V, Fout])  # B x V x Fout
 
     return x
@@ -171,27 +173,27 @@ def cheb_conv_temp(laplacian, inputs, weight):
     # Fout = nb output features
     # Kv = order of Chebyshev polynomials (spatial kernel width)
     # Kt = Temporal kernel width
-    
+
     # transform to Chebyshev basis    
     x0 = inputs.permute(1, 2, 3, 0).contiguous()  # V x T x Fin x B
-    x0 = x0.view([V, T*Fin*B])              # V x T*Fin*B
-    x = x0.unsqueeze(0)                     # 1 x V x T*Fin*B
+    x0 = x0.view([V, T * Fin * B])  # V x T*Fin*B
+    x = x0.unsqueeze(0)  # 1 x V x T*Fin*B
 
     if Kv > 1:
-        x1 = torch.sparse.mm(laplacian, x0)     # V x T*Fin*B
+        x1 = torch.sparse.mm(laplacian, x0)  # V x T*Fin*B
         x = torch.cat((x, x1.unsqueeze(0)), 0)  # 2 x V x T*Fin*B
     for _ in range(2, Kv):
         x2 = 2 * torch.sparse.mm(laplacian, x1) - x0
         x = torch.cat((x, x2.unsqueeze(0)), 0)  # M x T*Fin*B
         x0, x1 = x1, x2
-    
-    x = x.view([Kv, V, T, Fin, B])              # Kv x V x T x Fin x B
-    x = x.permute(4, 1, 3, 0, 2).contiguous()   # B x V x Fin x Kv x T
-    x = x.view([B*V, Fin*Kv*T])                 # B*V x Fin*K*T
-    
+
+    x = x.view([Kv, V, T, Fin, B])  # Kv x V x T x Fin x B
+    x = x.permute(4, 1, 3, 0, 2).contiguous()  # B x V x Fin x Kv x T
+    x = x.view([B * V, Fin * Kv * T])  # B*V x Fin*K*T
+
     # Linearly compose Fin features to get Fout features
-    weight = weight.view(Fin*Kv*Kt, Fout)
-    x = x.matmul(weight)      # B*V x Fout
+    weight = weight.view(Fin * Kv * Kt, Fout)
+    x = x.matmul(weight)  # B*V x Fout
     x = x.view([B, V, Fout])  # B x V x Fout
 
     return x
@@ -338,13 +340,13 @@ class ConvCheb(torch.nn.Module):
         inputs : tensor of shape n_signals x n_vertices x n_features
             Data, i.e., features on the vertices.
         """
-        
+
         outputs = self._conv(self.laplacian, inputs, self.weight)
         if self.bias is not None:
             outputs += self.bias
         return outputs
-    
-    
+
+
 class ConvChebTemp(torch.nn.Module):
     """Graph spatio-temporal convolutional layer.
 
@@ -384,7 +386,7 @@ class ConvChebTemp(torch.nn.Module):
         self.temp_width = temp_width
         self._conv = conv
         self.register_buffer(f'laplacian', laplacian)
-        
+
         shape = (in_channels, graph_width, temp_width, out_channels)
         self.weight = torch.nn.Parameter(torch.Tensor(*shape))
 
@@ -500,13 +502,11 @@ class Conv1dAuto(Conv1d):
         self.padding = (self.kernel_size[0] // 2)  # dynamic add padding based on the kernel_size
 
 
-
-    
 # Pooling layers
 def _equiangular_calculator(tensor, ratio):
     N, M, F = tensor.size()
     dim1, dim2 = equiangular_dimension_unpack(M, ratio)
-    bw_dim1, bw_dim2 = dim1/2, dim2/2
+    bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
     tensor = tensor.view(N, dim1, dim2, F)
     return tensor, [bw_dim1, bw_dim2]
 
@@ -572,7 +572,7 @@ class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
 
     def __init__(self, ratio, kernel_size):
         self.ratio = ratio
-        
+
         super().__init__(kernel_size=(kernel_size, kernel_size))
 
     def forward(self, inputs, indices):
@@ -629,7 +629,7 @@ class PoolAvgEquiangular(torch.nn.AvgPool1d):
         x = reformat(x)
 
         return x
-    
+
 
 class UnpoolAvgEquiangular(torch.nn.Module):
     """EquiAngular average unpooling
@@ -663,8 +663,8 @@ class UnpoolAvgEquiangular(torch.nn.Module):
         x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
         x = reformat(x)
         return x
-    
-    
+
+
 class PoolMaxHealpix(torch.nn.MaxPool1d):
     """Healpix Maxpooling module
      
@@ -708,7 +708,7 @@ class PoolMaxHealpix(torch.nn.MaxPool1d):
             output = x
         return output
 
-    
+
 class PoolAvgHealpix(torch.nn.Module):
     """Healpix average pooling module
     
@@ -756,7 +756,7 @@ class UnpoolAvgHealpix(torch.nn.Module):
         x = x.permute(0, 2, 1)
         x = torch.nn.functional.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
         return x.permute(0, 2, 1)
-    
+
 
 class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
     """HEALpix max unpooling module
@@ -769,12 +769,12 @@ class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
 
     def __init__(self, kernel_size):
         super().__init__(kernel_size=kernel_size)
-        
 
-    def forward(self, x, indices):
+    def forward(self, x, indices, **kwargs):
         """calls pytorch's unpool1d function to create the values while unpooling based on the nearby values
         Parameters
         ----------
+        **kwargs
         inputs : torch.tensor of shape batch x pixels x features
             Input data
         indices : list
@@ -812,7 +812,7 @@ class PoolAvgTempHealpix(torch.nn.Module):
 
     def forward(self, x):
         """x has shape (batch, nodes, len_sqce, channels) and is in nested ordering"""
-        x = x.permute(0, 3, 1, 2) # batch, channels, nodes, len_sqce
+        x = x.permute(0, 3, 1, 2)  # batch, channels, nodes, len_sqce
         x = F.avg_pool2d(x, self.kernel_size)
         return x.permute(0, 2, 3, 1)
 
@@ -837,10 +837,10 @@ class UnpoolAvgTempHealpix(torch.nn.Module):
     def forward(self, x):
         """x has shape (batch, nodes, len_sqce, channels) and is in nested ordering"""
         # return x.repeat_interleave(self.kernel_size, dim=1)
-        x = x.permute(0, 3, 1, 2) # batch, channels, nodes, len_sqce
+        x = x.permute(0, 3, 1, 2)  # batch, channels, nodes, len_sqce
         x = F.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
         return x.permute(0, 2, 3, 1)
-    
+
 
 class PoolMaxTempHealpix(torch.nn.MaxPool1d):
     """Healpix Maxpooling module for spatio-temporal convolutions
@@ -885,8 +885,8 @@ class PoolMaxTempHealpix(torch.nn.MaxPool1d):
         else:
             output = x
         return output
-    
-    
+
+
 class UnpoolMaxTempHealpix(torch.nn.MaxUnpool1d):
     """HEALpix max unpooling module for spatio-temporal convolutions
     
@@ -899,12 +899,12 @@ class UnpoolMaxTempHealpix(torch.nn.MaxUnpool1d):
 
     def __init__(self, kernel_size):
         super().__init__(kernel_size=kernel_size)
-        
 
-    def forward(self, x, indices):
+    def forward(self, x, indices, **kwargs):
         """calls pytorch's unpool1d function to create the values while unpooling based on the nearby values
         Parameters
         ----------
+        **kwargs
         inputs : torch.tensor of shape [batch x nodes x len_sqce x features] in nested ordering
             Input data
         indices : list
@@ -919,4 +919,3 @@ class UnpoolMaxTempHealpix(torch.nn.MaxUnpool1d):
         x = F.max_unpool2d(x, indices, self.kernel_size)
         x = x.permute(0, 2, 3, 1)
         return x
-    

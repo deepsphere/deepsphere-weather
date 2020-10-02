@@ -4,13 +4,11 @@ from abc import ABC, abstractmethod
 import torch
 import pygsp
 import numpy as np
-from torch.nn import Conv1d
 from torch.nn import functional as F
-from torch.nn import BatchNorm1d, Conv1d, Identity
+from torch.nn import BatchNorm1d
 
 from modules import layers
 from modules.layers import ConvCheb, PoolMaxHealpix, UnpoolMaxHealpix, Conv1dAuto
-
 
 
 def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
@@ -37,8 +35,8 @@ def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
     return laplacian
 
 
-def getLaplacianKernels(container: List, nodesList: List[int]) -> None:
-    for i, nodes in enumerate(nodesList):
+def get_laplacian_kernels(container: List, nodes_list: List[int]) -> None:
+    for i, nodes in enumerate(nodes_list):
         laplacian = _compute_laplacian_healpix(nodes)
         container.append(laplacian)
 
@@ -46,7 +44,6 @@ def getLaplacianKernels(container: List, nodesList: List[int]) -> None:
 class BaseModule(torch.nn.Module):
     def __init__(self):
         super().__init__()
-
 
     def state_dict(self, *args, **kwargs):
         """
@@ -152,9 +149,8 @@ class SphericalHealpixBlottleNeck(BaseModule):
 
         self.kernel_size = kernel_size
 
-        num_nodes = 3072
         laplacians = []
-        getLaplacianKernels(laplacians, [num_nodes])
+        get_laplacian_kernels(laplacians, [N])
 
         # First convolution
         self.conv1 = ConvBlock(in_channels, 64, 3, laplacians[0])
@@ -170,7 +166,6 @@ class SphericalHealpixBlottleNeck(BaseModule):
         self.bottleneck3 = BottleNeckBlock(256, 64, laplacians[0])
 
         self.conv3 = ConvCheb(256, out_channels, kernel_size, laplacians[0])
-
 
     def forward(self, x):
         """Forward Pass
@@ -197,35 +192,17 @@ class SphericalHealpixBlottleNeck(BaseModule):
 
 class UNet(ABC):
     @abstractmethod
-    def encode(self):
-        """ Encodes an input into a lower dimensional space applying convolutional, batch normalisation and pooling layers
-        Parameters
-        ----------
-        x : torch.Tensor of shape batch_size x n_vertices x in_channels
-            Input data
-        Returns
-        -------
-       x_enc3, x_enc2, x_enc1, idx2, idx1 : torch.Tensors of shapes batch_size x n_vertices x layer_channels + list(int)
-            Encoded data at the different encoding stages and the indices indicating the locations of the maxium values in
-            unpooled images.
+    def encode(self, *args, **kwargs):
+        """ Encodes an input into a lower dimensional space applying convolutional,
+        batch normalisation and pooling layers
         """
-        # x_enc1 = self.dropout1(x_enc1)
         pass
 
     @abstractmethod
-    def decode(self):
-        """ Decodes low dimensional data into high dimensional applying convolutional, batch normalisation,
+    def decode(self, *args, **kwargs):
+        """
+        Decodes low dimensional data into high dimensional applying convolutional, batch normalisation,
         unpooling layers and skip connections
-
-        Parameters
-        ----------
-        x_enc3, x_enc2, x_enc1, idx2, idx1 : torch.Tensors of shapes batch_size x n_vertices x layer_channels + list(int)
-            Encoded data at the different encoding stages and the indices indicating the locations of the maxium values in
-            unpooled images.
-        Returns
-        -------
-        x : torch.Tensor of shape batch_size x n_vertices x out_channels
-            Decoded data
         """
         pass
 
@@ -235,7 +212,7 @@ class UNet(ABC):
         return output
 
 
-class UNetSphericalHealpix(UNet, BaseModule):
+class UNetSphericalHealpix(UNet, BaseModule, ABC):
     """Spherical GCNN UNet
 
     Parameters
@@ -250,7 +227,7 @@ class UNetSphericalHealpix(UNet, BaseModule):
         super().__init__()
 
         laplacians = []
-        getLaplacianKernels(laplacians, num_nodes)
+        get_laplacian_kernels(laplacians, num_nodes)
         self.laplacians = laplacians
 
         # Pooling - unpooling
@@ -264,36 +241,31 @@ class UNetSphericalHealpixResidualLongConnections(UNetSphericalHealpix):
         super().__init__(num_nodes, kernel_size_pooling)
 
         # Encoding block 1
-        self.conv11 = ConvBlock(in_channels, max(in_channels, 32*2), kernel_size, self.laplacians[0])
-        self.conv13 = ConvBlock(max(in_channels, 32*2), 64*2, kernel_size, self.laplacians[0])
+        self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size, self.laplacians[0])
+        self.conv13 = ConvBlock(max(in_channels, 32 * 2), 64 * 2, kernel_size, self.laplacians[0])
 
-        self.conv1_res = Conv1dAuto(in_channels, 64*2, 1)
+        self.conv1_res = Conv1dAuto(in_channels, 64 * 2, 1)
 
         # Encoding block 2
-        self.conv21 = ConvBlock(64*2, 96*2, kernel_size, self.laplacians[1])
-        self.conv23 = ConvBlock(96*2, 128*2, kernel_size, self.laplacians[1])
+        self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size, self.laplacians[1])
+        self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size, self.laplacians[1])
 
-        self.conv2_res = Conv1dAuto(64*2, 128*2, 1)
+        self.conv2_res = Conv1dAuto(64 * 2, 128 * 2, 1)
 
         # Encoding block 3
-        self.conv31 = ConvBlock(128*2, 256*2, kernel_size, self.laplacians[2])
-        self.conv33 = ConvBlock(256*2, 128*2, kernel_size, self.laplacians[2])
+        self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size, self.laplacians[2])
+        self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[2])
 
-        self.conv3_res = Conv1dAuto(128*2, 128*2, 1)
+        self.conv3_res = Conv1dAuto(128 * 2, 128 * 2, 1)
 
-        # Decoding block 4
-        self.uconv21 = ConvBlock(256*2, 128*2, kernel_size, self.laplacians[1])
-        self.uconv22 = ConvBlock(128*2, 64*2, kernel_size, self.laplacians[1])
+        # Decoding block 2
+        self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[1])
+        self.uconv22 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[1])
 
-        self.uconv2_res = Conv1dAuto(256*2, 64*2, 1)
-
-        # Decoding block 4
-        self.uconv11 = ConvBlock(128*2, 64*2, kernel_size, self.laplacians[0])
-        self.uconv12 = ConvBlock(64*2, 32*2, kernel_size, self.laplacians[0])
-
-        self.uconv1_res = Conv1dAuto(128 * 2, 32 * 2, 1)
-
-        self.uconv13 = ConvCheb(32*2*2, out_channels, kernel_size, self.laplacians[0])
+        # Decoding block 1
+        self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[0])
+        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size, self.laplacians[0])
+        self.uconv13 = ConvCheb(32 * 2 * 2, out_channels, kernel_size, self.laplacians[0])
 
     def encode(self, x):
         # Block 1
@@ -326,15 +298,11 @@ class UNetSphericalHealpixResidualLongConnections(UNetSphericalHealpix):
         x = self.uconv21(x_cat)
         x = self.uconv22(x)
 
-        #x += torch.transpose(self.uconv2_res(torch.transpose(x_cat, 2, 1)), 2, 1)
-
         # Block 1
         x = self.unpool(x, idx1)
         x_cat = torch.cat((x, x_enc1), dim=2)
         x = self.uconv11(x_cat)
         x = self.uconv12(x)
-
-        #x += torch.transpose(self.uconv1_res(torch.transpose(x_cat, 2, 1)), 2, 1)
         x_cat = torch.cat((x, x_enc11), dim=2)
         x = self.uconv13(x_cat)
 
