@@ -197,7 +197,6 @@ def cheb_conv_temp(laplacian, inputs, weight):
     return x
 
 
-
 class ConvCheb(torch.nn.Module):
     """Graph convolutional layer.
 
@@ -493,6 +492,15 @@ class ConvChebTemp(torch.nn.Module):
             outputs += self.bias
         return outputs
 
+
+# Conv layers
+class Conv1dAuto(Conv1d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.padding = (self.kernel_size[0] // 2)  # dynamic add padding based on the kernel_size
+
+
+
     
 # Pooling layers
 def _equiangular_calculator(tensor, ratio):
@@ -587,6 +595,7 @@ class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
         x = reformat(x)
         return x
 
+
 class PoolAvgEquiangular(torch.nn.AvgPool1d):
     """EquiAngular average pooling
     
@@ -621,6 +630,7 @@ class PoolAvgEquiangular(torch.nn.AvgPool1d):
 
         return x
     
+
 class UnpoolAvgEquiangular(torch.nn.Module):
     """EquiAngular average unpooling
     
@@ -697,7 +707,6 @@ class PoolMaxHealpix(torch.nn.MaxPool1d):
         else:
             output = x
         return output
-
 
     
 class PoolAvgHealpix(torch.nn.Module):
@@ -781,9 +790,9 @@ class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
         x = F.max_unpool1d(x, indices, self.kernel_size)
         x = x.permute(0, 2, 1)
         return x
-    
-    
- # Temporal + graph 2D pooling
+
+
+# Temporal + graph 2D pooling
 class PoolAvgTempHealpix(torch.nn.Module):
     """Healpix with temporal convolutions average pooling module for 2D data
     
@@ -831,7 +840,6 @@ class UnpoolAvgTempHealpix(torch.nn.Module):
         x = x.permute(0, 3, 1, 2) # batch, channels, nodes, len_sqce
         x = F.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
         return x.permute(0, 2, 3, 1)
-    
     
 
 class PoolMaxTempHealpix(torch.nn.MaxPool1d):
