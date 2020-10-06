@@ -314,8 +314,7 @@ def main(config_file, load_model=False, model_name_epochs=None):
     model_filename = model_save_path + description + ".h5"
     figures_path = '../data/healpix/figures/' + description + '/'
 
-    if not os.path.isdir(figures_path):
-        os.mkdir(figures_path)
+    os.makedirs(figures_path, exist_ok=True)
 
     # generate dataloaders
     training_ds = WeatherBenchDatasetXarrayHealpixTempMultiple(ds=ds_train, out_features=out_features, delta_t=delta_t,

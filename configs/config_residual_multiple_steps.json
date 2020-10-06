@@ -1,7 +1,7 @@
 {
     "directories":
             {
-            "datadir": "../data/healpix/",
+            "datadir": "/mnt/scratch/students/haddad/weather_prediction/data/healpix/",
             "input_dir": "5.625deg_nearest/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
