@@ -8,8 +8,24 @@ from torch.nn import functional as F
 from torch.nn import BatchNorm1d
 
 from modules import layers
-from modules.layers import ConvCheb, PoolMaxHealpix, UnpoolMaxHealpix, Conv1dAuto
+from modules.layers import (ConvCheb, 
+    PoolMaxHealpix, 
+    UnpoolMaxHealpix, 
+    PoolAvgHealpix,
+    UnpoolAvgHealpix,
+    PoolMaxEquiangular,
+    UnpoolMaxEquiangular,
+    PoolAvgEquiangular,
+    UnpoolAvgEquiangular,
+    Conv1dAuto)
 
+
+HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
+                'avg': (PoolAvgHealpix, UnpoolAvgHealpix)}
+EQUIANGULAR_POOl = {'max': (PoolMaxEquiangular, UnpoolMaxEquiangular), 
+                    'avg': (PoolAvgEquiangular, UnpoolAvgEquiangular)}
+ALL_POOL = {'healpix': HEALPIX_POOL,
+            'equiangular': EQUIANGULAR_POOl}
 
 def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
     """ Computes laplacian of spherical graph sampled as a HEALpix grid
@@ -75,16 +91,20 @@ class ConvBlock(BaseModule):
         Graph laplacian
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, laplacian):
+    def __init__(self, in_channels, out_channels, kernel_size, laplacian, normalisation=True, activation=True):
         super().__init__()
 
         self.conv = ConvCheb(in_channels, out_channels, kernel_size, laplacian)
         self.bn = BatchNorm1d(out_channels)
+        self.norm = normalisation
+        self.act = activation
 
     def forward(self, x):
         x = self.conv(x)
-        x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
-        x = F.relu(x)
+        if self.norm:
+            x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
+        if self.act:
+            x = F.relu(x)
         return x
 
 
@@ -106,24 +126,14 @@ class BottleNeckBlock(BaseModule):
     def __init__(self, in_channels, out_channels, laplacian):
         super().__init__()
 
-        self.conv1 = ConvCheb(in_channels, out_channels, 1, laplacian)
-        self.conv2 = ConvCheb(out_channels, out_channels, 3, laplacian)
-        self.conv3 = ConvCheb(out_channels, in_channels, 1, laplacian)
-        self.bn1 = BatchNorm1d(out_channels)
-        self.bn2 = BatchNorm1d(out_channels)
-        self.bn3 = BatchNorm1d(in_channels)
+        self.conv1 = ConvBlock(in_channels, out_channels, 1, laplacian)
+        self.conv2 = ConvBlock(out_channels, out_channels, 3, laplacian)
+        self.conv3 = ConvBlock(out_channels, in_channels, 1, laplacian)
 
     def forward(self, x):
         x = self.conv1(x)
-        x = self.bn1(x.permute(0, 2, 1)).permute(0, 2, 1)
-        x = F.relu(x)
-
         x = self.conv2(x)
-        x = self.bn2(x.permute(0, 2, 1)).permute(0, 2, 1)
-        x = F.relu(x)
-
         x = self.conv3(x)
-        x = self.bn3(x.permute(0, 2, 1)).permute(0, 2, 1)
         return x
 
 
@@ -165,7 +175,7 @@ class SphericalHealpixBlottleNeck(BaseModule):
         # Third BottleNeck Block
         self.bottleneck3 = BottleNeckBlock(256, 64, laplacians[0])
 
-        self.conv3 = ConvCheb(256, out_channels, kernel_size, laplacians[0])
+        self.conv3 = ConvBlock(256, out_channels, kernel_size, laplacians[0], False, False)
 
     def forward(self, x):
         """Forward Pass
@@ -212,7 +222,7 @@ class UNet(ABC):
         return output
 
 
-class UNetSphericalHealpix(UNet, BaseModule, ABC):
+class UNetSpherical(UNet, BaseModule, ABC):
     """Spherical GCNN UNet
 
     Parameters
@@ -223,7 +233,7 @@ class UNetSphericalHealpix(UNet, BaseModule, ABC):
         Pooling's kernel size
     """
 
-    def __init__(self, num_nodes, kernel_size_pooling=4):
+    def __init__(self, num_nodes, sampling='healpix', pool_method='max', kernel_size_pooling=4, ratio=None):
         super().__init__()
 
         laplacians = []
@@ -231,14 +241,24 @@ class UNetSphericalHealpix(UNet, BaseModule, ABC):
         self.laplacians = laplacians
 
         # Pooling - unpooling
-        self.pooling = PoolMaxHealpix(kernel_size=kernel_size_pooling)
-        self.unpool = UnpoolMaxHealpix(kernel_size=kernel_size_pooling)
+        self.pooling, self.unpool = self.getPoolUnpoolMethods(sampling, pool_method, kernel_size_pooling, ratio)
+    
+    def getPoolUnpoolMethods(self, sampling, pool_method, **kwargs):
+        sampling = sampling.lower()
+        pool_method = pool_method.lower()
+
+        assert sampling in ('healpix', 'equiangular', 'reducedGaussianGrid')
+        assert pool_method in ('max', 'avg')
+
+        pool, unpool = ALL_POOL[sampling][pool_method]
+        return pool(**kwargs), unpool(**kwargs)
 
 
-class UNetSphericalHealpixResidualLongConnections(UNetSphericalHealpix):
+class UNetSphericalHealpixResidualLongConnections(UNetSpherical):
     def __init__(self, N, in_channels, out_channels, kernel_size, kernel_size_pooling=4):
+
         num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
-        super().__init__(num_nodes, kernel_size_pooling)
+        super().__init__(num_nodes, 'healpix', 'max', kernel_size_pooling)
 
         # Encoding block 1
         self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size, self.laplacians[0])
@@ -265,7 +285,7 @@ class UNetSphericalHealpixResidualLongConnections(UNetSphericalHealpix):
         # Decoding block 1
         self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[0])
         self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size, self.laplacians[0])
-        self.uconv13 = ConvCheb(32 * 2 * 2, out_channels, kernel_size, self.laplacians[0])
+        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, kernel_size, self.laplacians[0], False, False)
 
     def encode(self, x):
         # Block 1
