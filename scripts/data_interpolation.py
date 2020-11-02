@@ -32,7 +32,6 @@ def main(input_dir, output_dir, nside, interpolation_kind):
 
     # Interpolate and save all atmospheric fields
     all_files = os.listdir(input_dir)
-    all_files = ['toa_incident_solar_radiation']
     for f in all_files:
         # Interpolate
         ds = xr.open_mfdataset(input_dir + f + '/*.nc', combine='by_coords')

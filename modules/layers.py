@@ -307,6 +307,7 @@ class Conv1dAuto(Conv1d):
 def _equiangular_calculator(tensor, ratio):
     N, M, F = tensor.size()
     dim1, dim2 = equiangular_dimension_unpack(M, ratio)
+    assert dim1 * dim2 == M
     bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
     tensor = tensor.view(N, dim1, dim2, F)
     return tensor, [bw_dim1, bw_dim2]

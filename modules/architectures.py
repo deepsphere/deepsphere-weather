@@ -1,11 +1,11 @@
-from typing import List
+from typing import List, Union
 from abc import ABC, abstractmethod
 
 import torch
 import pygsp
 import numpy as np
 from torch.nn import functional as F
-from torch.nn import BatchNorm1d
+from torch.nn import BatchNorm1d, Conv2d
 
 from modules import layers
 from modules.layers import (ConvCheb, 
@@ -26,6 +26,9 @@ EQUIANGULAR_POOl = {'max': (PoolMaxEquiangular, UnpoolMaxEquiangular),
                     'avg': (PoolAvgEquiangular, UnpoolAvgEquiangular)}
 ALL_POOL = {'healpix': HEALPIX_POOL,
             'equiangular': EQUIANGULAR_POOl}
+
+ALL_CONV = {'classic': Conv2d,
+            'graph': ConvCheb}
 
 def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
     """ Computes laplacian of spherical graph sampled as a HEALpix grid
@@ -51,9 +54,37 @@ def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
     return laplacian
 
 
-def get_laplacian_kernels(container: List, nodes_list: List[int]) -> None:
-    for i, nodes in enumerate(nodes_list):
-        laplacian = _compute_laplacian_healpix(nodes)
+def _compute_laplacian_equiangular(bandwidth, laplacian_type="normalized"):
+    """ Computes laplacian of spherical graph sampled as a equiangular grid
+
+    Parameters
+    ----------
+    bandwith : int  or List[int] or Tuple[int]
+        Number of nodes in the graph
+    laplacian_type : string
+        Type of laplacian. Options are {´normalized´, ´combinatorial´}
+
+    Returns
+    -------
+    laplacian : torch.sparse_coo_tensor
+        Graph laplacian
+    """
+    G = pygsp.graphs.SphereEquiangular(bandwidth=bandwidth)
+    G.compute_laplacian(laplacian_type)
+    laplacian = layers.prepare_laplacian(G.L.astype(np.float32))
+
+    return laplacian
+
+
+def get_laplacian_kernels(container: List, nodes_list: Union[List[int], List[List[int]]], sampling='healpix') -> None:
+    sampling = sampling.lower()
+    for _, nodes in enumerate(nodes_list):
+        if sampling == 'healpix':
+            laplacian = _compute_laplacian_healpix(nodes)
+        elif sampling == 'equiangular':
+            laplacian = _compute_laplacian_equiangular(nodes)
+        else:
+            raise ValueError(f'{sampling} is not supported')
         container.append(laplacian)
 
 
@@ -237,13 +268,14 @@ class UNetSpherical(UNet, BaseModule, ABC):
         super().__init__()
 
         laplacians = []
-        get_laplacian_kernels(laplacians, num_nodes)
+        get_laplacian_kernels(laplacians, num_nodes, sampling)
         self.laplacians = laplacians
 
         # Pooling - unpooling
-        self.pooling, self.unpool = self.getPoolUnpoolMethods(sampling, pool_method, kernel_size_pooling, ratio)
+        self.pooling, self.unpool = UNetSpherical.getPoolUnpoolMethods(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
     
-    def getPoolUnpoolMethods(self, sampling, pool_method, **kwargs):
+    @staticmethod
+    def getPoolUnpoolMethods(sampling, pool_method, **kwargs):
         sampling = sampling.lower()
         pool_method = pool_method.lower()
 
@@ -252,6 +284,13 @@ class UNetSpherical(UNet, BaseModule, ABC):
 
         pool, unpool = ALL_POOL[sampling][pool_method]
         return pool(**kwargs), unpool(**kwargs)
+    
+    @staticmethod
+    def getConvKernel(conv_type, **kwargs):
+        # TODO: Incomplete function 
+        conv_type = conv_type.lower()
+        assert conv_type in ('classic', 'graph')
+        return ALL_CONV[conv_type](**kwargs)
 
 
 class UNetSphericalHealpixResidualLongConnections(UNetSpherical):
@@ -259,6 +298,80 @@ class UNetSphericalHealpixResidualLongConnections(UNetSpherical):
 
         num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
         super().__init__(num_nodes, 'healpix', 'max', kernel_size_pooling)
+
+        # Encoding block 1
+        self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size, self.laplacians[0])
+        self.conv13 = ConvBlock(max(in_channels, 32 * 2), 64 * 2, kernel_size, self.laplacians[0])
+
+        self.conv1_res = Conv1dAuto(in_channels, 64 * 2, 1)
+
+        # Encoding block 2
+        self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size, self.laplacians[1])
+        self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size, self.laplacians[1])
+
+        self.conv2_res = Conv1dAuto(64 * 2, 128 * 2, 1)
+
+        # Encoding block 3
+        self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size, self.laplacians[2])
+        self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[2])
+
+        self.conv3_res = Conv1dAuto(128 * 2, 128 * 2, 1)
+
+        # Decoding block 2
+        self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[1])
+        self.uconv22 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[1])
+
+        # Decoding block 1
+        self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[0])
+        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size, self.laplacians[0])
+        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, kernel_size, self.laplacians[0], False, False)
+
+    def encode(self, x):
+        # Block 1
+
+        x_enc11 = self.conv11(x)
+        x_enc1 = self.conv13(x_enc11)
+
+        x_enc1 += torch.transpose(self.conv1_res(torch.transpose(x, 2, 1)), 2, 1)
+
+        # Block 2
+        x_enc2_ini, idx1 = self.pooling(x_enc1)
+        x_enc2 = self.conv21(x_enc2_ini)
+        x_enc2 = self.conv23(x_enc2)
+
+        x_enc2 += torch.transpose(self.conv2_res(torch.transpose(x_enc2_ini, 2, 1)), 2, 1)
+
+        # Block 3
+        x_enc3_ini, idx2 = self.pooling(x_enc2)
+        x_enc3 = self.conv31(x_enc3_ini)
+        x_enc3 = self.conv33(x_enc3)
+
+        x_enc3 += torch.transpose(self.conv3_res(torch.transpose(x_enc3_ini, 2, 1)), 2, 1)
+
+        return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11
+
+    def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11):
+        # Block 2
+        x = self.unpool(x_enc3, idx2)
+        x_cat = torch.cat((x, x_enc2), dim=2)
+        x = self.uconv21(x_cat)
+        x = self.uconv22(x)
+
+        # Block 1
+        x = self.unpool(x, idx1)
+        x_cat = torch.cat((x, x_enc1), dim=2)
+        x = self.uconv11(x_cat)
+        x = self.uconv12(x)
+        x_cat = torch.cat((x, x_enc11), dim=2)
+        x = self.uconv13(x_cat)
+        return x
+
+
+class UNetSphericalEquiangularResidualLongConnections(UNetSpherical):
+    def __init__(self, N, in_channels, out_channels, kernel_size, kernel_size_pooling=4):
+        N = np.array(N)
+        num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
+        super().__init__(num_nodes, 'equiangular', 'max', kernel_size_pooling, ratio=2)
 
         # Encoding block 1
         self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size, self.laplacians[0])

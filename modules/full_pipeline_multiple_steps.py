@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch import nn, optim
 from torch.nn.parameter import Parameter
+from deepsphere.utils.samplings import equiangular_dimension_unpack
 
 from modules.plotting import plot_rmses
 from modules.utils import init_device
@@ -235,7 +236,7 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
         print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
                 .format(e=epoch + 1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2 - time1))
 
-        torch.save(model.state_dict(), model_filename[:-3] + '_epoch{}'.format(epoch) + '.h5')
+        torch.save(model.state_dict(), model_filename[:-3] + '.h5')
 
     return train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, \
             weight_variations, weights_loss, criterion, optimizer
@@ -243,21 +244,20 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
 
 def main(config_file, load_model=False, model_name_epochs=None):
     
-    with open("../configs/" + config_file) as json_data_file:
+    with open(config_file) as json_data_file:
         cfg = json.load(json_data_file)
 
     # Define paths
     datadir = cfg['directories']['datadir']
+    savedir = cfg['directories']["save_dir"]
     input_dir = datadir + cfg['directories']['input_dir']
-    model_save_path = datadir + cfg['directories']['model_save_path']
-    pred_save_path = datadir + cfg['directories']['pred_save_path']
+    model_save_path = savedir + cfg['directories']['model_save_path']
+    pred_save_path = savedir + cfg['directories']['pred_save_path']
     metrics_path = datadir + cfg['directories']['metrics_path']
 
-    if not os.path.isdir(model_save_path):
-        os.mkdir(model_save_path)
 
-    if not os.path.isdir(pred_save_path):
-        os.mkdir(pred_save_path)
+    os.makedirs(model_save_path, exist_ok=True)
+    os.makedirs(pred_save_path, exist_ok=True)
 
     # Define constants
     chunk_size = cfg['training_constants']['chunk_size']
@@ -282,12 +282,11 @@ def main(config_file, load_model=False, model_name_epochs=None):
     num_steps_ahead = cfg['model_parameters']['num_steps_ahead']
     architecture_name = cfg['model_parameters']['architecture_name']
     model = cfg['model_parameters']['model']
+    sampling_method = cfg['model_parameters']['sampling'].lower()
 
     description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
 
 
-    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]="2"
     gpu = [0]
     num_workers = 10
     pin_memory = True
@@ -303,17 +302,26 @@ def main(config_file, load_model=False, model_name_epochs=None):
     lats = constants['lat2d']
     slt = constants['slt']
 
-    num_constants = len([orog, lats, lsm, slt])
+    # num_constants = len([orog, lats, lsm, slt])
 
-    train_mean_ = xr.open_mfdataset(f'{input_dir}mean_train_features_dynamic.nc')
-    train_std_ = xr.open_mfdataset(f'{input_dir}std_train_features_dynamic.nc')
+    try:
+        train_mean_ = xr.open_mfdataset(f'{input_dir}mean_train_features_dynamic.nc')
+    except:
+        print('Failed to open mean_train_features_dynamic.nc, using None instead.')
+        train_mean_ = None
+    
+    try:
+        train_std_ = xr.open_mfdataset(f'{input_dir}std_train_features_dynamic.nc')
+    except:
+        print('Failed to open std_train_features_dynamic.nc, using None instead.')
+        train_std_ = None
 
     # define model name
 
     description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
 
     model_filename = model_save_path + description + ".h5"
-    figures_path = '../data/healpix/figures/' + description + '/'
+    figures_path = f'/home/wefeng/results/{sampling_method}/figures/' + description + '/'
 
     os.makedirs(figures_path, exist_ok=True)
 
@@ -332,16 +340,18 @@ def main(config_file, load_model=False, model_name_epochs=None):
     print('Define model...')
     print('Model name: ', description)
     modelClass = getattr(modelArchitectures, model)
-    spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce,
-                                out_channels=out_features, kernel_size=3)
+    if sampling_method == "equiangular":
+        unpacked = equiangular_dimension_unpack(nodes, ratio=2)
+        unpacked = np.array(unpacked) // 2
+        spherical_unet = modelClass(N=unpacked, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3)
+    elif sampling_method == "healpix":
+        spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3)
+    else:
+        raise ValueError(f'{sampling_method} is not supported')
 
     # use pretrained model to start training
     if load_model:
-        model_path = '../data/healpix/models/'
-        #model_name_epochs = 'all_const_len2_delta_6_architecture_loss_v0_8steps_variation0_residual_only_enc_l3_per_epoch'
-        model_name = model_path + model_name_epochs
-
-        state_to_load = torch.load(model_name)
+        state_to_load = torch.load(model_filename)
 
         own_state = spherical_unet.state_dict()
         for name, param in state_to_load.items():
@@ -360,8 +370,9 @@ def main(config_file, load_model=False, model_name_epochs=None):
     constants_tensor = torch.tensor(xr.merge([orog, lats, lsm, slt], compat='override').to_array().values, \
                                     dtype=torch.float)
     # standardize
-    constants_tensor = (constants_tensor - torch.mean(constants_tensor, dim=1).view(-1, 1).expand(4, 3072)) / \
-                       torch.std(constants_tensor, dim=1).view(-1, 1).expand(4, 3072)
+    constants_tensor_mean = torch.mean(constants_tensor, dim=1, keepdim=True)
+    constants_tensor_std = torch.std(constants_tensor, dim=1, keepdim=True)
+    constants_tensor = (constants_tensor - constants_tensor_mean) / (constants_tensor_std + 1e-6)
 
     # initialize weights
     w = cfg['model_parameters']['initial_weights']

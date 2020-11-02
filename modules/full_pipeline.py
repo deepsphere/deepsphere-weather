@@ -16,6 +16,7 @@ from modules.test import (compute_rmse_healpix, compute_relBIAS, compute_rSD, co
 
 def load_data_split(input_dir, train_years, val_years, test_years, chunk_size, standardized=None):
 
+    print(input_dir)
     z500 = xr.open_mfdataset(f'{input_dir}geopotential_500/*.nc', combine='by_coords', \
                                  chunks={'time': chunk_size}).rename({'z': 'z500'})
     t850 = xr.open_mfdataset(f'{input_dir}temperature_850/*.nc', combine='by_coords', \
@@ -79,8 +80,8 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
         self.data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
         self.in_features = self.data.shape[-1]
         
-        self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean
-        self.std = self.data.std(('time', 'node')).compute() if std is None else std
+        self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean.to_array(dim='level')
+        self.std = self.data.std(('time', 'node')).compute() if std is None else std.to_array(dim='level')
         
         eps = 0.001 #add to std to avoid division by 0
         
@@ -95,12 +96,11 @@ class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
         # Normalize
 
         if requires_st:
-            self.data = self.data.groupby('time.month') - self.mean.to_array(dim='level')
-            self.data = self.data.groupby('time.month') / self.std.to_array(dim='level')
+            self.data = self.data.groupby('time.month') - self.mean
+            self.data = self.data.groupby('time.month') / self.std
             self.data.compute()
         else:
-            self.data = (self.data - self.mean.to_array(dim='level')) / (
-                        self.std.to_array(dim='level') + eps)
+            self.data = (self.data - self.mean) / (self.std + eps)
         self.data.persist()
         
         self.idxs = np.array(range(self.n_samples))
@@ -185,8 +185,8 @@ class WeatherBenchDatasetXarrayHealpixTempMultiple(Dataset):
         self.data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
         self.in_features = self.data.shape[-1]
 
-        self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean
-        self.std = self.data.std(('time', 'node')).compute() if std is None else std
+        self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean.to_array(dim='level')
+        self.std = self.data.std(('time', 'node')).compute() if std is None else std.to_array(dim='level')
 
         eps = 0.001  # add to std to avoid division by 0
 
@@ -201,12 +201,11 @@ class WeatherBenchDatasetXarrayHealpixTempMultiple(Dataset):
         # Normalize
 
         if requires_st:
-            self.data = self.data.groupby('time.month') - self.mean.to_array(dim='level')
-            self.data = self.data.groupby('time.month') / self.std.to_array(dim='level')
+            self.data = self.data.groupby('time.month') - self.mean
+            self.data = self.data.groupby('time.month') / self.std
             self.data.compute()
         else:
-            self.data = (self.data - self.mean.to_array(dim='level')) / (
-                    self.std.to_array(dim='level') + eps)
+            self.data = (self.data - self.mean) / (self.std + eps)
         self.data.persist()
 
         self.idxs = np.array(range(self.n_samples))
