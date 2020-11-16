@@ -11,7 +11,7 @@ import torch
 from torch import nn, optim
 from torch.utils.data import Dataset
 
-from modules.test import (compute_rmse_healpix, compute_relBIAS, compute_rSD, compute_R2, compute_anomalies, 
+from modules.test import (compute_rmse, compute_relBIAS, compute_rSD, compute_R2, compute_anomalies, 
                           compute_relMAE, compute_ACC)
 
 def load_data_split(input_dir, train_years, val_years, test_years, chunk_size, standardized=None):
@@ -649,8 +649,8 @@ def create_iterative_predictions_healpix_temp(model, device, dg, constants):
     
     out_feat = dg.out_features
     
-    train_std =  dg.std[['z500','t850']].to_array().values #dg.std.values[:out_feat]
-    train_mean = dg.mean[['z500','t850']].to_array().values #dg.mean.values[:out_feat]
+    train_std =  dg.std.values[:2]
+    train_mean = dg.mean.values[:2]
     
     delta_t = dg.delta_t
     len_sqce = dg.len_sqce
@@ -811,7 +811,7 @@ def compute_errors(pred, obs):
     rsd_map = compute_rSD(pred, obs, dims=('time'))
     t3 = time.time()
     print('time rsd_map ', t3 - t2)
-    rmse_map = compute_rmse_healpix(pred, obs, dims=('time'))
+    rmse_map = compute_rmse(pred, obs, dims=('time'))
     t4 = time.time()
     print('time rmse map ', t4 - t3)
     """

@@ -1,9 +1,9 @@
 {
     "directories":
             {
-            "datadir": "/home/wefeng/equiangular/",
+            "datadir": "/nfs_home/wefeng/equiangular/",
             "input_dir": "5.625deg/",
-            "save_dir": "/home/wefeng/results/equiangular/",
+            "save_dir": "/nfs_home/wefeng/results/equiangular/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
             "obs_file_name": "observations_nearest.nc",

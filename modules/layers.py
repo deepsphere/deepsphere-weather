@@ -11,6 +11,16 @@ from deepsphere.utils.samplings import equiangular_dimension_unpack
 from deepsphere.layers.samplings.equiangular_pool_unpool import reformat
 
 
+# Pooling layers
+def _equiangular_calculator(tensor, ratio):
+    N, M, F = tensor.size()
+    dim1, dim2 = equiangular_dimension_unpack(M, ratio)
+    assert dim1 * dim2 == M
+    bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
+    tensor = tensor.view(N, dim1, dim2, F)
+    return tensor, [bw_dim1, bw_dim2]
+
+
 # 2D CNN layers
 class Conv2dPeriodic(torch.nn.Module):
     """ 2D Convolutional layer, periodic in the longitude (width) dimension.
@@ -23,11 +33,12 @@ class Conv2dPeriodic(torch.nn.Module):
         Number of channels in the output image.
     kernel_size : int
         Width of the square convolutional kernel.
-        The actual size of the kernel is kernel_size*+2
+        The actual size of the kernel is kernel_size**2
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size):
+    def __init__(self, in_channels, out_channels, kernel_size, ratio):
         super().__init__()
+        self.ratio = ratio
 
         self.kernel_size = kernel_size
         self.pad_width = int((self.kernel_size - 1) / 2)
@@ -44,10 +55,14 @@ class Conv2dPeriodic(torch.nn.Module):
         return padded
 
     def forward(self, x):
-        padded = self.pad(x)
-        output = self.conv(padded)
+        x, _ = _equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
 
-        return output
+        x = self.pad(x)
+        x = self.conv(x)
+
+        x = reformat(x)
+        return x
 
 
 # Graph CNN layers
@@ -302,15 +317,6 @@ class Conv1dAuto(Conv1d):
         super().__init__(*args, **kwargs)
         self.padding = (self.kernel_size[0] // 2)  # dynamic add padding based on the kernel_size
 
-
-# Pooling layers
-def _equiangular_calculator(tensor, ratio):
-    N, M, F = tensor.size()
-    dim1, dim2 = equiangular_dimension_unpack(M, ratio)
-    assert dim1 * dim2 == M
-    bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
-    tensor = tensor.view(N, dim1, dim2, F)
-    return tensor, [bw_dim1, bw_dim2]
 
 
 class PoolMaxEquiangular(torch.nn.MaxPool1d):

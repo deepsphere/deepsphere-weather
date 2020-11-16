@@ -50,7 +50,7 @@ def create_iterative_observations_healpix(ds, lead_time, max_lead_time, nb_times
     # Variables
     var_dict_out = {var: None for var in ['z', 't']}
 
-    das = [];
+    das = []
     lev_idx = 0
     for var, levels in var_dict_out.items():
         if levels is None:            
@@ -140,7 +140,7 @@ def create_iterative_predictions_healpix(model, device, dg):
         
     predictions = np.array(predictions)
     
-    das = [];
+    das = []
     lev_idx = 0
     for var in data_vars:       
         das.append(xr.DataArray(
@@ -412,7 +412,7 @@ def create_iterative_observations_hp(input_dir, test_years, lead_time, max_lead_
         data[0, i, :, :, :] = test_data.z.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
         data[1, i, :, :, :] = test_data.t.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
 
-    das = [];
+    das = []
     lev_idx = 0
     for var in data_vars:       
         das.append(xr.DataArray(
@@ -428,16 +428,15 @@ def create_iterative_observations_hp(input_dir, test_years, lead_time, max_lead_
     return observations
 
 
-def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_time, nside, nb_timesteps=2):
-    z500 = xr.open_mfdataset(f'{input_dir}geopotential_500/*.nc', combine='by_coords').sel(time=slice(*test_years))
-    t850 = xr.open_mfdataset(f'{input_dir}temperature_850/*.nc', combine='by_coords').sel(time=slice(*test_years))
+def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_time, nb_timesteps=2):
+    z500 = xr.open_mfdataset(f'{input_dir}geopotential_500/raw/*.nc', combine='by_coords').sel(time=slice(*test_years))
+    t850 = xr.open_mfdataset(f'{input_dir}temperature_850/raw/*.nc', combine='by_coords').sel(time=slice(*test_years))
 
     test_data = xr.merge([z500, t850], compat='override')
 
 
     n_samples = test_data.isel(time=slice(0, -nb_timesteps*lead_time)).dims['time'] - max_lead_time
     nb_iter = max_lead_time // lead_time
-    n_pixels = 12*(nside**2)
 
     # Lead times
     lead_times = np.arange(lead_time, max_lead_time + lead_time, lead_time)
@@ -456,7 +455,7 @@ def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_
         data[0, i, :, :, :] = test_data.z.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
         data[1, i, :, :, :] = test_data.t.isel(time=slice(lead_time*(i+1), lead_time*(i+1) + n_samples)).values
 
-    das = [];
+    das = []
     lev_idx = 0
     for var in data_vars:       
         das.append(xr.DataArray(
@@ -473,7 +472,7 @@ def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_
 
 
 # Metrics for healpix iterative predictions
-def compute_rmse_healpix(pred, obs, dims=('node', 'time')):
+def compute_rmse(pred, obs, dims=('node', 'time')):
     error = pred - obs
     
     rmse = np.sqrt(((error)**2).mean(dims))
@@ -500,7 +499,7 @@ def compute_relBIAS_map_healpix(pred, obs):
     return rbias
 
 
-def compute_weighted_rmse(da_fc, da_true, dims=xr.ALL_DIMS):
+def compute_weighted_rmse(da_fc, da_true, dims=('node', 'time')):
     """ Compute the root mean squared error (RMSE) with latitude weighting from two xr.DataArrays.
     
     Parameters
@@ -518,13 +517,17 @@ def compute_weighted_rmse(da_fc, da_true, dims=xr.ALL_DIMS):
         Latitude weighted root mean squared error 
     """
     error = da_fc - da_true
-    weights_lat = np.cos(np.deg2rad(error.lat))
+    
+    weights_lat = np.cos(np.deg2rad(error.lat.values))
     weights_lat /= weights_lat.mean()
+    weights_lat = xr.DataArray(weights_lat, dims=["node"])
+    weights_lat = weights_lat.assign_coords(node=np.arange(len(error.node)))
+
     rmse = np.sqrt(((error)**2 * weights_lat).mean(dims))
-    return rmse
+    return rmse.drop('lat').drop('lon').load()
 
 
-def compute_rmse_equiangular(da_fc, da_true):
+def compute_rmse_equiangular(pred, da_true):
     """ Compute the root mean squared error (RMSE) from two xr.DataArrays with equiangular sampling 
     where each pixel is weighted by the proportion of spherical area it represents.
     
@@ -540,11 +543,11 @@ def compute_rmse_equiangular(da_fc, da_true):
     rmse : xr.DataArray
         Latitude weighted root mean squared error 
     """
-    error = da_fc - da_true
+    error = pred - da_true
     
     resolution = pred.lon.values[1] - pred.lon.values[0]
     delta_lon = np.deg2rad(resolution)
-    n_samples = len(da_fc.time)
+    n_samples = len(pred.time)
     
     weights_lat = np.cos(np.deg2rad(pred.lat - resolution/2 + 90)) - np.cos(np.deg2rad(pred.lat + resolution/2 + 90))
     rmse = np.sqrt(((error)**2 * weights_lat * delta_lon /(4*np.pi)).mean('time').sum())

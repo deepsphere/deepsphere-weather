@@ -15,7 +15,7 @@ from deepsphere.utils.samplings import equiangular_dimension_unpack
 from modules.plotting import plot_rmses
 from modules.utils import init_device
 import modules.architectures as modelArchitectures
-from modules.test import compute_rmse_healpix
+# from modules.test import compute_rmse_healpix
 from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTemp, \
     train_model_2steps, create_iterative_predictions_healpix_temp, \
     compute_errors, plot_climatology, WeatherBenchDatasetXarrayHealpixTempMultiple
