@@ -12,18 +12,18 @@ from deepsphere.layers.samplings.equiangular_pool_unpool import reformat
 
 
 # Pooling layers
-def _equiangular_calculator(tensor, ratio):
+def equiangular_calculator(tensor, ratio):
     N, M, F = tensor.size()
     dim1, dim2 = equiangular_dimension_unpack(M, ratio)
     assert dim1 * dim2 == M
-    bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
+    # bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
     tensor = tensor.view(N, dim1, dim2, F)
-    return tensor, [bw_dim1, bw_dim2]
+    return tensor
 
 
 # 2D CNN layers
-class Conv2dPeriodic(torch.nn.Module):
-    """ 2D Convolutional layer, periodic in the longitude (width) dimension.
+class Conv2dEquiangular(torch.nn.Module):
+    """ Equiangular 2D Convolutional layer, periodic in the longitude (width) dimension.
 
     Parameters
     ----------
@@ -34,35 +34,52 @@ class Conv2dPeriodic(torch.nn.Module):
     kernel_size : int
         Width of the square convolutional kernel.
         The actual size of the kernel is kernel_size**2
+    ratio : int
+        ratio = H // W. Aspect ratio to reorganize the equiangular map from 1D to 2D
+    periodic : bool
+        whether to use periodic padding. (default: True)
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, ratio):
+    def __init__(self, in_channels, out_channels, kernel_size, ratio, periodic, **kwargs):
         super().__init__()
         self.ratio = ratio
+        self.periodic = periodic
 
         self.kernel_size = kernel_size
         self.pad_width = int((self.kernel_size - 1) / 2)
 
-        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size, padding=0)
+        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size)
 
         torch.nn.init.xavier_uniform_(self.conv.weight)
         torch.nn.init.zeros_(self.conv.bias)
 
-    def pad(self, x):
-        padded = torch.cat((x[:, :, :, -self.pad_width:], x, x[:, :, :, :self.pad_width]), dim=3)
-        padded = F.pad(padded, (0, 0, self.pad_width, self.pad_width), 'constant', 0)
+    def periodicPad(self, x, width, periodic=True):
+        """ Periodic padding function.
 
+        Parameters
+        ----------
+        x : torch.Tensor
+            The tensor format should be N * C * H * W
+        width : int
+            The padding width.
+        periodic: bool
+            Whether to use periodic padding. If False, the function is same as ZeroPad2D. (default: True)
+        """
+        if periodic:
+            x = torch.cat((x[:, :, :, -width:], x, x[:, :, :, :width]), dim=3)
+        padded = F.pad(x, (0, 0, width, width), 'constant', 0)
         return padded
 
     def forward(self, x):
-        x, _ = _equiangular_calculator(x, self.ratio)
+        x = equiangular_calculator(x, self.ratio)
         x = x.permute(0, 3, 1, 2)
 
-        x = self.pad(x)
+        x = self.periodicPad(x, self.pad_width, self.periodic)
         x = self.conv(x)
 
         x = reformat(x)
         return x
+
 
 
 # Graph CNN layers
@@ -192,7 +209,7 @@ class ConvCheb(torch.nn.Module):
     """
 
     def __init__(self, in_channels, out_channels, kernel_size, laplacian, bias=True,
-                 conv=cheb_conv):
+                 conv=cheb_conv, **kwargs):
         super().__init__()
 
         self.in_channels = in_channels
@@ -350,7 +367,7 @@ class PoolMaxEquiangular(torch.nn.MaxPool1d):
         indices : list(int)
             Indices of the pixels pooled
         """
-        x, _ = _equiangular_calculator(inputs, self.ratio)
+        x = equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
 
         if self.return_indices:
@@ -397,7 +414,7 @@ class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
         x : torch.tensor of shape batch x unpooled pixels x features
             Layer output
         """
-        x, _ = _equiangular_calculator(inputs, self.ratio)
+        x = equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.max_unpool2d(x, indices, self.kernel_size)
         x = reformat(x)
@@ -431,7 +448,7 @@ class PoolAvgEquiangular(torch.nn.AvgPool1d):
         x : torch.tensor of shape batch x pooled pixels x features
             Layer output
         """
-        x, _ = _equiangular_calculator(inputs, self.ratio)
+        x = equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.avg_pool2d(x, self.kernel_size)
         x = reformat(x)
@@ -466,7 +483,7 @@ class UnpoolAvgEquiangular(torch.nn.Module):
             Layer output
         """
 
-        x, _ = _equiangular_calculator(inputs, self.ratio)
+        x = equiangular_calculator(inputs, self.ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
         x = reformat(x)
