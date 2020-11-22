@@ -292,7 +292,7 @@ class UNetSphericalHealpixResidualLongConnections(UNetSpherical):
     def __init__(self, N, in_channels, out_channels, kernel_size, kernel_size_pooling=4):
 
         num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
-        super().__init__(num_nodes, 'healpix', 'max', kernel_size_pooling)
+        super().__init__(num_nodes, 'healpix', 'avg', kernel_size_pooling)
 
         # Encoding block 1
         self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size, self.laplacians[0])

@@ -49,8 +49,10 @@ class Conv2dPeriodic(torch.nn.Module):
         torch.nn.init.zeros_(self.conv.bias)
 
     def pad(self, x):
-        padded = torch.cat((x[:, :, :, -self.pad_width:], x, x[:, :, :, :self.pad_width]), dim=3)
-        padded = F.pad(padded, (0, 0, self.pad_width, self.pad_width), 'constant', 0)
+        # padded = torch.cat((x[:, :, :, -self.pad_width:], x, x[:, :, :, :self.pad_width]), dim=3)
+        # padded = F.pad(padded, (0, 0, self.pad_width, self.pad_width), 'constant', 0)
+
+        padded = F.pad(x, (self.pad_width, self.pad_width, self.pad_width, self.pad_width), 'constant', 0)
 
         return padded
 
@@ -436,7 +438,7 @@ class PoolAvgEquiangular(torch.nn.AvgPool1d):
         x = F.avg_pool2d(x, self.kernel_size)
         x = reformat(x)
 
-        return x
+        return x, None
 
 
 class UnpoolAvgEquiangular(torch.nn.Module):
@@ -453,7 +455,7 @@ class UnpoolAvgEquiangular(torch.nn.Module):
         self.kernel_size = kernel_size
         super().__init__()
 
-    def forward(self, inputs):
+    def forward(self, inputs, *args):
         """calls pytorch's interpolate function to create the values while unpooling based on the nearby values
         Parameters
         ----------
@@ -538,7 +540,7 @@ class PoolAvgHealpix(torch.nn.Module):
         """x has shape (batch, pixels, channels) and is in nested ordering"""
         x = x.permute(0, 2, 1)
         x = torch.nn.functional.avg_pool1d(x, self.kernel_size)
-        return x.permute(0, 2, 1)
+        return x.permute(0, 2, 1), None
 
 
 class UnpoolAvgHealpix(torch.nn.Module):
@@ -558,7 +560,7 @@ class UnpoolAvgHealpix(torch.nn.Module):
     def extra_repr(self):
         return 'kernel_size={kernel_size}'.format(**self.__dict__)
 
-    def forward(self, x):
+    def forward(self, x, *args):
         """x has shape (batch, pixels, channels) and is in nested ordering"""
         # return x.repeat_interleave(self.kernel_size, dim=1)
         x = x.permute(0, 2, 1)
