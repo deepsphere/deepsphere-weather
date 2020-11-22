@@ -208,7 +208,7 @@ class SphericalHealpixBlottleNeck(BaseModule):
         self.kernel_size = kernel_size
 
         laplacians = []
-        get_laplacian_kernels(laplacians, [N])
+        UNetSpherical.get_laplacian_kernels(laplacians, [N])
 
         # First convolution
         self.conv1 = ConvBlock(in_channels, 64, 3, laplacians[0])
