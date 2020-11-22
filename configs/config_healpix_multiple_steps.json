@@ -3,7 +3,7 @@
             {
             "datadir": "/nfs_home/wefeng/healpix/",
             "input_dir": "5.625deg_nearest/",
-            "save_dir": "/nfs_home/wefeng/results/healpix/",
+            "save_dir": "/nfs_home/wefeng/results/healpix_test_only/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
             "obs_file_name": "observations_nearest.nc",
@@ -30,6 +30,8 @@
     "model_parameters":
     {
             "sampling": "healpix",
+            "conv_type": "graph",
+            "pool_method": "max",
             "len_sqce": 2,
             "delta_t": 6,
             "in_features": 7,
@@ -39,6 +41,6 @@
             "resolution": 5.625,
             "kernel_size_pooling": 4,
             "initial_weights": [1,2,3,4,5,6,7,8],
-            "model": "UNetSphericalHealpixResidualLongConnections"
+            "model": "UNetSpherical"
     }
 }

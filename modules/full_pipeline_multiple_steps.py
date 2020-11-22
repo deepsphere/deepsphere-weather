@@ -284,6 +284,13 @@ def main(config_file, load_model=False, model_name_epochs=None):
     model = cfg['model_parameters']['model']
     sampling_method = cfg['model_parameters']['sampling'].lower()
 
+    net_params = {}
+    net_params["sampling"] = cfg['model_parameters'].get("sampling", None)
+    net_params["conv_type"] = cfg['model_parameters'].get("conv_type", None)
+    net_params["pool_method"] = cfg['model_parameters'].get("pool_method", None)
+    net_params["ratio"] = cfg['model_parameters'].get("pool_method", None)
+    net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
+
     description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
 
 
@@ -343,9 +350,9 @@ def main(config_file, load_model=False, model_name_epochs=None):
     if sampling_method == "equiangular":
         unpacked = equiangular_dimension_unpack(nodes, ratio=2)
         unpacked = np.array(unpacked) // 2
-        spherical_unet = modelClass(N=unpacked, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3)
+        spherical_unet = modelClass(N=unpacked, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
     elif sampling_method == "healpix":
-        spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3)
+        spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
     else:
         raise ValueError(f'{sampling_method} is not supported')
 
