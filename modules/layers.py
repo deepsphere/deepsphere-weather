@@ -15,7 +15,10 @@ from deepsphere.layers.samplings.equiangular_pool_unpool import reformat
 def equiangular_calculator(tensor, ratio):
     N, M, F = tensor.size()
     dim1, dim2 = equiangular_dimension_unpack(M, ratio)
-    assert dim1 * dim2 == M
+    try:
+        assert dim1 * dim2 == M
+    except:
+        raise ValueError(f'Unpacked dims do not match the original pixels: dim1 - {dim1}, dim2 - {dim2}, M - {M}')
     # bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
     tensor = tensor.view(N, dim1, dim2, F)
     return tensor
@@ -67,7 +70,9 @@ class Conv2dEquiangular(torch.nn.Module):
         """
         if periodic:
             x = torch.cat((x[:, :, :, -width:], x, x[:, :, :, :width]), dim=3)
-        padded = F.pad(x, (0, 0, width, width), 'constant', 0)
+            padded = F.pad(x, (0, 0, width, width), 'constant', 0)
+        else:
+            padded = F.pad(x, (width, width, width, width), 'constant', 0)
         return padded
 
     def forward(self, x):

@@ -3,7 +3,7 @@
             {
             "datadir": "/nfs_home/wefeng/equiangular/",
             "input_dir": "5.625deg/",
-            "save_dir": "/nfs_home/wefeng/results/equiangular_conv2d/",
+            "save_dir": "/nfs_home/wefeng/results/equiangular_test_only/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
             "obs_file_name": "observations_nearest.nc",
@@ -32,7 +32,7 @@
             "sampling": "equiangular",
             "conv_type": "image",
             "pool_method": "max",
-            "periodic": 1, 
+            "periodic": 0, 
             "ratio": 2,
             "len_sqce": 2,
             "delta_t": 6,

@@ -150,9 +150,9 @@ class PoolUnpoolBlock(BaseModule):
         assert sampling in ('healpix', 'equiangular', 'reducedGaussianGrid')
         assert pool_method in ('max', 'avg')
 
-        pool, unpool = ALL_POOL[sampling][pool_method]
+        pooling, unpool = ALL_POOL[sampling][pool_method]
         if pool:
-            return pool(**kwargs)
+            return pooling(**kwargs)
         else:
             return unpool(**kwargs)
 
@@ -297,9 +297,10 @@ class UNetSpherical(UNet, BaseModule):
         else:
             raise ValueError(f'{conv_type} convolution is not supported')
             
-        if sampling == 'equiangular':
+        if sampling == 'equiangular' and conv_type == 'image':
             assert periodic is not None
             assert ratio is not None
+            periodic = bool(periodic)
 
         # Pooling - unpooling
         self.pooling = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, pool=True, kernel_size=kernel_size_pooling, ratio=ratio)

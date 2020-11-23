@@ -3,7 +3,7 @@
             {
             "datadir": "/nfs_home/wefeng/healpix/",
             "input_dir": "5.625deg_nearest/",
-            "save_dir": "/nfs_home/wefeng/results/healpix_test_only/",
+            "save_dir": "/nfs_home/wefeng/results/healpix/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
             "obs_file_name": "observations_nearest.nc",
