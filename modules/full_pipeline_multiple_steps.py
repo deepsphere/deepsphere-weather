@@ -289,6 +289,7 @@ def main(config_file, load_model=False, model_name_epochs=None):
 
     description = "{}_{}_{}_{}_{}".format(*net_params.values())
 
+    assert description in savedir
 
     # get training, validation and test data
     ds_train, ds_valid, _ = load_data_split(input_dir, train_years, val_years, test_years, chunk_size)
