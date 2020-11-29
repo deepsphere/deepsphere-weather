@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import torch
 from torch import nn, optim
 from torch.nn.parameter import Parameter
-from deepsphere.utils.samplings import equiangular_dimension_unpack
 
 from modules.plotting import plot_rmses
 from modules.utils import init_device
@@ -236,8 +235,6 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
         print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
                 .format(e=epoch + 1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2 - time1))
 
-        torch.save(model.state_dict(), model_filename[:-3] + '.h5')
-
     return train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, \
             weight_variations, weights_loss, criterion, optimizer
 
@@ -280,20 +277,21 @@ def main(config_file, load_model=False, model_name_epochs=None):
     in_features = cfg['model_parameters']['in_features']
     out_features = cfg['model_parameters']['out_features']
     num_steps_ahead = cfg['model_parameters']['num_steps_ahead']
-    architecture_name = cfg['model_parameters']['architecture_name']
     model = cfg['model_parameters']['model']
     sampling_method = cfg['model_parameters']['sampling'].lower()
 
-    description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
+    net_params = {}
+    net_params["sampling"] = cfg['model_parameters'].get("sampling", None)
+    net_params["conv_type"] = cfg['model_parameters'].get("conv_type", None)
+    net_params["pool_method"] = cfg['model_parameters'].get("pool_method", None)
+    net_params["ratio"] = cfg['model_parameters'].get("ratio", None)
+    net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
 
-
-    gpu = [0]
-    num_workers = 10
-    pin_memory = True
+    description = "{}_{}_{}_{}_{}".format(*net_params.values())
 
 
     # get training, validation and test data
-    ds_train, ds_valid, ds_test = load_data_split(input_dir, train_years, val_years, test_years, chunk_size)
+    ds_train, ds_valid, _ = load_data_split(input_dir, train_years, val_years, test_years, chunk_size)
 
     constants = xr.open_dataset(f'{input_dir}constants/constants_5.625deg_standardized.nc')
 
@@ -316,12 +314,8 @@ def main(config_file, load_model=False, model_name_epochs=None):
         print('Failed to open std_train_features_dynamic.nc, using None instead.')
         train_std_ = None
 
-    # define model name
-
-    description = "all_const_len{}_delta_{}_architecture_".format(len_sqce, delta_t) + architecture_name
-
     model_filename = model_save_path + description + ".h5"
-    figures_path = f'/home/wefeng/results/{sampling_method}/figures/' + description + '/'
+    figures_path = savedir + 'figures/'
 
     os.makedirs(figures_path, exist_ok=True)
 
@@ -340,31 +334,19 @@ def main(config_file, load_model=False, model_name_epochs=None):
     print('Define model...')
     print('Model name: ', description)
     modelClass = getattr(modelArchitectures, model)
-    if sampling_method == "equiangular":
-        unpacked = equiangular_dimension_unpack(nodes, ratio=2)
-        unpacked = np.array(unpacked) // 2
-        spherical_unet = modelClass(N=unpacked, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3)
-    elif sampling_method == "healpix":
-        spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3)
-    else:
-        raise ValueError(f'{sampling_method} is not supported')
+    print(net_params.values())
+    spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
 
     # use pretrained model to start training
     if load_model:
-        state_to_load = torch.load(model_filename)
+        state = torch.load(model_filename)
+        spherical_unet.load_state_dict(state, strict=False) # We do not save laplacians currently
 
-        own_state = spherical_unet.state_dict()
-        for name, param in state_to_load.items():
-            if name not in own_state:
-                # own_state[name] = param
-                print(name)
-                continue
-            if isinstance(param, Parameter):
-                # backwards compatibility for serialized parameters
-                param = param.data
-            own_state[name].copy_(param)
-
-    spherical_unet, device = init_device(spherical_unet, gpu=gpu)
+    if torch.cuda.is_available():
+        device = 'cuda: 0'
+        spherical_unet = spherical_unet.to(device)
+    else:
+        device = 'cpu'
 
 
     constants_tensor = torch.tensor(xr.merge([orog, lats, lsm, slt], compat='override').to_array().values, \

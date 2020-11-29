@@ -655,11 +655,8 @@ def create_iterative_predictions_healpix_temp(model, device, dg, constants):
     delta_t = dg.delta_t
     len_sqce = dg.len_sqce
     max_lead_time = dg.max_lead_time
-    initial_lead_time = delta_t * len_sqce
     nodes = dg.nodes
-    nside = int(np.sqrt(nodes/12))
-    n_samples = dg.n_samples
-    in_feat = 2#dg.in_features
+    initial_lead_time = delta_t * len_sqce
     total_feat = 7
     num_constants = constants.shape[1]
     
@@ -668,8 +665,6 @@ def create_iterative_predictions_healpix_temp(model, device, dg, constants):
     # Lead times
     lead_times = np.arange(delta_t, max_lead_time + delta_t, delta_t)
     
-    # Lat lon coordinates
-    out_lon, out_lat = hp.pix2ang(nside, np.arange(nodes), lonlat=True)
     
     # Actual times
     start = np.datetime64(dg.years[0], 'h') + np.timedelta64(initial_lead_time, 'h')
@@ -744,7 +739,7 @@ def create_iterative_predictions_healpix_temp(model, device, dg, constants):
         
     predictions = np.array(predictions)
     
-    return predictions, lead_times, times, nodes, out_lat, out_lon
+    return predictions, lead_times, times
 
 def _inner(x, y):
     result = np.matmul(x[..., np.newaxis, :], y[..., :, np.newaxis])

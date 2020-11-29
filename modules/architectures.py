@@ -6,9 +6,10 @@ import pygsp
 import numpy as np
 from torch.nn import functional as F
 from torch.nn import BatchNorm1d
+from deepsphere.utils.samplings import equiangular_dimension_unpack
 
 from modules import layers
-from modules.layers import (ConvCheb, Conv2dPeriodic,
+from modules.layers import (ConvCheb, Conv2dEquiangular,
     PoolMaxHealpix, 
     UnpoolMaxHealpix, 
     PoolAvgHealpix,
@@ -27,7 +28,7 @@ EQUIANGULAR_POOl = {'max': (PoolMaxEquiangular, UnpoolMaxEquiangular),
 ALL_POOL = {'healpix': HEALPIX_POOL,
             'equiangular': EQUIANGULAR_POOl}
 
-ALL_CONV = {'classic': Conv2dPeriodic,
+ALL_CONV = {'image': Conv2dEquiangular,
             'graph': ConvCheb}
 
 def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
@@ -76,18 +77,6 @@ def _compute_laplacian_equiangular(bandwidth, laplacian_type="normalized"):
     return laplacian
 
 
-def get_laplacian_kernels(container: List, nodes_list: Union[List[int], List[List[int]]], sampling='healpix') -> None:
-    sampling = sampling.lower()
-    for _, nodes in enumerate(nodes_list):
-        if sampling == 'healpix':
-            laplacian = _compute_laplacian_healpix(nodes)
-        elif sampling == 'equiangular':
-            laplacian = _compute_laplacian_equiangular(nodes)
-        else:
-            raise ValueError(f'{sampling} is not supported')
-        container.append(laplacian)
-
-
 class BaseModule(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -122,12 +111,10 @@ class ConvBlock(BaseModule):
         Graph laplacian
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, laplacian=None, normalisation=True, activation=True):
+    def __init__(self, in_channels, out_channels, kernel_size, conv_type = 'graph', normalisation=True, activation=True, **kwargs):
         super().__init__()
-        if laplacian is not None:
-            self.conv = ConvCheb(in_channels, out_channels, kernel_size, laplacian)
-        else:
-            self.conv = Conv2dPeriodic(in_channels, out_channels, kernel_size, 2)
+    
+        self.conv = ConvBlock.getConvLayer(in_channels, out_channels, kernel_size, conv_type, **kwargs)
         self.bn = BatchNorm1d(out_channels)
         self.norm = normalisation
         self.act = activation
@@ -139,7 +126,36 @@ class ConvBlock(BaseModule):
         if self.act:
             x = F.relu(x)
         return x
+    
+    @staticmethod
+    def getConvLayer(in_channels: int, out_channels: int, kernel_size: int, conv_type: str= 'graph', **kwargs):
+        conv_type = conv_type.lower()
+        conv = None
+        if conv_type == 'graph':
+            assert 'laplacian' in kwargs
+            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
+        elif conv_type == 'image':
+            assert 'ratio' in kwargs
+            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
+        else:
+            raise ValueError(f'{conv_type} convolution is not supported')
+        return conv
 
+
+class PoolUnpoolBlock(BaseModule):
+    @staticmethod
+    def getPoolUnpoolLayer(sampling: str, pool_method: str, pool: Union[int, bool]=True, **kwargs):
+        sampling = sampling.lower()
+        pool_method = pool_method.lower()
+
+        assert sampling in ('healpix', 'equiangular', 'reducedGaussianGrid')
+        assert pool_method in ('max', 'avg')
+
+        pooling, unpool = ALL_POOL[sampling][pool_method]
+        if pool:
+            return pooling(**kwargs)
+        else:
+            return unpool(**kwargs)
 
 class BottleNeckBlock(BaseModule):
     """ Spherical graph convolution block
@@ -193,7 +209,7 @@ class SphericalHealpixBlottleNeck(BaseModule):
         self.kernel_size = kernel_size
 
         laplacians = []
-        get_laplacian_kernels(laplacians, [N])
+        UNetSpherical.get_laplacian_kernels(laplacians, [N])
 
         # First convolution
         self.conv1 = ConvBlock(in_channels, 64, 3, laplacians[0])
@@ -255,7 +271,7 @@ class UNet(ABC):
         return output
 
 
-class UNetSpherical(UNet, BaseModule, ABC):
+class UNetSpherical(UNet, BaseModule):
     """Spherical GCNN UNet
 
     Parameters
@@ -266,60 +282,65 @@ class UNetSpherical(UNet, BaseModule, ABC):
         Pooling's kernel size
     """
 
-    def __init__(self, num_nodes, sampling='healpix', pool_method='max', kernel_size_pooling=4, ratio=None):
+    def __init__(self, N: int, in_channels: int, out_channels: int, conv_type: str='graph', 
+                 kernel_size: int=3, sampling: str='healpix', pool_method: str='max', kernel_size_pooling: int=4, 
+                 periodic: Union[int, bool, None]=None, ratio: Union[int, float, bool, None]=None):
         super().__init__()
 
-        laplacians = []
-        get_laplacian_kernels(laplacians, num_nodes, sampling)
-        self.laplacians = laplacians
-
-        # Pooling - unpooling
-        self.pooling, self.unpool = UNetSpherical.getPoolUnpoolMethods(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
-    
-    @staticmethod
-    def getPoolUnpoolMethods(sampling, pool_method, **kwargs):
+        conv_type = conv_type.lower()
         sampling = sampling.lower()
         pool_method = pool_method.lower()
 
-        assert sampling in ('healpix', 'equiangular', 'reducedGaussianGrid')
-        assert pool_method in ('max', 'avg')
+        if sampling == 'equiangular':
+            assert ratio is not None
+            N = equiangular_dimension_unpack(N, ratio)
+            N = np.array(N) // 2
 
-        pool, unpool = ALL_POOL[sampling][pool_method]
-        return pool(**kwargs), unpool(**kwargs)
+        if conv_type == 'graph':
+            laplacians = []
+            num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
+            UNetSpherical.get_laplacian_kernels(laplacians, num_nodes, sampling)
+            self.laplacians = laplacians
+        elif conv_type == 'image':
+            self.laplacians = [None] * 20
+        else:
+            raise ValueError(f'{conv_type} convolution is not supported')
+            
+        if sampling == 'equiangular' and conv_type == 'image':
+            assert periodic is not None
+            periodic = bool(periodic)
 
-
-class UNetSphericalHealpixResidualLongConnections(UNetSpherical):
-    def __init__(self, N, in_channels, out_channels, kernel_size, kernel_size_pooling=4):
-
-        num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
-        super().__init__(num_nodes, 'healpix', 'avg', kernel_size_pooling)
+        # Pooling - unpooling
+        self.pooling = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, pool=True, kernel_size=kernel_size_pooling, ratio=ratio)
+        self.unpool = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, pool=False, kernel_size=kernel_size_pooling, ratio=ratio)
 
         # Encoding block 1
-        self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size, self.laplacians[0])
-        self.conv13 = ConvBlock(max(in_channels, 32 * 2), 64 * 2, kernel_size, self.laplacians[0])
+        self.conv11 = ConvBlock(in_channels, 32 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
+        self.conv13 = ConvBlock(32 * 2, 64 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
 
         self.conv1_res = Conv1dAuto(in_channels, 64 * 2, 1)
 
         # Encoding block 2
-        self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size, self.laplacians[1])
-        self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size, self.laplacians[1])
+        self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], periodic=periodic, ratio=ratio)
+        self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], periodic=periodic, ratio=ratio)
 
         self.conv2_res = Conv1dAuto(64 * 2, 128 * 2, 1)
 
         # Encoding block 3
-        self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size, self.laplacians[2])
-        self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[2])
+        self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[2], periodic=periodic, ratio=ratio)
+        self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[2], periodic=periodic, ratio=ratio)
 
         self.conv3_res = Conv1dAuto(128 * 2, 128 * 2, 1)
 
         # Decoding block 2
-        self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[1])
-        self.uconv22 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[1])
+        self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], periodic=periodic, ratio=ratio)
+        self.uconv22 = ConvBlock(128 * 2, 64 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], periodic=periodic, ratio=ratio)
 
         # Decoding block 1
-        self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[0])
-        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size, self.laplacians[0])
-        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, kernel_size, self.laplacians[0], False, False)
+        self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
+        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
+        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, kernel_size, conv_type, False, False, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
+    
 
     def encode(self, x):
         # Block 1
@@ -345,6 +366,7 @@ class UNetSphericalHealpixResidualLongConnections(UNetSpherical):
 
         return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11
 
+
     def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11):
         # Block 2
         x = self.unpool(x_enc3, idx2)
@@ -361,154 +383,14 @@ class UNetSphericalHealpixResidualLongConnections(UNetSpherical):
         x = self.uconv13(x_cat)
         return x
 
-
-class UNetSphericalEquiangularResidualLongConnections(UNetSpherical):
-    def __init__(self, N, in_channels, out_channels, kernel_size, kernel_size_pooling=4):
-        N = np.array(N)
-        num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
-        super().__init__(num_nodes, 'equiangular', 'max', kernel_size_pooling, ratio=2)
-
-        # Encoding block 1
-        self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size, self.laplacians[0])
-        self.conv13 = ConvBlock(max(in_channels, 32 * 2), 64 * 2, kernel_size, self.laplacians[0])
-
-        self.conv1_res = Conv1dAuto(in_channels, 64 * 2, 1)
-
-        # Encoding block 2
-        self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size, self.laplacians[1])
-        self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size, self.laplacians[1])
-
-        self.conv2_res = Conv1dAuto(64 * 2, 128 * 2, 1)
-
-        # Encoding block 3
-        self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size, self.laplacians[2])
-        self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[2])
-
-        self.conv3_res = Conv1dAuto(128 * 2, 128 * 2, 1)
-
-        # Decoding block 2
-        self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size, self.laplacians[1])
-        self.uconv22 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[1])
-
-        # Decoding block 1
-        self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size, self.laplacians[0])
-        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size, self.laplacians[0])
-        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, kernel_size, self.laplacians[0], False, False)
-
-    def encode(self, x):
-        # Block 1
-
-        x_enc11 = self.conv11(x)
-        x_enc1 = self.conv13(x_enc11)
-
-        x_enc1 += torch.transpose(self.conv1_res(torch.transpose(x, 2, 1)), 2, 1)
-
-        # Block 2
-        x_enc2_ini, idx1 = self.pooling(x_enc1)
-        x_enc2 = self.conv21(x_enc2_ini)
-        x_enc2 = self.conv23(x_enc2)
-
-        x_enc2 += torch.transpose(self.conv2_res(torch.transpose(x_enc2_ini, 2, 1)), 2, 1)
-
-        # Block 3
-        x_enc3_ini, idx2 = self.pooling(x_enc2)
-        x_enc3 = self.conv31(x_enc3_ini)
-        x_enc3 = self.conv33(x_enc3)
-
-        x_enc3 += torch.transpose(self.conv3_res(torch.transpose(x_enc3_ini, 2, 1)), 2, 1)
-
-        return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11
-
-    def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11):
-        # Block 2
-        x = self.unpool(x_enc3, idx2)
-        x_cat = torch.cat((x, x_enc2), dim=2)
-        x = self.uconv21(x_cat)
-        x = self.uconv22(x)
-
-        # Block 1
-        x = self.unpool(x, idx1)
-        x_cat = torch.cat((x, x_enc1), dim=2)
-        x = self.uconv11(x_cat)
-        x = self.uconv12(x)
-        x_cat = torch.cat((x, x_enc11), dim=2)
-        x = self.uconv13(x_cat)
-
-        return x
-
-
-class UNetEquiangularResidualLongConnections(UNetSpherical):
-    def __init__(self, N, in_channels, out_channels, kernel_size, kernel_size_pooling=4):
-        N = np.array(N)
-        num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
-        super().__init__(num_nodes, 'equiangular', 'max', kernel_size_pooling, ratio=2)
-
-        self.laplacians = None
-
-        # Encoding block 1
-        self.conv11 = ConvBlock(in_channels, max(in_channels, 32 * 2), kernel_size)
-        self.conv13 = ConvBlock(max(in_channels, 32 * 2), 64 * 2, kernel_size)
-
-        self.conv1_res = Conv1dAuto(in_channels, 64 * 2, 1)
-
-        # Encoding block 2
-        self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size)
-        self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size)
-
-        self.conv2_res = Conv1dAuto(64 * 2, 128 * 2, 1)
-
-        # Encoding block 3
-        self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size)
-        self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size)
-
-        self.conv3_res = Conv1dAuto(128 * 2, 128 * 2, 1)
-
-        # Decoding block 2
-        self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size)
-        self.uconv22 = ConvBlock(128 * 2, 64 * 2, kernel_size)
-
-        # Decoding block 1
-        self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size)
-        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size)
-        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, kernel_size, None, False, False)
-
-    def encode(self, x):
-        # Block 1
-
-        x_enc11 = self.conv11(x)
-        x_enc1 = self.conv13(x_enc11)
-
-        x_enc1 += torch.transpose(self.conv1_res(torch.transpose(x, 2, 1)), 2, 1)
-
-        # Block 2
-        x_enc2_ini, idx1 = self.pooling(x_enc1)
-        x_enc2 = self.conv21(x_enc2_ini)
-        x_enc2 = self.conv23(x_enc2)
-
-        x_enc2 += torch.transpose(self.conv2_res(torch.transpose(x_enc2_ini, 2, 1)), 2, 1)
-
-        # Block 3
-        x_enc3_ini, idx2 = self.pooling(x_enc2)
-        x_enc3 = self.conv31(x_enc3_ini)
-        x_enc3 = self.conv33(x_enc3)
-
-        x_enc3 += torch.transpose(self.conv3_res(torch.transpose(x_enc3_ini, 2, 1)), 2, 1)
-
-        return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11
-
-    def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11):
-        # Block 2
-        x = self.unpool(x_enc3, idx2)
-        x_cat = torch.cat((x, x_enc2), dim=2)
-        x = self.uconv21(x_cat)
-        x = self.uconv22(x)
-
-        # Block 1
-        x = self.unpool(x, idx1)
-        x_cat = torch.cat((x, x_enc1), dim=2)
-        x = self.uconv11(x_cat)
-        x = self.uconv12(x)
-        x_cat = torch.cat((x, x_enc11), dim=2)
-        x = self.uconv13(x_cat)
-
-        return x
+    @staticmethod
+    def get_laplacian_kernels(container: List, nodes_list: Union[List[int], List[List[int]]], sampling='healpix') -> None:
+        sampling = sampling.lower()
+        for _, nodes in enumerate(nodes_list):
+            if sampling == 'healpix':
+                laplacian = _compute_laplacian_healpix(nodes)
+            elif sampling == 'equiangular':
+                laplacian = _compute_laplacian_equiangular(nodes)
+            else:
+                raise ValueError(f'{sampling} is not supported')
+            container.append(laplacian)
