@@ -1,3 +1,5 @@
+from math import log2
+
 import xarray as xr
 import numpy as np
 import healpy as hp
@@ -9,6 +11,17 @@ import torch
 from torch import nn, optim 
 from torch.utils.data import Dataset
 
+def pix2ang(nodes=2048, ratio=2):
+    # deg = 5.625
+    x = int(np.sqrt(nodes / ratio))
+    new_lon_idx = np.linspace(0, 354.375, num=x, endpoint=True)
+    new_lat_idx = np.linspace(-87.1875, 87.1875, num=ratio*x, endpoint=True)
+
+    new_lat_idx, new_lon_idx = np.meshgrid(new_lat_idx, new_lon_idx, indexing='ij')
+
+    new_lon_idx = new_lon_idx.reshape(-1)
+    new_lat_idx = new_lat_idx.reshape(-1)
+    return new_lat_idx, new_lon_idx
 
 # Data preprocessing
 def preprocess_equiangular(in_data, out_data, train_years, val_years, test_years):
@@ -121,7 +134,10 @@ def hp_to_equiangular(sample, res, method='linear'):
     # Input grid
     n_pixels = sample.dims['node']
     nside = int(np.sqrt(n_pixels/12))
-    hp_lon, hp_lat = hp.pix2ang(nside, np.arange(n_pixels), lonlat=True, nest=True)
+    if abs(int(log2(nside)) - log2(nside)) > 0.001:
+        hp_lat, hp_lon = pix2ang(n_pixels)
+    else:
+        hp_lon, hp_lat = hp.pix2ang(nside, np.arange(n_pixels), lonlat=True, nest=True)
     points = np.array([hp_lon, hp_lat]).transpose((1, 0))
     
     # Output grid

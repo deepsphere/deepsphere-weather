@@ -6,6 +6,7 @@ import pygsp
 import numpy as np
 from torch.nn import functional as F
 from torch.nn import BatchNorm1d
+from deepsphere.utils.samplings import equiangular_dimension_unpack
 
 from modules import layers
 from modules.layers import (ConvCheb, Conv2dEquiangular,
@@ -127,7 +128,7 @@ class ConvBlock(BaseModule):
         return x
     
     @staticmethod
-    def getConvLayer(in_channels, out_channels, kernel_size, conv_type = 'graph', **kwargs):
+    def getConvLayer(in_channels: int, out_channels: int, kernel_size: int, conv_type: str= 'graph', **kwargs):
         conv_type = conv_type.lower()
         conv = None
         if conv_type == 'graph':
@@ -143,7 +144,7 @@ class ConvBlock(BaseModule):
 
 class PoolUnpoolBlock(BaseModule):
     @staticmethod
-    def getPoolUnpoolLayer(sampling, pool_method, pool=True, **kwargs):
+    def getPoolUnpoolLayer(sampling: str, pool_method: str, pool: Union[int, bool]=True, **kwargs):
         sampling = sampling.lower()
         pool_method = pool_method.lower()
 
@@ -281,12 +282,20 @@ class UNetSpherical(UNet, BaseModule):
         Pooling's kernel size
     """
 
-    def __init__(self, N, in_channels, out_channels, conv_type='graph', kernel_size=3, 
-                 sampling='healpix', pool_method='max', kernel_size_pooling=4, 
-                 periodic=None, ratio=None):
+    def __init__(self, N: int, in_channels: int, out_channels: int, conv_type: str='graph', 
+                 kernel_size: int=3, sampling: str='healpix', pool_method: str='max', kernel_size_pooling: int=4, 
+                 periodic: Union[int, bool, None]=None, ratio: Union[int, float, bool, None]=None):
         super().__init__()
 
         conv_type = conv_type.lower()
+        sampling = sampling.lower()
+        pool_method = pool_method.lower()
+
+        if sampling == 'equiangular':
+            assert ratio is not None
+            N = equiangular_dimension_unpack(N, ratio)
+            N = np.array(N) // 2
+
         if conv_type == 'graph':
             laplacians = []
             num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
@@ -299,7 +308,6 @@ class UNetSpherical(UNet, BaseModule):
             
         if sampling == 'equiangular' and conv_type == 'image':
             assert periodic is not None
-            assert ratio is not None
             periodic = bool(periodic)
 
         # Pooling - unpooling
