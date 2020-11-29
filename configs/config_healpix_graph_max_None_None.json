@@ -1,9 +1,9 @@
 {
     "directories":
             {
-            "datadir": "/nfs_home/wefeng/equiangular/",
-            "input_dir": "5.625deg/",
-            "save_dir": "/nfs_home/wefeng/results/equiangular_conv2d_normal/",
+            "datadir": "/nfs_home/wefeng/healpix/",
+            "input_dir": "5.625deg_nearest/",
+            "save_dir": "/nfs_home/wefeng/results/healpix_graph_max_None_None/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
             "obs_file_name": "observations_nearest.nc",
@@ -20,7 +20,7 @@
             "train_years": ["1990","2012"],
             "val_years": ["2013", "2016"],
             "test_years": ["2017", "2018"],
-            "nodes":2048,
+            "nodes":3072,
             "max_lead_time": 120,
             "nb_timesteps": 2,
             "nb_epochs": 12,
@@ -29,16 +29,17 @@
     },
     "model_parameters":
     {
-            "sampling": "equiangular",
+            "sampling": "healpix",
+            "conv_type": "graph",
+            "pool_method": "max",
             "len_sqce": 2,
             "delta_t": 6,
             "in_features": 7,
-            "out_features": 2,
+            "out_features":2,
             "num_steps_ahead": 8,
-            "architecture_name": "loss_v0_8steps_constant_increasing_static_l3_long_connections_per_epoch",
             "resolution": 5.625,
             "kernel_size_pooling": 4,
             "initial_weights": [1,2,3,4,5,6,7,8],
-            "model": "UNetEquiangularResidualLongConnections"
+            "model": "UNetSpherical"
     }
 }
