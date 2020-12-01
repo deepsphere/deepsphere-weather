@@ -98,7 +98,10 @@ def main(cfg):
     epoch = extract_epoch(saved_models[0])
     pred_filename = generate_file_name(prediction_path, 'pred', description, epoch)
     rmse_filename = generate_file_name(metrics_path, 'rmse', description, epoch)
-    pred, lead_times, times = create_iterative_predictions_healpix_temp(model, device, testing_ds, constants_tensor.transpose(1,0))
+
+    model.eval()
+    with torch.set_grad_enabled(False):
+        pred, lead_times, times = create_iterative_predictions_healpix_temp(model, device, testing_ds, constants_tensor.transpose(1,0))
 
     das = []
     for ind, var in enumerate(['z', 't']):       
