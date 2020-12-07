@@ -17,6 +17,14 @@ from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHeal
 import warnings
 warnings.filterwarnings("ignore")
 
+def _deterministic(seed=100):
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
 
 def update_w(w):
     """
@@ -309,7 +317,8 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
 
 
 def main(config_file, load_model=False, profiling=False):
-    
+    _deterministic()
+
     with open(config_file) as json_data_file:
         cfg = json.load(json_data_file)
 

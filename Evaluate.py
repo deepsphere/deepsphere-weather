@@ -30,7 +30,12 @@ def main(cfg):
     net_params["ratio"] = cfg['model_parameters'].get("ratio", None)
     net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
 
-    description = "{}_{}_{}_{}_{}_{}".format(*net_params.values())
+    if net_params["sampling"] == 'healpix':
+        description = "{}_{}_{}_{}_{}_{}".format(*net_params.values())
+    else:
+        net_params.pop('knn')
+        description = "{}_{}_{}_{}_{}".format(*net_params.values())
+    print(description)
 
     datadir = cfg['directories']['datadir']
     input_dir = datadir + cfg['directories']['input_dir']
