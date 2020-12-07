@@ -20,18 +20,25 @@ from modules.layers import (ConvCheb, Conv2dEquiangular,
     UnpoolAvgEquiangular,
     Conv1dAuto)
 
+from modules.GraphPool import (GeneralSpherePoolUnpool, 
+    compute_pooling_healpix,
+    compute_pooling_equiangular,
+    convert_to_torch_sparse)
+
 
 HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
                 'avg': (PoolAvgHealpix, UnpoolAvgHealpix)}
+
 EQUIANGULAR_POOl = {'max': (PoolMaxEquiangular, UnpoolMaxEquiangular), 
                     'avg': (PoolAvgEquiangular, UnpoolAvgEquiangular)}
+
 ALL_POOL = {'healpix': HEALPIX_POOL,
             'equiangular': EQUIANGULAR_POOl}
 
 ALL_CONV = {'image': Conv2dEquiangular,
             'graph': ConvCheb}
 
-def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
+def _compute_laplacian_healpix(nodes, laplacian_type="normalized", k=20):
     """ Computes laplacian of spherical graph sampled as a HEALpix grid
 
     Parameters
@@ -48,7 +55,7 @@ def _compute_laplacian_healpix(nodes, laplacian_type="normalized"):
     """
     resolution = int(np.sqrt(nodes / 12))
 
-    G = pygsp.graphs.SphereHealpix(nside=resolution, n_neighbors=20)
+    G = pygsp.graphs.SphereHealpix(nside=resolution, n_neighbors=k)
     G.compute_laplacian(laplacian_type)
     laplacian = layers.prepare_laplacian(G.L.astype(np.float32))
 
@@ -144,7 +151,7 @@ class ConvBlock(BaseModule):
 
 class PoolUnpoolBlock(BaseModule):
     @staticmethod
-    def getPoolUnpoolLayer(sampling: str, pool_method: str, pool: Union[int, bool]=True, **kwargs):
+    def getPoolUnpoolLayer(sampling: str, pool_method: str, **kwargs):
         sampling = sampling.lower()
         pool_method = pool_method.lower()
 
@@ -152,10 +159,29 @@ class PoolUnpoolBlock(BaseModule):
         assert pool_method in ('max', 'avg')
 
         pooling, unpool = ALL_POOL[sampling][pool_method]
-        if pool:
-            return pooling(**kwargs)
-        else:
-            return unpool(**kwargs)
+        return pooling(**kwargs), unpool(**kwargs)
+    
+    @staticmethod
+    def getGeneralPoolUnpoolLayer(sampling: str, nodes, **kwargs):
+        assert len(nodes) >= 2
+
+        compute_methods = {'healpix': compute_pooling_healpix,
+                        'equiangular': compute_pooling_equiangular}
+        sampling = sampling.lower()
+        try:
+            method = compute_methods[sampling]
+        except:
+            raise KeyError(f'Sampling {sampling} is not supported')
+
+        nodes_sorted = sorted(nodes, reverse=True)
+        pool = GeneralSpherePoolUnpool()
+        unpool = GeneralSpherePoolUnpool()
+        for i in range(len(nodes_sorted) - 1):
+            n1, n2 = nodes_sorted[i], nodes_sorted[i + 1]
+            pool_mat, unpool_mat = method(n1, n2, **kwargs)
+            pool[n1] = convert_to_torch_sparse(pool_mat)
+            unpool[n2] = convert_to_torch_sparse(unpool_mat)
+        return pool, unpool
 
 class BottleNeckBlock(BaseModule):
     """ Spherical graph convolution block
@@ -283,7 +309,7 @@ class UNetSpherical(UNet, BaseModule):
     """
 
     def __init__(self, N: int, in_channels: int, out_channels: int, conv_type: str='graph', 
-                 kernel_size: int=3, sampling: str='healpix', pool_method: str='max', kernel_size_pooling: int=4, 
+                 kernel_size: int=3, sampling: str='healpix', knn: int = 20, pool_method: str='max', kernel_size_pooling: int=4, 
                  periodic: Union[int, bool, None]=None, ratio: Union[int, float, bool, None]=None):
         super().__init__()
 
@@ -296,10 +322,10 @@ class UNetSpherical(UNet, BaseModule):
             N = equiangular_dimension_unpack(N, ratio)
             N = np.array(N) // 2
 
+        num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
         if conv_type == 'graph':
             laplacians = []
-            num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
-            UNetSpherical.get_laplacian_kernels(laplacians, num_nodes, sampling)
+            UNetSpherical.get_laplacian_kernels(laplacians, num_nodes, sampling, knn)
             self.laplacians = laplacians
         elif conv_type == 'image':
             self.laplacians = [None] * 20
@@ -311,8 +337,11 @@ class UNetSpherical(UNet, BaseModule):
             periodic = bool(periodic)
 
         # Pooling - unpooling
-        self.pooling = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, pool=True, kernel_size=kernel_size_pooling, ratio=ratio)
-        self.unpool = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, pool=False, kernel_size=kernel_size_pooling, ratio=ratio)
+        if pool_method == 'general':
+            assert conv_type == 'graph'
+            self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(sampling, num_nodes, k=knn)
+        else:
+            self.pooling, self.unpool = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
 
         # Encoding block 1
         self.conv11 = ConvBlock(in_channels, 32 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
@@ -384,11 +413,11 @@ class UNetSpherical(UNet, BaseModule):
         return x
 
     @staticmethod
-    def get_laplacian_kernels(container: List, nodes_list: Union[List[int], List[List[int]]], sampling='healpix') -> None:
+    def get_laplacian_kernels(container: List, nodes_list: Union[List[int], List[List[int]]], sampling='healpix', k: int=20) -> None:
         sampling = sampling.lower()
         for _, nodes in enumerate(nodes_list):
             if sampling == 'healpix':
-                laplacian = _compute_laplacian_healpix(nodes)
+                laplacian = _compute_laplacian_healpix(nodes, k=k)
             elif sampling == 'equiangular':
                 laplacian = _compute_laplacian_equiangular(nodes)
             else:

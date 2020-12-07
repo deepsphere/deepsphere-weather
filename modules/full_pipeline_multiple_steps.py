@@ -9,15 +9,9 @@ import matplotlib.pyplot as plt
 
 import torch
 from torch import nn, optim
-from torch.nn.parameter import Parameter
 
-from modules.plotting import plot_rmses
-from modules.utils import init_device
 import modules.architectures as modelArchitectures
-# from modules.test import compute_rmse_healpix
-from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTemp, \
-    train_model_2steps, create_iterative_predictions_healpix_temp, \
-    compute_errors, plot_climatology, WeatherBenchDatasetXarrayHealpixTempMultiple
+from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTempMultiple
 
 
 import warnings
@@ -40,11 +34,10 @@ def update_w(w):
 
 
 def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device, training_ds, len_output, constants, batch_size, \
-                                   epochs, validation_ds, model_filename):
+                                   epochs, validation_ds, profiling, savedir):
         
         
         # Initialize parameters and storage of results
-    t1 = time.time()
     train_losses = []
     val_losses = []
     
@@ -60,7 +53,10 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
     constants1 = constants_expanded.to(device)
     idxs_val = validation_ds.idxs
 
-    required_output = np.max(np.where(weights_loss > 0)) + 1 #produce only predictions of time-steps that have a positive contribution to the loss, otherwise, if the loss is 0 and they are not required for the prediction of future time-steps, avoid computation to save time and memory
+    # produce only predictions of time-steps that have a positive contribution to the loss, 
+    # otherwise, if the loss is 0 and they are not required for the prediction of future time-steps, 
+    # avoid computation to save time and memory
+    required_output = np.max(np.where(weights_loss > 0)) + 1 
 
     # save weight modifications along training phase
     weight_variations = [(weights_loss, 0, 0)]
@@ -77,14 +73,11 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
 
     threshold = 1e-4
 
-    print('Time initial steps: {:.3f}s'.format(time.time() - t1))
 
     # iterate along epochs
     for epoch in range(epochs):
 
         print('\rEpoch : {}'.format(epoch), end="")
-
-        time1 = time.time()
 
         val_loss = 0
         train_loss = 0
@@ -97,11 +90,14 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
         batch_idx = 0
         train_loss_it = []
         times_it = []
-        t0 = time.time()
+        times_train_forward = [] #############################
+        times_train_backward = [] #############################
         
         # iterate along batches 
         for i in range(0, n_samples - batch_size, batch_size):
-            #tbatch0 = time.time()
+            curr_batch_time = []
+            curr_batch_size = []
+
             i_next = min(i + batch_size, n_samples)
 
             # addapt constants size if necessary
@@ -118,7 +114,20 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
                                 constants_expanded, batch[0][batch_size:, :, :], constants_expanded), dim=2).to(device)
 
             #  generate predictions multiple steps ahead sequentially
-            output = model(batch1)
+            if profiling:
+                start = torch.cuda.Event(enable_timing=True)
+                end = torch.cuda.Event(enable_timing=True)
+                start.record()
+                output = model(batch1)
+                end.record()
+                torch.cuda.synchronize()
+
+                curr_batch_time.append(start.elapsed_time(end))
+                curr_batch_size.append(batch1.shape[0])
+            else:
+                output = model(batch1)
+
+
             label1 = labels[0].to(device)
             l0 = criterion(output, label1[batch_size:, :, :out_features])
             loss_ahead = weights_loss[0] * l0
@@ -133,7 +142,18 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
                 toa_delta = labels[step_ahead][:batch_size, :, -1].view(-1, num_nodes, 1).to(device)
                 batch1 = torch.cat((inp_t2, output, toa_delta, constants1), dim=2)
 
-                output = model(batch1)
+                if profiling:
+                    start = torch.cuda.Event(enable_timing=True)
+                    end = torch.cuda.Event(enable_timing=True)
+                    start.record()
+                    output = model(batch1)
+                    end.record()
+                    torch.cuda.synchronize()
+
+                    curr_batch_time.append(start.elapsed_time(end))
+                    curr_batch_size.append(batch1.shape[0])
+                else:
+                    output = model(batch1)
                 label1 = labels[step_ahead].to(device)
                 
                 # evaluate loss 
@@ -143,7 +163,23 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
 
             #tbatch2 = time.time()
             optimizer.zero_grad()
-            loss_ahead.backward()
+            if profiling:
+                start = torch.cuda.Event(enable_timing=True)
+                end = torch.cuda.Event(enable_timing=True)
+                start.record()
+                loss_ahead.backward()
+                end.record()
+                torch.cuda.synchronize()
+
+                backward_time = start.elapsed_time(end)
+                backward_time /= sum(curr_batch_size)
+                times_train_backward.append(backward_time)
+
+                forward_time = sum(curr_batch_time) / sum(curr_batch_size)
+                times_train_forward.append(forward_time)
+            else:
+                loss_ahead.backward()
+
             optimizer.step()
 
             #tbatch3 = time.time()
@@ -164,10 +200,6 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
                 else:
                     count_upd += 1
 
-            #tbatch4 = time.time()
-            times_it.append(time.time() - t0)
-            t0 = time.time()
-
             if batch_idx % 50 == 0:
                 print('\rBatch idx: {}; Loss: {:.3f} - Other {:.5f} - {}' \
                         .format(batch_idx, train_loss / (batch_size * (batch_idx + 1)), np.std(train_loss_it[-10:]),
@@ -182,12 +214,15 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
         train_losses.append(train_loss)
 
         model.eval()
-
+        times_eval = []
         constants1 = constants_expanded.to(device)
         with torch.set_grad_enabled(False):
             index = 0
 
             for i in range(0, n_samples_val - batch_size, batch_size):
+                curr_batch_time = []
+                curr_batch_size = []
+
                 i_next = min(i + batch_size, n_samples_val)
 
                 if len(idxs_val[i:i_next]) < batch_size:
@@ -203,7 +238,20 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
                     device)
 
                 #  generate predictions multiple steps ahead sequentially
-                output = model(batch1)
+                
+                if profiling:
+                    start = torch.cuda.Event(enable_timing=True)
+                    end = torch.cuda.Event(enable_timing=True)
+                    start.record()
+                    output = model(batch1)
+                    end.record()
+                    torch.cuda.synchronize()
+
+                    curr_batch_time.append(start.elapsed_time(end))
+                    curr_batch_size.append(batch1.shape[0])
+                else:
+                    output = model(batch1)
+
                 label1 = labels[0].to(device)
                 l0 = criterion(output, label1[batch_size:, :, :out_features]).item()
                 loss_ahead = weights_loss[0] * l0
@@ -217,7 +265,19 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
                     toa_delta = labels[step_ahead][:batch_size, :, -1].view(-1, num_nodes, 1).to(device)
                     batch1 = torch.cat((inp_t2, output, toa_delta, constants1), dim=2)
 
-                    output = model(batch1)
+                    if profiling:
+                        start = torch.cuda.Event(enable_timing=True)
+                        end = torch.cuda.Event(enable_timing=True)
+                        start.record()
+                        output = model(batch1)
+                        end.record()
+                        torch.cuda.synchronize()
+
+                        curr_batch_time.append(start.elapsed_time(end))
+                        curr_batch_size.append(batch1.shape[0])
+                    else:
+                        output = model(batch1)
+                    
                     label1 = labels[step_ahead].to(device)
                     l0 = criterion(output, label1[batch_size:, :, :out_features]).item()
                     loss_ahead += weights_loss[step_ahead] * l0
@@ -226,20 +286,29 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
                 val_loss += loss_ahead * batch_size
                 index = index + batch_size
 
+                if profiling:
+                    times_eval.append(sum(curr_batch_time) / sum(curr_batch_size))
+
         val_loss = val_loss / n_samples_val
         val_losses.append(val_loss)
 
-        time2 = time.time()
-
         # Print stuff
         print('Epoch: {e:3d}/{n_e:3d}  - loss: {l:.3f}  - val_loss: {v_l:.5f}  - time: {t:2f}'
-                .format(e=epoch + 1, n_e=epochs, l=train_loss, v_l=val_loss, t=time2 - time1))
+                .format(e=epoch + 1, n_e=epochs, l=train_loss, v_l=val_loss, t=-1))
+
+        if profiling:
+            print('Median of train(forward) {} train(backward) {} inference {}'
+                    .format(np.median(times_train_forward), np.median(times_train_backward), np.median(times_eval)))
+            
+            np.save(savedir + 'forward_time.npy', times_train_forward)
+            np.save(savedir + 'backward_time.npy', times_train_backward)
+            np.save(savedir + 'inference_time.npy', times_eval)
 
     return train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, \
             weight_variations, weights_loss, criterion, optimizer
 
 
-def main(config_file, load_model=False, model_name_epochs=None):
+def main(config_file, load_model=False, profiling=False):
     
     with open(config_file) as json_data_file:
         cfg = json.load(json_data_file)
@@ -250,11 +319,10 @@ def main(config_file, load_model=False, model_name_epochs=None):
     input_dir = datadir + cfg['directories']['input_dir']
     model_save_path = savedir + cfg['directories']['model_save_path']
     pred_save_path = savedir + cfg['directories']['pred_save_path']
-    metrics_path = datadir + cfg['directories']['metrics_path']
 
-
-    os.makedirs(model_save_path, exist_ok=True)
-    os.makedirs(pred_save_path, exist_ok=True)
+    if not profiling:
+        os.makedirs(model_save_path, exist_ok=True)
+        os.makedirs(pred_save_path, exist_ok=True)
 
     # Define constants
     chunk_size = cfg['training_constants']['chunk_size']
@@ -278,16 +346,20 @@ def main(config_file, load_model=False, model_name_epochs=None):
     out_features = cfg['model_parameters']['out_features']
     num_steps_ahead = cfg['model_parameters']['num_steps_ahead']
     model = cfg['model_parameters']['model']
-    sampling_method = cfg['model_parameters']['sampling'].lower()
 
     net_params = {}
     net_params["sampling"] = cfg['model_parameters'].get("sampling", None)
+    net_params["knn"] = cfg['model_parameters'].get("knn", None)
     net_params["conv_type"] = cfg['model_parameters'].get("conv_type", None)
     net_params["pool_method"] = cfg['model_parameters'].get("pool_method", None)
     net_params["ratio"] = cfg['model_parameters'].get("ratio", None)
     net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
 
-    description = "{}_{}_{}_{}_{}".format(*net_params.values())
+    if net_params["sampling"] == 'healpix':
+        description = "{}_{}_{}_{}_{}_{}".format(*net_params.values())
+    else:
+        net_params.pop('knn')
+        description = "{}_{}_{}_{}_{}".format(*net_params.values())
 
     assert description in savedir
 
@@ -318,7 +390,8 @@ def main(config_file, load_model=False, model_name_epochs=None):
     model_filename = model_save_path + description + ".h5"
     figures_path = savedir + 'figures/'
 
-    os.makedirs(figures_path, exist_ok=True)
+    if not profiling:
+        os.makedirs(figures_path, exist_ok=True)
 
     # generate dataloaders
     training_ds = WeatherBenchDatasetXarrayHealpixTempMultiple(ds=ds_train, out_features=out_features, delta_t=delta_t,
@@ -363,22 +436,23 @@ def main(config_file, load_model=False, model_name_epochs=None):
     w = w / sum(w)
 
     # plot variation of weights
-    f, ax = plt.subplots(4, 4, figsize=(15, 10), sharex=True, sharey=True)
-    ax = ax.flatten()
-    x_vals = list(range(len(w)))
-    ax[0].scatter(x_vals, w)
-    ax[0].set_title('Initial weights')
+    if not profiling:
+        f, ax = plt.subplots(4, 4, figsize=(15, 10), sharex=True, sharey=True)
+        ax = ax.flatten()
+        x_vals = list(range(len(w)))
+        ax[0].scatter(x_vals, w)
+        ax[0].set_title('Initial weights')
 
-    for i in range(15):
-        w = update_w(w)
-        ax[i + 1].scatter(x_vals, w)
-        ax[i + 1].set_title('Update ' + str(i))
+        for i in range(15):
+            w = update_w(w)
+            ax[i + 1].scatter(x_vals, w)
+            ax[i + 1].set_title('Update ' + str(i))
 
-    plt.xlabel('Time step ahead')
-    plt.ylabel('Weight')
-    plt.tight_layout()
-    plt.savefig(figures_path + 'weight_updates.png')
-    plt.show()
+        plt.xlabel('Time step ahead')
+        plt.ylabel('Weight')
+        plt.tight_layout()
+        plt.savefig(figures_path + 'weight_updates.pdf')
+        # plt.show()
 
     train_loss_ev = []
     val_loss_ev = []
@@ -390,6 +464,8 @@ def main(config_file, load_model=False, model_name_epochs=None):
     optimizer = optim.Adam(spherical_unet.parameters(), lr=learning_rate, eps=1e-7, weight_decay=0, amsgrad=False)
 
     # train model
+    if profiling:
+        epochs = 1
     for ep in range(epochs):
 
         print('Starting epoch {}'.format(ep + 1))
@@ -402,11 +478,11 @@ def main(config_file, load_model=False, model_name_epochs=None):
 
         # training is set to 1 epoch (and loop is performed outside) to save models and reinitialize weights 
         # THIS CAN BE EASILY IMPROVED CODE-WISE AND SIMPLIFIED! 
-        train_losses, val_losses, _, _, train_loss_steps, test_loss_steps, weight_variations, \
+        train_losses, val_losses, train_loss_it, times_it, train_loss_steps, test_loss_steps, weight_variations, \
         w, criterion, optimizer = \
             train_model_multiple_steps(spherical_unet, w, criterion, optimizer, device, training_ds, len_output=num_steps_ahead, \
                                        constants=constants_tensor.transpose(1, 0), batch_size=batch_size, epochs=1, \
-                                       validation_ds=validation_ds, model_filename=model_filename)
+                                       validation_ds=validation_ds, profiling=profiling, savedir=savedir)
 
         train_loss_ev.append(train_losses)
         val_loss_ev.append(val_losses)
@@ -415,9 +491,8 @@ def main(config_file, load_model=False, model_name_epochs=None):
         weight_variations_ev.append(weight_variations)
 
         # save model
-        torch.save(spherical_unet.state_dict(), model_filename[:-3] + '_epoch_{}'.format(ep) + '.h5')
-
-        torch.cuda.empty_cache()
+        if not profiling:
+            torch.save(spherical_unet.state_dict(), model_filename[:-3] + '_epoch_{}'.format(ep) + '.h5')
 
     return train_loss_ev, val_loss_ev, train_loss_steps_ev, test_loss_steps_ev, weight_variations_ev
 

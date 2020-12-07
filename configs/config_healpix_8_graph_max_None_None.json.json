@@ -3,7 +3,7 @@
             {
             "datadir": "/nfs_home/wefeng/healpix/",
             "input_dir": "5.625deg_nearest/",
-            "save_dir": "/nfs_home/wefeng/results/healpix_20_graph_max_None_None/",
+            "save_dir": "/nfs_home/wefeng/results/healpix_8_graph_max_None_None/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
             "obs_file_name": "observations_nearest.nc",
@@ -30,7 +30,7 @@
     "model_parameters":
     {
             "sampling": "healpix",
-            "knn": 20,
+            "knn": 8,
             "conv_type": "graph",
             "pool_method": "max",
             "len_sqce": 2,
