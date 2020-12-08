@@ -317,7 +317,7 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
 
 
 def main(config_file, load_model=False, profiling=False):
-    _deterministic()
+    # _deterministic()
 
     with open(config_file) as json_data_file:
         cfg = json.load(json_data_file)

@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Container, List, Union
 from abc import ABC, abstractmethod
 
 import torch
@@ -6,7 +6,7 @@ import pygsp
 import numpy as np
 from torch.nn import functional as F
 from torch.nn import BatchNorm1d
-from deepsphere.utils.samplings import equiangular_dimension_unpack
+from modules.layers import equiangular_dimension_unpack
 
 from modules import layers
 from modules.layers import (ConvCheb, Conv2dEquiangular,
@@ -20,10 +20,9 @@ from modules.layers import (ConvCheb, Conv2dEquiangular,
     UnpoolAvgEquiangular,
     Conv1dAuto)
 
-from modules.GraphPool import (GeneralSpherePoolUnpool, 
-    compute_pooling_healpix,
-    compute_pooling_equiangular,
-    convert_to_torch_sparse)
+from modules.layers import (GeneralInterpPoolUnpool, 
+    convert_to_torch_sparse,
+    build_pooling_matrices)
 
 
 HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
@@ -38,49 +37,19 @@ ALL_POOL = {'healpix': HEALPIX_POOL,
 ALL_CONV = {'image': Conv2dEquiangular,
             'graph': ConvCheb}
 
-def _compute_laplacian_healpix(nodes, laplacian_type="normalized", k=20):
-    """ Computes laplacian of spherical graph sampled as a HEALpix grid
-
-    Parameters
-    ----------
-    nodes : int
-        Number of nodes in the graph
-    laplacian_type : string
-        Type of laplacian. Options are {´normalized´, ´combinatorial´}
-
-    Returns
-    -------
-    laplacian : torch.sparse_coo_tensor
-        Graph laplacian
-    """
+def _compute_healpix(nodes, k=20):
     resolution = int(np.sqrt(nodes / 12))
-
-    G = pygsp.graphs.SphereHealpix(nside=resolution, n_neighbors=k)
-    G.compute_laplacian(laplacian_type)
-    laplacian = layers.prepare_laplacian(G.L.astype(np.float32))
-
-    return laplacian
+    G = pygsp.graphs.SphereHealpix(subdivisions=resolution, k=k)
+    return G
 
 
-def _compute_laplacian_equiangular(bandwidth, laplacian_type="normalized"):
-    """ Computes laplacian of spherical graph sampled as a equiangular grid
+def _compute_equiangular(nodes):
+    G = pygsp.graphs.SphereEquiangular(*nodes)
+    return G
 
-    Parameters
-    ----------
-    bandwith : int  or List[int] or Tuple[int]
-        Number of nodes in the graph
-    laplacian_type : string
-        Type of laplacian. Options are {´normalized´, ´combinatorial´}
-
-    Returns
-    -------
-    laplacian : torch.sparse_coo_tensor
-        Graph laplacian
-    """
-    G = pygsp.graphs.SphereEquiangular(bandwidth=bandwidth)
-    G.compute_laplacian(laplacian_type)
-    laplacian = layers.prepare_laplacian(G.L.astype(np.float32))
-
+def _compute_laplacian(graph, laplacian_type="normalized"):
+    graph.compute_laplacian(laplacian_type)
+    laplacian = layers.prepare_laplacian(graph.L.astype(np.float32))
     return laplacian
 
 
@@ -162,23 +131,14 @@ class PoolUnpoolBlock(BaseModule):
         return pooling(**kwargs), unpool(**kwargs)
     
     @staticmethod
-    def getGeneralPoolUnpoolLayer(sampling: str, nodes, **kwargs):
-        assert len(nodes) >= 2
-
-        compute_methods = {'healpix': compute_pooling_healpix,
-                        'equiangular': compute_pooling_equiangular}
-        sampling = sampling.lower()
-        try:
-            method = compute_methods[sampling]
-        except:
-            raise KeyError(f'Sampling {sampling} is not supported')
-
-        nodes_sorted = sorted(nodes, reverse=True)
-        pool = GeneralSpherePoolUnpool()
-        unpool = GeneralSpherePoolUnpool()
-        for i in range(len(nodes_sorted) - 1):
-            n1, n2 = nodes_sorted[i], nodes_sorted[i + 1]
-            pool_mat, unpool_mat = method(n1, n2, **kwargs)
+    def getGeneralPoolUnpoolLayer(graphs):
+        assert len(graphs) >= 2
+        pool = GeneralInterpPoolUnpool()
+        unpool = GeneralInterpPoolUnpool()
+        for i in range(len(graphs) - 1):
+            g1, g2 = graphs[i], graphs[i + 1]
+            n1, n2 = g1.n_vertices, g2.n_vertices
+            pool_mat, unpool_mat = build_pooling_matrices(g1, g2)
             pool[n1] = convert_to_torch_sparse(pool_mat)
             unpool[n2] = convert_to_torch_sparse(unpool_mat)
         return pool, unpool
@@ -320,13 +280,13 @@ class UNetSpherical(UNet, BaseModule):
         if sampling == 'equiangular':
             assert ratio is not None
             N = equiangular_dimension_unpack(N, ratio)
-            N = np.array(N) // 2
+            N = np.array(N)
 
         num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
+        graphs = []
         if conv_type == 'graph':
-            laplacians = []
-            UNetSpherical.get_laplacian_kernels(laplacians, num_nodes, sampling, knn)
-            self.laplacians = laplacians
+            graphs = UNetSpherical.build_graph(num_nodes, sampling, knn)
+            self.laplacians = UNetSpherical.get_laplacian_kernels(graphs)
         elif conv_type == 'image':
             self.laplacians = [None] * 20
         else:
@@ -339,7 +299,7 @@ class UNetSpherical(UNet, BaseModule):
         # Pooling - unpooling
         if pool_method == 'general':
             assert conv_type == 'graph'
-            self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(sampling, num_nodes, k=knn)
+            self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(graphs)
         else:
             self.pooling, self.unpool = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
 
@@ -413,13 +373,22 @@ class UNetSpherical(UNet, BaseModule):
         return x
 
     @staticmethod
-    def get_laplacian_kernels(container: List, nodes_list: Union[List[int], List[List[int]]], sampling='healpix', k: int=20) -> None:
-        sampling = sampling.lower()
+    def get_laplacian_kernels(graphs: List["pygsp.graphs"]):
+        container = []
+        for _, G in enumerate(graphs):
+            laplacian = _compute_laplacian(G)
+            container.append(laplacian)
+        return container
+    
+    @staticmethod
+    def build_graph(nodes_list: Union[List[int], List[List[int]]], sampling='healpix', k: int=20) -> List["pygsp.graphs"]:
+        container = []
         for _, nodes in enumerate(nodes_list):
             if sampling == 'healpix':
-                laplacian = _compute_laplacian_healpix(nodes, k=k)
+                G = _compute_healpix(nodes, k=k)
             elif sampling == 'equiangular':
-                laplacian = _compute_laplacian_equiangular(nodes)
+                G = _compute_equiangular(nodes)
             else:
                 raise ValueError(f'{sampling} is not supported')
-            container.append(laplacian)
+            container.append(G)
+        return container
