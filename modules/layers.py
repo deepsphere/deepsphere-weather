@@ -697,15 +697,16 @@ def convert_to_torch_sparse(mat: "sparse.coo.coo_matrix"):
     indices = np.empty((2, mat.nnz), dtype=np.int64)
     np.stack((mat.row, mat.col), axis=0, out=indices)
     indices = torch.from_numpy(indices)
-    mat = torch.sparse_coo_tensor(indices, mat.data, mat.shape)
+    mat = torch.sparse_coo_tensor(indices, mat.data, mat.shape, dtype=torch.float32)
     mat = mat.coalesce()
     return mat
 
 
 class GeneralInterpPoolUnpool(torch.nn.Module):
-    def __init__(self, matrices_dict: Dict={}):
+    def __init__(self, isPool: bool):
         super().__init__()
-        self.matrices = matrices_dict
+        self.matrices = {}
+        self.isPool = isPool
     
     def __setitem__(self, key, value):
         self.matrices[key] = value
@@ -719,27 +720,18 @@ class GeneralInterpPoolUnpool(torch.nn.Module):
     def pop(self, key):
         self.matrices.pop(key)
     
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         n_batch, n_nodes, n_val = x.shape
         matrix = self.matrices[n_nodes]
+        if matrix.device != x.device:
+            print('==move==')
+            self.matrices[n_nodes] = self.matrices[n_nodes].to(x.device)
+            matrix = self.matrices[n_nodes]
         new_nodes, _ = matrix.shape
         x = x.permute(1, 2, 0).reshape(n_nodes, n_batch * n_val)
-        x = matrix @ x
+        x = torch.sparse.mm(matrix, x)
         x = x.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
-        return x
-    
-    # TODO: use persistent buffer
-    def cpu(self):
-        for k, v in self.matrices.items():
-            self.matrices[k] = v.cpu()
-        return self
-    
-    def cuda(self, device=None):
-        for k, v in self.matrices.items():
-            self.matrices[k] = v.cuda(device)
-        return self
-    
-    def to(self, device):
-        for k, v in self.matrices.items():
-            self.matrices[k] = v.to(device)
-        return self
+        if self.isPool:
+            return x, None
+        else:
+            return x

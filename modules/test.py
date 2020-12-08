@@ -372,7 +372,7 @@ def compute_anomalies(ds, mean):
 
     assert mean in ["monthly", "weekly"], "Parameter mean should be either 'monthly' or 'weekly'"
     
-    if mean is "monthly":
+    if mean == "monthly":
         anomalies = ds.groupby('time.month') - ds.groupby('time.month').mean()
     else: 
         anomalies = ds.groupby('time.week') - ds.groupby('time.week').mean()

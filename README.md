@@ -63,19 +63,6 @@ For a local installation, follow the below instructions.
     ```
     
 Attention:
-
-- If deepsphere is not properly installed:
-   ```sh
-   conda activate weather_modelling
-   pip install git+https://github.com/deepsphere/deepsphere-pytorch 
-   ```
-   
-- If an incompatibility with YAML raises, the following command should solve the problem: 
-   ```sh
-   conda activate weather_modelling
-   pip install git+https://github.com/deepsphere/deepsphere-pytorch --ignore-installed PyYAML
-   ```
-
 - If it does not find the module ```SphereHealpix``` from pygsp, install the development branch using: 
    ```sh
    conda activate weather_modelling

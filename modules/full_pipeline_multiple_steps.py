@@ -21,7 +21,7 @@ def _deterministic(seed=100):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
 
@@ -317,7 +317,7 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
 
 
 def main(config_file, load_model=False, profiling=False):
-    # _deterministic()
+    _deterministic()
 
     with open(config_file) as json_data_file:
         cfg = json.load(json_data_file)
@@ -426,7 +426,7 @@ def main(config_file, load_model=False, profiling=False):
         spherical_unet.load_state_dict(state, strict=False) # We do not save laplacians currently
 
     if torch.cuda.is_available():
-        device = 'cuda: 0'
+        device = torch.device('cuda')
         spherical_unet = spherical_unet.to(device)
     else:
         device = 'cpu'

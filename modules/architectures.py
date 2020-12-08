@@ -133,8 +133,8 @@ class PoolUnpoolBlock(BaseModule):
     @staticmethod
     def getGeneralPoolUnpoolLayer(graphs):
         assert len(graphs) >= 2
-        pool = GeneralInterpPoolUnpool()
-        unpool = GeneralInterpPoolUnpool()
+        pool = GeneralInterpPoolUnpool(True)
+        unpool = GeneralInterpPoolUnpool(False)
         for i in range(len(graphs) - 1):
             g1, g2 = graphs[i], graphs[i + 1]
             n1, n2 = g1.n_vertices, g2.n_vertices
