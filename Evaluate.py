@@ -61,7 +61,7 @@ def main(cfg):
     os.makedirs(metrics_path, exist_ok=True)
     os.makedirs(figures_path, exist_ok=True)
 
-    obs = xr.open_mfdataset(prediction_path + 'observations.nc', combine='by_coords', chunks={'time':chunk_size})
+    obs = xr.open_mfdataset('/nfs_home/wefeng/obs/' + f'observations_{net_params["sampling"]}.nc', combine='by_coords', chunks={'time':chunk_size})
     rmses_weyn = xr.open_dataset(datadir + 'metrics/rmses_weyn.nc')
 
     constants = xr.open_dataset(f'{input_dir}constants/constants_5.625deg_standardized.nc')
@@ -96,7 +96,7 @@ def main(cfg):
     model.load_state_dict(torch.load(saved_models[0]), strict=False) # Use latest state dict
 
     if torch.cuda.is_available():
-        device = 'cuda: 0'
+        device = 'cuda'
         model = model.to(device)
     else:
         device = 'cpu'

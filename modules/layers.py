@@ -724,7 +724,6 @@ class GeneralInterpPoolUnpool(torch.nn.Module):
         n_batch, n_nodes, n_val = x.shape
         matrix = self.matrices[n_nodes]
         if matrix.device != x.device:
-            print('==move==')
             self.matrices[n_nodes] = self.matrices[n_nodes].to(x.device)
             matrix = self.matrices[n_nodes]
         new_nodes, _ = matrix.shape
