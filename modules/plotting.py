@@ -512,7 +512,9 @@ def plot_general_skills(rmse_map, corr_map, rbias_map, rsd_map, model_descriptio
     
     axs[3, 0].set_xlabel('Forecast time [hours]', fontsize=20)
     axs[3, 1].set_xlabel('Forecast time [hours]', fontsize=20)
+    axs[3, 0].set_xticks(np.arange(1, n_ticks+1, 1))
     axs[3, 0].set_xticklabels(xlabels, fontsize=16)
+    axs[3, 1].set_xticks(np.arange(1, n_ticks+1, 1))
     axs[3, 1].set_xticklabels(xlabels, fontsize=16)
     
     plt.tight_layout()

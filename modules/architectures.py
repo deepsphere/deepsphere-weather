@@ -143,97 +143,6 @@ class PoolUnpoolBlock(BaseModule):
             unpool[n2] = convert_to_torch_sparse(unpool_mat)
         return pool, unpool
 
-class BottleNeckBlock(BaseModule):
-    """ Spherical graph convolution block
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of channels in the input graph.
-    out_channels : int
-        Number of channels in the output graph.
-    kernel_size : int
-        Chebychev polynomial degree
-    laplacian : torch.sparse_coo_tensor
-        Graph laplacian
-    """
-
-    def __init__(self, in_channels, out_channels, laplacian):
-        super().__init__()
-
-        self.conv1 = ConvBlock(in_channels, out_channels, 1, laplacian)
-        self.conv2 = ConvBlock(out_channels, out_channels, 3, laplacian)
-        self.conv3 = ConvBlock(out_channels, in_channels, 1, laplacian)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        return x
-
-
-class SphericalHealpixBlottleNeck(BaseModule):
-    """Spherical GCNN UNet
-
-     Parameters
-    ----------
-    N : int
-        Number of nodes in the input graph
-    in_channels : int
-        Number of channels in the input graph.
-    out_channels : int
-        Number of channels in the output graph.
-    kernel_size : int
-        Chebychev polynomial degree
-
-    Residual connections based on: https://arxiv.org/pdf/1512.03385.pdf
-    """
-
-    def __init__(self, N, in_channels, out_channels, kernel_size, kernel_size_pooling=4):
-        super().__init__()
-
-        self.kernel_size = kernel_size
-
-        laplacians = []
-        UNetSpherical.get_laplacian_kernels(laplacians, [N])
-
-        # First convolution
-        self.conv1 = ConvBlock(in_channels, 64, 3, laplacians[0])
-        self.conv2 = ConvBlock(64, 256, 3, laplacians[0])
-
-        # First BottleNeck Block
-        self.bottleneck1 = BottleNeckBlock(256, 64, laplacians[0])
-
-        # Second BottleNeck Block
-        self.bottleneck2 = BottleNeckBlock(256, 64, laplacians[0])
-
-        # Third BottleNeck Block
-        self.bottleneck3 = BottleNeckBlock(256, 64, laplacians[0])
-
-        self.conv3 = ConvBlock(256, out_channels, kernel_size, laplacians[0], False, False)
-
-    def forward(self, x):
-        """Forward Pass
-        Parameters
-        ----------
-        x : torch.Tensor of shape batch_size x n_vertices x in_channels
-            Input data
-        Returns
-        -------
-        x : torch.Tensor of shape batch_size x n_vertices x out_channels
-            Model output
-        """
-        x = self.conv1(x)
-        x = self.conv2(x)
-
-        x += self.bottleneck1(x)
-        x += self.bottleneck2(x)
-        x += self.bottleneck3(x)
-
-        output = self.conv3(x)
-
-        return output
-
 
 class UNet(ABC):
     @abstractmethod
@@ -297,7 +206,7 @@ class UNetSpherical(UNet, BaseModule):
             periodic = bool(periodic)
 
         # Pooling - unpooling
-        if pool_method == 'general':
+        if pool_method == 'interp':
             assert conv_type == 'graph'
             self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(graphs)
         else:

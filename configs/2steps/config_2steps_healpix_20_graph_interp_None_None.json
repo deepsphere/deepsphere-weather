@@ -3,7 +3,7 @@
             {
             "datadir": "/nfs_home/wefeng/healpix/",
             "input_dir": "5.625deg_nearest/",
-            "save_dir": "/nfs_home/wefeng/results/2steps/healpix_20_graph_general_None_None/",
+            "save_dir": "/nfs_home/wefeng/results/2steps/healpix_20_graph_interp_None_None/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
             "obs_file_name": "observations_nearest.nc",
@@ -32,7 +32,7 @@
             "sampling": "healpix",
             "knn": 20,
             "conv_type": "graph",
-            "pool_method": "general",
+            "pool_method": "interp",
             "len_sqce": 2,
             "delta_t": 6,
             "in_features": 7,
