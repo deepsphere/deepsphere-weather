@@ -1,8 +1,8 @@
 {
     "directories":
             {
-            "datadir": "/nfs_home/wefeng/healpix/",
-            "input_dir": "5.625deg_nearest/",
+            "datadir": "/nfs_home/wefeng/data/Healpix_400km/",
+            "input_dir": "data/",
             "save_dir": "/nfs_home/wefeng/results/healpix_20_graph_max_None_None/",
             "model_save_path": "models/",
             "pred_save_path": "predictions/",
@@ -38,7 +38,6 @@
             "in_features": 7,
             "out_features":2,
             "num_steps_ahead": 8,
-            "resolution": 5.625,
             "kernel_size_pooling": 4,
             "initial_weights": [1,2,3,4,5,6,7,8],
             "model": "UNetSpherical"
