@@ -11,8 +11,6 @@ import torch
 from torch import nn, optim
 from torch.utils.data import Dataset
 
-from modules.test import (compute_rmse, compute_relBIAS, compute_rSD, compute_R2, compute_anomalies, 
-                          compute_relMAE, compute_ACC)
 
 def load_data_split(input_dir, train_years, val_years, test_years, chunk_size, standardized=None):
 
@@ -185,6 +183,7 @@ class WeatherBenchDatasetXarrayHealpixTempMultiple(Dataset):
         self.data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
         self.in_features = self.data.shape[-1]
 
+        assert mean is not None and std is not None
         self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean.to_array(dim='level')
         self.std = self.data.std(('time', 'node')).compute() if std is None else std.to_array(dim='level')
 

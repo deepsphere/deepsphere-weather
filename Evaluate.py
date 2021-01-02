@@ -24,18 +24,17 @@ def generate_file_name(path, tag, desc, epoch):
 def main(cfg):
     net_params = {}
     net_params["sampling"] = cfg['model_parameters'].get("sampling", None)
-    net_params["knn"] = cfg['model_parameters'].get("knn", None)
+    net_params["knn"] = cfg['model_parameters'].get("knn", 10)
     net_params["conv_type"] = cfg['model_parameters'].get("conv_type", None)
     net_params["pool_method"] = cfg['model_parameters'].get("pool_method", None)
     net_params["ratio"] = cfg['model_parameters'].get("ratio", None)
     net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
+    net_params["comments"] = cfg['model_parameters'].get("comments", None)
 
-    if net_params["sampling"] == 'healpix':
-        description = "{}_{}_{}_{}_{}_{}".format(*net_params.values())
-    else:
-        net_params.pop('knn')
-        description = "{}_{}_{}_{}_{}".format(*net_params.values())
+    description = [str(i) for i in net_params.values() if i is not None]
+    description = '_'.join(description)
     print(description)
+    net_params.pop('comments')
 
     datadir = cfg['directories']['datadir']
     input_dir = datadir + cfg['directories']['input_dir']
@@ -69,7 +68,6 @@ def main(cfg):
     lsm = constants['lsm']
     lats = constants['lat2d']
     slt = constants['slt']
-    num_constants = len([orog, lats, lsm, slt])
 
     train_mean_ = xr.open_mfdataset(f'{input_dir}mean_train_features_dynamic.nc')
     train_std_ = xr.open_mfdataset(f'{input_dir}std_train_features_dynamic.nc')

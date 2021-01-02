@@ -233,7 +233,7 @@ def train_model_multiple_steps(model, weights_loss, criterion, optimizer, device
 
 
 def main(config_file, load_model=False):
-    _deterministic()
+    # _deterministic()
 
     with open(config_file) as json_data_file:
         cfg = json.load(json_data_file)
@@ -264,6 +264,7 @@ def main(config_file, load_model=False):
     batch_size = cfg['training_constants']['batch_size']
 
     # model parameters
+    resolution = cfg['model_parameters']["resolution"]
     len_sqce = cfg['model_parameters']['len_sqce']
     delta_t = cfg['model_parameters']['delta_t']
     in_features = cfg['model_parameters']['in_features']
@@ -273,17 +274,17 @@ def main(config_file, load_model=False):
 
     net_params = {}
     net_params["sampling"] = cfg['model_parameters'].get("sampling", None)
-    net_params["knn"] = cfg['model_parameters'].get("knn", None)
+    net_params["knn"] = cfg['model_parameters'].get("knn", 10)
     net_params["conv_type"] = cfg['model_parameters'].get("conv_type", None)
     net_params["pool_method"] = cfg['model_parameters'].get("pool_method", None)
     net_params["ratio"] = cfg['model_parameters'].get("ratio", None)
     net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
+    net_params["comments"] = cfg['model_parameters'].get("comments", None)
 
-    if net_params["sampling"] == 'healpix':
-        description = "{}_{}_{}_{}_{}_{}".format(*net_params.values())
-    else:
-        net_params.pop('knn')
-        description = "{}_{}_{}_{}_{}".format(*net_params.values())
+    description = [str(i) for i in net_params.values() if i is not None]
+    description = '_'.join(description)
+    print(description)
+    net_params.pop('comments')
 
     assert description in savedir
 
@@ -331,13 +332,12 @@ def main(config_file, load_model=False):
     print('Define model...')
     print('Model name: ', description)
     modelClass = getattr(modelArchitectures, model)
-    print(net_params.values())
-    spherical_unet = modelClass(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
+    spherical_unet = modelClass(resolution, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
 
     # use pretrained model to start training
     if load_model:
         state = torch.load(model_filename)
-        spherical_unet.load_state_dict(state, strict=False) # We do not save laplacians currently
+        spherical_unet.load_state_dict(state, strict=False)
 
     if torch.cuda.is_available():
         device = torch.device('cuda')

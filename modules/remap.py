@@ -119,8 +119,7 @@ def HealpixMesh_from_pygsp(graph):
     radius = 1
     npix = graph.n_vertices
     nside = np.sqrt(npix/12)
-    vertices = hp.boundaries(nside, range(npix), nest=graph.nest)
-    assert vertices.shape == (npix, 3, 4)
+    vertices = hp.boundaries(nside, range(npix), nest=graph.nest, step=16)
     list_polygons_lonlat = []
     for tmp_xyz in vertices:
         tmp_lon, tmp_lat = xyz2lonlat(tmp_xyz[0],tmp_xyz[1],tmp_xyz[2], radius=radius)

@@ -8,7 +8,7 @@ import numpy as np
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '4'
 
-def run(config_path, nodes, batchsize, iters_num):
+def run(config_path, resolution, nodes, batchsize, iters_num):
     savedir = f'./timing/nodes_{nodes}/'
     os.makedirs(savedir, exist_ok=True)
 
@@ -21,12 +21,18 @@ def run(config_path, nodes, batchsize, iters_num):
 
     net_params = {}
     net_params["sampling"] = cfg['model_parameters'].get("sampling", None)
-    net_params["knn"] = cfg['model_parameters'].get("knn", None)
+    net_params["knn"] = cfg['model_parameters'].get("knn", 10)
     net_params["conv_type"] = cfg['model_parameters'].get("conv_type", None)
     net_params["pool_method"] = cfg['model_parameters'].get("pool_method", None)
     net_params["ratio"] = cfg['model_parameters'].get("ratio", None)
     net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
-    spherical_unet = UNetSpherical(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
+    net_params["comments"] = cfg['model_parameters'].get("comments", None)
+    description = [str(i) for i in net_params.values() if i is not None]
+    description = '_'.join(description)
+    net_params.pop('comments')
+    print(description)
+
+    spherical_unet = UNetSpherical(resolution, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
     spherical_unet.to('cuda')
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(spherical_unet.parameters(), lr=0.008, eps=1e-7, weight_decay=0, amsgrad=False)
@@ -89,8 +95,9 @@ def run(config_path, nodes, batchsize, iters_num):
 
 if __name__ == '__main__':
     all_nodes = [768, 3072, 12288]
+    all_res = [8, 16, 32]
     epoch = 1000
     batchsize = 15
-    config_path = '/nfs_home/wefeng/GitHub/weather_prediction/configs/config_healpix_20_graph_max_None_None.json'
-    for n in all_nodes:
-        _ = run(config_path, n, batchsize, epoch)
+    config_path = '/nfs_home/wefeng/GitHub/weather_prediction/configs/healpix_20_graph_max_400km.json'
+    for res, node in zip(all_nodes, all_res):
+        _ = run(config_path, res, node, batchsize, epoch)

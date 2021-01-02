@@ -1,12 +1,12 @@
-from typing import Container, List, Union
+from typing import List, Union
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 
 import torch
 import pygsp
 import numpy as np
 from torch.nn import functional as F
 from torch.nn import BatchNorm1d, Linear
-from modules.layers import equiangular_dimension_unpack
 
 from modules import layers
 from modules.layers import (ConvCheb, Conv2dEquiangular,
@@ -23,8 +23,6 @@ from modules.layers import (GeneralInterpPoolUnpool,
     convert_to_torch_sparse,
     build_pooling_matrices)
 
-# Deprecated import, delete in the future
-from modules.layers import Conv1dAuto
 
 HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
                 'avg': (PoolAvgHealpix, UnpoolAvgHealpix)}
@@ -38,16 +36,17 @@ ALL_POOL = {'healpix': HEALPIX_POOL,
 ALL_CONV = {'image': Conv2dEquiangular,
             'graph': ConvCheb}
 
-def _compute_healpix(nodes, k=20):
-    resolution = int(np.sqrt(nodes / 12))
-    G = pygsp.graphs.SphereHealpix(subdivisions=resolution, k=k)
-    return G
+ALL_GRAPH = {'healpix': pygsp.graphs.SphereHealpix,
+             'equiangular': pygsp.graphs.SphereEquiangular,
+             'icosahedral': pygsp.graphs.SphereIcosahedral,
+             'cubed': pygsp.graphs.SphereCubed,
+             'gauss': pygsp.graphs.SphereGaussLegendre}
 
-
-def _compute_equiangular(nodes):
-    G = pygsp.graphs.SphereEquiangular(*nodes)
-    return G
-
+ALL_GRAPH_PARAMS = {'healpix': {'nest': True},
+                    'equiangular': {'poles': 0},
+                    'icosahedral': {},
+                    'cubed': {},
+                    'gauss': {'nlon': 'ecmwf-octahedral'}}
 
 def _compute_laplacian(graph, laplacian_type="normalized"):
     graph.compute_laplacian(laplacian_type)
@@ -106,7 +105,6 @@ class PoolUnpoolBlock(torch.nn.Module):
     def getPoolUnpoolLayer(sampling: str, pool_method: str, **kwargs):
         sampling = sampling.lower()
         pool_method = pool_method.lower()
-
         assert sampling in ('healpix', 'equiangular')
         assert pool_method in ('max', 'avg')
 
@@ -116,6 +114,7 @@ class PoolUnpoolBlock(torch.nn.Module):
     @staticmethod
     def getGeneralPoolUnpoolLayer(graphs):
         assert len(graphs) >= 2
+
         pool = GeneralInterpPoolUnpool(isPool=True)
         unpool = GeneralInterpPoolUnpool(isPool=False)
         for i in range(len(graphs) - 1):
@@ -154,39 +153,38 @@ class UNetSpherical(UNet, torch.nn.Module):
 
     Parameters
     ----------
-    num_nodes : List[int]
-        Number of nodes in the input graph
+    resolution : Union[int, List[int]]
+        Resolution of data. Can be subdivision, nlat or (nlat. nlon)
     kernel_size_pooling : int
         Pooling's kernel size
     """
 
-    def __init__(self, N: int, in_channels: int, out_channels: int, conv_type: str='graph', 
-                 kernel_size: int=3, sampling: str='healpix', knn: int = 20, pool_method: str='max', kernel_size_pooling: int=4, 
+    def __init__(self, resolution: Union[int, List[int]], in_channels: int, out_channels: int, conv_type: str='graph', 
+                 kernel_size: int=3, sampling: str='healpix', knn: int = 10, pool_method: str='max', kernel_size_pooling: int=4, 
                  periodic: Union[int, bool, None]=None, ratio: Union[int, float, bool, None]=None):
         super().__init__()
 
         conv_type = conv_type.lower()
         sampling = sampling.lower()
         pool_method = pool_method.lower()
+        assert sampling != 'equiangular' or ratio is not None
+        assert conv_type != 'image' or periodic is not None
+        periodic = bool(periodic)
 
-        if sampling == 'equiangular':
-            assert ratio is not None
-            N = equiangular_dimension_unpack(N, ratio)
-            N = np.array(N)
-
-        num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
+        if not isinstance(resolution, Iterable):
+            resolution = [resolution]
+        resolution = np.array(resolution)
+        coarsening = int(np.sqrt(kernel_size_pooling))
+        resolutions = [resolution, resolution // coarsening, resolution // coarsening // coarsening]
         graphs = []
         if conv_type == 'graph':
-            graphs = UNetSpherical.build_graph(num_nodes, sampling, knn)
+            graphs = UNetSpherical.build_graph(resolutions, sampling, knn)
             self.laplacians = UNetSpherical.get_laplacian_kernels(graphs)
         elif conv_type == 'image':
             self.laplacians = [None] * 20
         else:
             raise ValueError(f'{conv_type} convolution is not supported')
             
-        if sampling == 'equiangular' and conv_type == 'image':
-            assert periodic is not None
-            periodic = bool(periodic)
 
         # Pooling - unpooling
         if pool_method == 'interp':
@@ -199,19 +197,19 @@ class UNetSpherical(UNet, torch.nn.Module):
         self.conv11 = ConvBlock(in_channels, 32 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
         self.conv13 = ConvBlock(32 * 2, 64 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
 
-        self.conv1_res = Conv1dAuto(in_channels, 64 * 2, 1)
+        self.conv1_res = Linear(in_channels, 64 * 2)
 
         # Encoding block 2
         self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], periodic=periodic, ratio=ratio)
         self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], periodic=periodic, ratio=ratio)
 
-        self.conv2_res = Conv1dAuto(64 * 2, 128 * 2, 1)
+        self.conv2_res = Linear(64 * 2, 128 * 2)
 
         # Encoding block 3
         self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[2], periodic=periodic, ratio=ratio)
         self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[2], periodic=periodic, ratio=ratio)
 
-        self.conv3_res = Conv1dAuto(128 * 2, 128 * 2, 1)
+        self.conv3_res = Linear(128 * 2, 128 * 2)
 
         # Decoding block 2
         self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], periodic=periodic, ratio=ratio)
@@ -229,131 +227,6 @@ class UNetSpherical(UNet, torch.nn.Module):
         x_enc11 = self.conv11(x)
         x_enc1 = self.conv13(x_enc11)
 
-        x_enc1 += torch.transpose(self.conv1_res(torch.transpose(x, 2, 1)), 2, 1)
-
-        # Block 2
-        x_enc2_ini, idx1 = self.pooling(x_enc1)
-        x_enc2 = self.conv21(x_enc2_ini)
-        x_enc2 = self.conv23(x_enc2)
-
-        x_enc2 += torch.transpose(self.conv2_res(torch.transpose(x_enc2_ini, 2, 1)), 2, 1)
-
-        # Block 3
-        x_enc3_ini, idx2 = self.pooling(x_enc2)
-        x_enc3 = self.conv31(x_enc3_ini)
-        x_enc3 = self.conv33(x_enc3)
-
-        x_enc3 += torch.transpose(self.conv3_res(torch.transpose(x_enc3_ini, 2, 1)), 2, 1)
-
-        return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11
-
-
-    def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11):
-        # Block 2
-        x = self.unpool(x_enc3, idx2)
-        x_cat = torch.cat((x, x_enc2), dim=2)
-        x = self.uconv21(x_cat)
-        x = self.uconv22(x)
-
-        # Block 1
-        x = self.unpool(x, idx1)
-        x_cat = torch.cat((x, x_enc1), dim=2)
-        x = self.uconv11(x_cat)
-        x = self.uconv12(x)
-        x_cat = torch.cat((x, x_enc11), dim=2)
-        x = self.uconv13(x_cat)
-        return x
-
-    @staticmethod
-    def get_laplacian_kernels(graphs: List["pygsp.graphs"]):
-        container = []
-        for _, G in enumerate(graphs):
-            laplacian = _compute_laplacian(G)
-            container.append(laplacian)
-        return container
-    
-    @staticmethod
-    def build_graph(nodes_list: Union[List[int], List[List[int]]], sampling='healpix', k: int=20) -> List["pygsp.graphs"]:
-        container = []
-        for _, nodes in enumerate(nodes_list):
-            if sampling == 'healpix':
-                G = _compute_healpix(nodes, k=k)
-            elif sampling == 'equiangular':
-                G = _compute_equiangular(nodes)
-            else:
-                raise ValueError(f'{sampling} is not supported')
-            container.append(G)
-        return container
-
-
-class SphericalGraphUNet(UNet, torch.nn.Module):
-    """Spherical GCNN UNet
-
-    Parameters
-    ----------
-    num_nodes : List[int]
-        Number of nodes in the input graph
-    kernel_size_pooling : int
-        Pooling's kernel size
-    """
-
-    def __init__(self, N: int, in_channels: int, out_channels: int, kernel_size: int=3, 
-                 sampling: str='healpix', knn: int=20, kernel_size_pooling: int=4, 
-                 ratio: Union[int, float, bool, None]=None):
-        super().__init__()
-
-        conv_type = 'graph'
-        sampling = sampling.lower()
-
-        if sampling == 'equiangular':
-            assert ratio is not None
-            N = equiangular_dimension_unpack(N, ratio)
-            N = np.array(N)
-
-        num_nodes = [N, N / kernel_size_pooling, N / (kernel_size_pooling * kernel_size_pooling)]
-        graphs = SphericalGraphUNet.build_graph(num_nodes, sampling, knn)
-        self.laplacians = UNetSpherical.get_laplacian_kernels(graphs)
-
-        self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(graphs)
-
-        # Encoding block 1
-        self.conv11 = ConvBlock(in_channels, 32 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], ratio=ratio)
-        self.conv13 = ConvBlock(32 * 2, 64 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], ratio=ratio)
-
-        # self.conv1_res = Conv1dAuto(in_channels, 64 * 2, 1)
-        self.conv1_res = Linear(in_channels, 64 * 2)
-
-        # Encoding block 2
-        self.conv21 = ConvBlock(64 * 2, 96 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], ratio=ratio)
-        self.conv23 = ConvBlock(96 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], ratio=ratio)
-
-        # self.conv2_res = Conv1dAuto(64 * 2, 128 * 2, 1)
-        self.conv2_res = Linear(64 * 2, 128 * 2)
-
-        # Encoding block 3
-        self.conv31 = ConvBlock(128 * 2, 256 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[2], ratio=ratio)
-        self.conv33 = ConvBlock(256 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[2], ratio=ratio)
-
-        # self.conv3_res = Conv1dAuto(128 * 2, 128 * 2, 1)
-        self.conv3_res = Linear(128 * 2, 128 * 2)
-
-        # Decoding block 2
-        self.uconv21 = ConvBlock(256 * 2, 128 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], ratio=ratio)
-        self.uconv22 = ConvBlock(128 * 2, 64 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[1], ratio=ratio)
-
-        # Decoding block 1
-        self.uconv11 = ConvBlock(128 * 2, 64 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], ratio=ratio)
-        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], ratio=ratio)
-        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, kernel_size, conv_type, False, False, laplacian=self.laplacians[0], ratio=ratio)
-    
-
-    def encode(self, x):
-        # Block 1
-
-        x_enc11 = self.conv11(x)
-        x_enc1 = self.conv13(x_enc11)
-
-        # x_enc1 += torch.transpose(self.conv1_res(torch.transpose(x, 2, 1)), 2, 1)
         x_enc1 += self.conv1_res(x)
 
         # Block 2
@@ -361,7 +234,6 @@ class SphericalGraphUNet(UNet, torch.nn.Module):
         x_enc2 = self.conv21(x_enc2_ini)
         x_enc2 = self.conv23(x_enc2)
 
-        # x_enc2 += torch.transpose(self.conv2_res(torch.transpose(x_enc2_ini, 2, 1)), 2, 1)
         x_enc2 += self.conv2_res(x_enc2_ini)
 
         # Block 3
@@ -369,7 +241,6 @@ class SphericalGraphUNet(UNet, torch.nn.Module):
         x_enc3 = self.conv31(x_enc3_ini)
         x_enc3 = self.conv33(x_enc3)
 
-        # x_enc3 += torch.transpose(self.conv3_res(torch.transpose(x_enc3_ini, 2, 1)), 2, 1)
         x_enc3 += self.conv3_res(x_enc3_ini)
 
         return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11
@@ -400,14 +271,17 @@ class SphericalGraphUNet(UNet, torch.nn.Module):
         return container
     
     @staticmethod
-    def build_graph(nodes_list: Union[List[int], List[List[int]]], sampling='healpix', k: int=20) -> List["pygsp.graphs"]:
+    def build_graph(resolutions: List[List[int]], sampling='healpix', k: int=10) -> List["pygsp.graphs"]:
+        sampling = sampling.lower()
+        try:
+            graph_initializer = ALL_GRAPH[sampling]
+            params = ALL_GRAPH_PARAMS[sampling]
+        except:
+            raise ValueError(f'{sampling} is not supported')
+
         container = []
-        for _, nodes in enumerate(nodes_list):
-            if sampling == 'healpix':
-                G = _compute_healpix(nodes, k=k)
-            elif sampling == 'equiangular':
-                G = _compute_equiangular(nodes)
-            else:
-                raise ValueError(f'{sampling} is not supported')
+        params['k'] = k
+        for _, res in enumerate(resolutions):
+            G = graph_initializer(*res, **params)
             container.append(G)
         return container
