@@ -167,7 +167,6 @@ class UNetSpherical(UNet, torch.nn.Module):
         conv_type = conv_type.lower()
         sampling = sampling.lower()
         pool_method = pool_method.lower()
-        assert sampling != 'equiangular' or ratio is not None
         assert conv_type != 'image' or periodic is not None
         periodic = bool(periodic)
 
@@ -176,10 +175,10 @@ class UNetSpherical(UNet, torch.nn.Module):
         resolution = np.array(resolution)
         coarsening = int(np.sqrt(kernel_size_pooling))
         resolutions = [resolution, resolution // coarsening, resolution // coarsening // coarsening]
-        graphs = []
+        self.graphs = []
         if conv_type == 'graph':
-            graphs = UNetSpherical.build_graph(resolutions, sampling, knn)
-            self.laplacians = UNetSpherical.get_laplacian_kernels(graphs)
+            self.graphs = UNetSpherical.build_graph(resolutions, sampling, knn)
+            self.laplacians = UNetSpherical.get_laplacian_kernels(self.graphs)
         elif conv_type == 'image':
             self.laplacians = [None] * 20
         else:
@@ -189,7 +188,7 @@ class UNetSpherical(UNet, torch.nn.Module):
         # Pooling - unpooling
         if pool_method == 'interp':
             assert conv_type == 'graph'
-            self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(graphs)
+            self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(self.graphs)
         else:
             self.pooling, self.unpool = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
 

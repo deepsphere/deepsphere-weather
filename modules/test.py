@@ -6,6 +6,7 @@ import time
 from torch.utils.data import Dataset, DataLoader
 
 from modules.data import WeatherBenchDatasetIterative
+from modules.remap import compute_interpolation_weights
 
 # Utils
 def _inner(x, y):
@@ -471,12 +472,20 @@ def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_
     return observations
 
 
-# Metrics for healpix iterative predictions
-def compute_rmse(pred, obs, dims=('node', 'time')):
+def compute_error_weight(graph):
+    ds = compute_interpolation_weights(graph, graph, method='conservative', normalization='fracarea') # destarea’
+    src_grid_area = ds.src_grid_area.values
+    return src_grid_area / np.sum(src_grid_area)
+
+
+def compute_rmse(pred, obs, dims=('node', 'time'), weights=None):
     error = pred - obs
     
-    rmse = np.sqrt(((error)**2).mean(dims))
-    return rmse.drop('lat').drop('lon').load()
+    if weights is None:
+        rmse = np.sqrt((error ** 2).mean(dims))
+    else:
+        rmse = np.sqrt((error ** 2 * weights).mean(dims))
+    return rmse.load()
 
 
 def compute_relBIAS_map_healpix(pred, obs):

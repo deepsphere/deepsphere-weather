@@ -34,6 +34,7 @@ def load_data_split(input_dir, train_years, val_years, test_years, chunk_size, s
 
     return ds_train, ds_valid, ds_test
 
+
 class WeatherBenchDatasetXarrayHealpixTemp(Dataset):
     
     """ Dataset used for graph models (1D), where data is loaded from stored numpy arrays.
@@ -183,7 +184,6 @@ class WeatherBenchDatasetXarrayHealpixTempMultiple(Dataset):
         self.data = ds.to_array(dim='level', name='Dataset').transpose('time', 'node', 'level')
         self.in_features = self.data.shape[-1]
 
-        assert mean is not None and std is not None
         self.mean = self.data.mean(('time', 'node')).compute() if mean is None else mean.to_array(dim='level')
         self.std = self.data.std(('time', 'node')).compute() if std is None else std.to_array(dim='level')
 
@@ -198,7 +198,6 @@ class WeatherBenchDatasetXarrayHealpixTempMultiple(Dataset):
             self.n_samples = total_samples - (len_sqce_output + 1) * delta_t - max_lead_time
 
         # Normalize
-
         if requires_st:
             self.data = self.data.groupby('time.month') - self.mean
             self.data = self.data.groupby('time.month') / self.std

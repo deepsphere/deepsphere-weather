@@ -1,22 +1,17 @@
 import argparse
-import sys
 import os
 import glob
 import json
-from datetime import datetime
 import time
 
 import xarray as xr
-import matplotlib.pyplot as plt
 import torch
-import healpy as hp
 import numpy as np
 
 from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTemp, create_iterative_predictions_healpix_temp, compute_errors
 from modules.architectures import UNetSpherical
-from modules.test import compute_rmse, compute_weighted_rmse
-from modules.plotting import plot_rmses, plot_general_skills, plot_benchmark, plot_skillmaps, plot_benchmark_simple
-from modules.data import pix2ang
+from modules.test import compute_rmse, compute_error_weight
+from modules.plotting import plot_rmses, plot_general_skills, plot_skillmaps, plot_benchmark_simple
 
 def generate_file_name(path, tag, desc, epoch):
     return "{}{}_{}_epoch_{}.nc".format(path, tag, desc, epoch)
@@ -30,6 +25,7 @@ def main(cfg):
     net_params["ratio"] = cfg['model_parameters'].get("ratio", None)
     net_params["periodic"] = cfg['model_parameters'].get("periodic", None)
     net_params["comments"] = cfg['model_parameters'].get("comments", None)
+    comments = net_params["comments"]
 
     description = [str(i) for i in net_params.values() if i is not None]
     description = '_'.join(description)
@@ -42,6 +38,7 @@ def main(cfg):
     model_path = result_path + cfg['directories']['model_save_path']
     prediction_path = result_path + cfg['directories']['pred_save_path']
 
+    resolution = cfg['model_parameters']["resolution"]
     chunk_size = cfg['training_constants']['chunk_size']
     train_years = cfg['training_constants']['train_years']
     val_years = cfg['training_constants']['val_years']
@@ -60,8 +57,8 @@ def main(cfg):
     os.makedirs(metrics_path, exist_ok=True)
     os.makedirs(figures_path, exist_ok=True)
 
-    obs = xr.open_mfdataset('/nfs_home/wefeng/obs/' + f'observations_{net_params["sampling"]}.nc', combine='by_coords', chunks={'time':chunk_size})
-    rmses_weyn = xr.open_dataset(datadir + 'metrics/rmses_weyn.nc')
+    obs = xr.open_dataset(f'/nfs_home/wefeng/obs/NewData/obs_{net_params["sampling"]}_{comments}.nc', chunks={'time':chunk_size})
+    rmses_weyn = xr.open_dataset('/nfs_home/wefeng/obs/rmses_weyn.nc')
 
     constants = xr.open_dataset(f'{input_dir}constants/constants_5.625deg_standardized.nc')
     orog = constants['orog']
@@ -87,7 +84,7 @@ def main(cfg):
     constants_tensor_std = torch.std(constants_tensor, dim=1, keepdim=True)
     constants_tensor = (constants_tensor - constants_tensor_mean) / (constants_tensor_std + 1e-6)
 
-    model = UNetSpherical(N=nodes, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
+    model = UNetSpherical(resolution, in_channels=in_features * len_sqce, out_channels=out_features, kernel_size=3, **net_params)
     extract_epoch = lambda x: int(x.split('_')[-1][:-3]) # filename e.g. XXXX_epoch_1.h5
     saved_models = glob.glob(model_path + '*.h5')
     saved_models.sort(key=extract_epoch, reverse=True)
@@ -111,27 +108,21 @@ def main(cfg):
     for ind, var in enumerate(['z', 't']):       
         curr = xr.DataArray(pred[:, :, :, ind], dims=['lead_time', 'time', 'node'], coords={'lead_time': lead_times, 'time': times[:pred.shape[1]], 'node': np.arange(nodes)}, name=var)
         das.append(curr)
-
-    if net_params['sampling'] == 'equiangular':
-        out_lat, out_lon = pix2ang(nodes)
-    elif net_params['sampling'] == 'healpix':
-        nside = int(np.sqrt(nodes/12))
-        out_lat, out_lon = hp.pix2ang(nside, np.arange(nodes), lonlat=True)
         
     pred_merged = xr.merge(das)
-    pred_merged = pred_merged.assign_coords({'lat': out_lat, 'lon': out_lon})
-
     pred_merged.to_netcdf(pred_filename)
 
     # select observations
     obs_curr = obs.isel(time=slice(6, pred_merged.time.shape[0] + 6))
 
     # compute RMSE
-    rmse = None
-    if net_params['sampling'] == 'equiangular':
-        rmse = compute_weighted_rmse(pred_merged, obs_curr)
-    elif net_params['sampling'] == 'healpix':
-        rmse = compute_rmse(pred_merged, obs_curr)
+    weights = None
+    if net_params["conv_type"] == 'graph':
+        graph = model.graphs[0]
+        weights = compute_error_weight(graph)
+        weights = xr.DataArray(weights, dims=["node"])
+        weights = weights.assign_coords(node=np.arange(nodes))
+    rmse = compute_rmse(pred_merged, obs_curr, weights=weights)
     rmse.to_netcdf(rmse_filename)
         
         
