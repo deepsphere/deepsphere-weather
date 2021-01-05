@@ -789,7 +789,7 @@ def compute_errors(pred, obs):
     print('time rsd map ', t10 - t9)
 
     rmse = np.sqrt(((error) ** 2).mean(dims))
-    rmse_map = rmse.drop('lat').drop('lon').load()
+    rmse_map = rmse.load()
 
     t11 = time.time()
     print('time rmse map ', t11 - t10)

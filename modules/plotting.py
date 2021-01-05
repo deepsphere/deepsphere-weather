@@ -237,7 +237,7 @@ def plot_benchmark_simple(rmses_spherical, model_description, lead_times, input_
     
     # RMSE baselines
     
-    rmses_weyn = xr.open_dataset(input_dir + 'metrics/rmses_weyn.nc').rename({'z500':'z', 't850':'t'})
+    rmses_weyn = xr.open_dataset('/nfs_home/wefeng/obs/rmses_weyn.nc').rename({'z500':'z', 't850':'t'})
     
     f, axs = plt.subplots(1, 2, figsize=(17, 6))
     if title:

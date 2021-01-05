@@ -10,8 +10,8 @@ from modules.remap import compute_interpolation_weights
 
 # Utils
 def _inner(x, y):
-        result = np.matmul(x[..., np.newaxis, :], y[..., :, np.newaxis])
-        return result[..., 0, 0]
+    result = np.matmul(x[..., np.newaxis, :], y[..., :, np.newaxis])
+    return result[..., 0, 0]
 
 def inner_product(x, y, dim):
     return xr.apply_ufunc(_inner, x, y, input_core_dims=[[dim], [dim]])
@@ -475,7 +475,7 @@ def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_
 def compute_error_weight(graph):
     ds = compute_interpolation_weights(graph, graph, method='conservative', normalization='fracarea') # destarea’
     src_grid_area = ds.src_grid_area.values
-    return src_grid_area / np.sum(src_grid_area)
+    return src_grid_area / np.sum(src_grid_area) * len(src_grid_area)
 
 
 def compute_rmse(pred, obs, dims=('node', 'time'), weights=None):

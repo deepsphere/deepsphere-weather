@@ -133,7 +133,7 @@ def main(cfg):
     plot_rmses(rmse, rmses_weyn.rename({'z500':'z', 't850':'t'}).isel(lead_time=list(range(20))), lead_time=6)
 
     t = time.time()
-    corr_map, rbias_map, rsd_map, rmse_map, obs_rmse, rmse_map_norm = compute_errors(pred_merged, obs_curr)
+    corr_map, rbias_map, rsd_map, _, _, rmse_map_norm = compute_errors(pred_merged, obs_curr)
     print(time.time() - t)
 
     rmse_spherical = xr.load_dataset(rmse_filename)
