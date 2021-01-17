@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import glob
 import json
 import time
@@ -117,14 +118,13 @@ def main(cfg):
 
     # compute RMSE
     weights = None
-    if net_params["conv_type"] == 'graph':
-        graph = model.graphs[0]
-        weights = compute_error_weight(graph)
-        weights = xr.DataArray(weights, dims=["node"])
-        weights = weights.assign_coords(node=np.arange(nodes))
+    # if net_params["conv_type"] == 'graph':
+    #     graph = model.graphs[0]
+    #     weights = compute_error_weight(graph)
+    #     weights = xr.DataArray(weights, dims=["node"])
+    #     weights = weights.assign_coords(node=np.arange(nodes))
     rmse = compute_rmse(pred_merged, obs_curr, weights=weights)
     rmse.to_netcdf(rmse_filename)
-        
         
     # plot RMSE
     print('Z500 - 0:', rmse.z.values[0])

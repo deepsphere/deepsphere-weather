@@ -11,7 +11,7 @@ import numpy as np
 import xarray as xr 
 from torch.utils.data import Dataset
 
-from modules.io import readDatasets  
+from io import readDatasets  
 ##----------------------------------------------------------------------------.
 ### TODO
 # da_static.transpose(1, 0) using xarray labels 

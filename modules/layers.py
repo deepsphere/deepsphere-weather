@@ -33,16 +33,18 @@ def equiangular_dimension_unpack(nodes, ratio):
     """
     dim1 = int((nodes / ratio) ** 0.5)
     dim2 = int((nodes * ratio) ** 0.5)
+    if dim1 * dim2 != nodes: # Try to correct dim1 or dim2 if ratio is wrong
+        if nodes % dim1 == 0:
+            dim2 = nodes // dim1
+        if nodes % dim2 == 0:
+            dim1 = nodes // dim2
+    assert dim1 * dim2 == nodes, f'Unable to unpack nodes: {nodes}, ratio: {ratio}'
     return dim1, dim2
 
 
 def equiangular_calculator(tensor, ratio):
     N, M, F = tensor.size()
     dim1, dim2 = equiangular_dimension_unpack(M, ratio)
-    try:
-        assert dim1 * dim2 == M
-    except:
-        raise ValueError(f'Unpacked dims do not match the original pixels: dim1 - {dim1}, dim2 - {dim2}, M - {M}')
     # bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
     tensor = tensor.view(N, dim1, dim2, F)
     return tensor
@@ -380,6 +382,7 @@ class PoolMaxEquiangular(torch.nn.MaxPool1d):
 
     def __init__(self, ratio, kernel_size, return_indices=True, *args, **kwargs):
         self.ratio = ratio
+        kernel_size = int(kernel_size ** 0.5)
         super().__init__(kernel_size=kernel_size, return_indices=return_indices)
 
     def forward(self, inputs):
@@ -426,7 +429,7 @@ class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
 
     def __init__(self, ratio, kernel_size, *args, **kwargs):
         self.ratio = ratio
-
+        kernel_size = int(kernel_size ** 0.5)
         super().__init__(kernel_size=(kernel_size, kernel_size))
 
     def forward(self, inputs, indices):
@@ -463,6 +466,7 @@ class PoolAvgEquiangular(torch.nn.AvgPool1d):
 
     def __init__(self, ratio, kernel_size, *args, **kwargs):
         self.ratio = ratio
+        kernel_size = int(kernel_size ** 0.5)
         super().__init__(kernel_size=(kernel_size, kernel_size))
 
     def forward(self, inputs):
@@ -496,7 +500,7 @@ class UnpoolAvgEquiangular(torch.nn.Module):
 
     def __init__(self, ratio, kernel_size, *args, **kwargs):
         self.ratio = ratio
-        self.kernel_size = kernel_size
+        self.kernel_size = int(kernel_size ** 0.5)
         super().__init__()
 
     def forward(self, inputs, *args):

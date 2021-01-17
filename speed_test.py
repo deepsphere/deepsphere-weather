@@ -94,10 +94,10 @@ def run(config_path, resolution, nodes, batchsize, iters_num):
 
 
 if __name__ == '__main__':
-    all_nodes = [768, 3072, 12288]
-    all_res = [8, 16, 32]
+    all_nodes = [[32,64]]
+    all_res = [2048]
     epoch = 1000
     batchsize = 15
-    config_path = '/nfs_home/wefeng/GitHub/weather_prediction/configs/healpix_20_graph_max_400km.json'
+    config_path = '/nfs_home/wefeng/GitHub/weather_prediction/configs/equiangular_20_graph_max_400km.json'
     for res, node in zip(all_nodes, all_res):
         _ = run(config_path, res, node, batchsize, epoch)
