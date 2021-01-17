@@ -49,7 +49,7 @@ def plot_weight_variations(weights_loss, figures_path):
 
 
 class WeightedMSELoss(nn.MSELoss):
-    def __init__(self, reduction='sum', weights=None, normalized=False):
+    def __init__(self, reduction='sum', weights=None):
         super(WeightedMSELoss, self).__init__(reduction='none')
         if not isinstance(reduction, str) or reduction not in ('mean', 'sum', 'none'):
             raise ValueError("{} is not a valid value for reduction".format(reduction))
@@ -57,17 +57,11 @@ class WeightedMSELoss(nn.MSELoss):
 
         if weights is not None:
             self.check_weights(weights)
-            if normalized:
-                weights /= torch.sum(weights)
         self.weights = weights
     
-    def forward(self, pred, label, weights=None):
+    def forward(self, pred, label):
         mse = super(WeightedMSELoss, self).forward(pred, label)
-        if weights is None:
-            weights = self.weights
-        else:
-            self.check_weights(weights)
-        
+        weights = self.weights
         _, num_nodes, _ = mse.shape
         if weights is None:
             weights = torch.ones((num_nodes), dtype=mse.dtype, device=mse.device)
@@ -75,12 +69,13 @@ class WeightedMSELoss(nn.MSELoss):
             raise ValueError("The number of weights does not match the the number of pixels. {} != {}"
                                 .format(len(weights), num_nodes))
         weights = weights.view(1, -1, 1).to(mse.device)
+        weighted_mse = mse * weights
         if self.weighted_mse_reduction == 'sum':
-            return torch.sum(mse * weights)
+            return torch.sum(weighted_mse)
         elif self.weighted_mse_reduction == 'mean':
-            return torch.mean(mse * weights)
+            return torch.sum(weighted_mse) / torch.sum(weights)
         else:
-            return mse * weights
+            return weighted_mse
 
     def check_weights(self, weights):
         if not isinstance(weights, torch.Tensor):
