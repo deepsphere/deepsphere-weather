@@ -9,19 +9,7 @@ from torch.nn import functional as F
 from torch.nn import BatchNorm1d, Linear
 
 from modules import layers
-from modules.layers import (ConvCheb, Conv2dEquiangular,
-    PoolMaxHealpix, 
-    UnpoolMaxHealpix, 
-    PoolAvgHealpix,
-    UnpoolAvgHealpix,
-    PoolMaxEquiangular,
-    UnpoolMaxEquiangular,
-    PoolAvgEquiangular,
-    UnpoolAvgEquiangular)
-
-from modules.layers import (GeneralInterpPoolUnpool, 
-    convert_to_torch_sparse,
-    build_pooling_matrices)
+from modules.layers import *
 
 
 HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
@@ -112,18 +100,25 @@ class PoolUnpoolBlock(torch.nn.Module):
         return pooling(**kwargs), unpool(**kwargs)
     
     @staticmethod
-    def getGeneralPoolUnpoolLayer(graphs):
-        assert len(graphs) >= 2
-
-        pool = GeneralInterpPoolUnpool(isPool=True)
-        unpool = GeneralInterpPoolUnpool(isPool=False)
-        for i in range(len(graphs) - 1):
-            g1, g2 = graphs[i], graphs[i + 1]
-            n1, n2 = g1.n_vertices, g2.n_vertices
-            pool_mat, unpool_mat = build_pooling_matrices(g1, g2)
-            pool[n1] = convert_to_torch_sparse(pool_mat)
-            unpool[n2] = convert_to_torch_sparse(unpool_mat)
-        return pool, unpool
+    def getGeneralPoolUnpoolLayer(g1, g2, pool_method):
+        if g1.n_vertices < g2.n_vertices:
+            g1, g2 = g2, g1
+        
+        pool_mat, unpool_mat = build_pooling_matrices(g1, g2)
+        if pool_method == 'interp':
+            pool = GeneralAvgPool(pool_mat)
+            unpool = GeneralAvgUnpool(unpool_mat)
+            return pool, unpool
+        elif pool_method == 'maxval':
+            pool = GeneralMaxValPool(pool_mat)
+            unpool = GeneralMaxValUnpool(unpool_mat)
+            return pool, unpool
+        elif pool_method == 'maxarea':
+            pool = GeneralMaxAreaPool(pool_mat)
+            unpool = GeneralMaxAreaUnpool(pool_mat.T)
+            return pool, unpool
+        else:
+            raise ValueError(f'{pool_method} is not supoorted.')
 
 
 class UNet(ABC):
@@ -186,11 +181,13 @@ class UNetSpherical(UNet, torch.nn.Module):
             
 
         # Pooling - unpooling
-        if pool_method == 'interp':
+        if pool_method in ('interp', 'maxval', 'maxarea'):
             assert conv_type == 'graph'
-            self.pooling, self.unpool = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(self.graphs)
+            self.pool1, self.unpool1 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(self.graphs[0], self.graphs[1], pool_method)
+            self.pool2, self.unpool2 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(self.graphs[1], self.graphs[2], pool_method)
         else:
-            self.pooling, self.unpool = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
+            self.pool1, self.unpool1 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
+            self.pool2, self.unpool2 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling, pool_method, kernel_size=kernel_size_pooling, ratio=ratio)
 
         # Encoding block 1
         self.conv11 = ConvBlock(in_channels, 32 * 2, kernel_size, conv_type, True, True, laplacian=self.laplacians[0], periodic=periodic, ratio=ratio)
@@ -229,14 +226,14 @@ class UNetSpherical(UNet, torch.nn.Module):
         x_enc1 += self.conv1_res(x)
 
         # Block 2
-        x_enc2_ini, idx1 = self.pooling(x_enc1)
+        x_enc2_ini, idx1 = self.pool1(x_enc1)
         x_enc2 = self.conv21(x_enc2_ini)
         x_enc2 = self.conv23(x_enc2)
 
         x_enc2 += self.conv2_res(x_enc2_ini)
 
         # Block 3
-        x_enc3_ini, idx2 = self.pooling(x_enc2)
+        x_enc3_ini, idx2 = self.pool2(x_enc2)
         x_enc3 = self.conv31(x_enc3_ini)
         x_enc3 = self.conv33(x_enc3)
 
@@ -247,13 +244,13 @@ class UNetSpherical(UNet, torch.nn.Module):
 
     def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11):
         # Block 2
-        x = self.unpool(x_enc3, idx2)
+        x = self.unpool2(x_enc3, idx2)
         x_cat = torch.cat((x, x_enc2), dim=2)
         x = self.uconv21(x_cat)
         x = self.uconv22(x)
 
         # Block 1
-        x = self.unpool(x, idx1)
+        x = self.unpool1(x, idx1)
         x_cat = torch.cat((x, x_enc1), dim=2)
         x = self.uconv11(x_cat)
         x = self.uconv12(x)

@@ -1,5 +1,4 @@
 import math
-from typing import Dict
 
 import numpy as np
 from scipy import sparse
@@ -706,35 +705,105 @@ def convert_to_torch_sparse(mat: "sparse.coo.coo_matrix"):
     return mat
 
 
-class GeneralInterpPoolUnpool(torch.nn.Module):
-    def __init__(self, isPool: bool):
+class RemapBlock(torch.nn.Module):
+    def __init__(self, remap_matrix: "sparse.coo.coo_matrix"):
         super().__init__()
-        self.matrices = {}
-        self.isPool = isPool
-    
-    def __setitem__(self, key, value):
-        self.matrices[key] = value
-
-    def __getitem__(self, key):
-        return self.matrices[key]
-    
-    def add(self, key, value):
-        self.matrices[key] = value
-    
-    def pop(self, key):
-        self.matrices.pop(key)
+        remap_matrix = self.process_remap_matrix(remap_matrix)
+        self.register_buffer('remap_matrix', remap_matrix)
     
     def forward(self, x, *args, **kwargs):
         n_batch, n_nodes, n_val = x.shape
-        matrix = self.matrices[n_nodes]
-        if matrix.device != x.device:
-            self.matrices[n_nodes] = self.matrices[n_nodes].to(x.device)
-            matrix = self.matrices[n_nodes]
+        matrix = self.remap_matrix
         new_nodes, _ = matrix.shape
         x = x.permute(1, 2, 0).reshape(n_nodes, n_batch * n_val)
         x = torch.sparse.mm(matrix, x)
         x = x.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
-        if self.isPool:
-            return x, None
-        else:
-            return x
+        return x
+    
+    def process_remap_matrix(self, mat):
+        return convert_to_torch_sparse(mat)
+
+
+class GeneralAvgPool(RemapBlock):
+    def forward(self, x, *args, **kwargs):
+        x = super().forward(x, *args, **kwargs)
+        # Some pooling methods (e.g. Avg) do not give source indices, please return None for compatibility reason
+        return x, None
+
+
+class GeneralAvgUnpool(RemapBlock):
+    def forward(self, x, *args, **kwargs):
+        x = super().forward(x, *args, **kwargs)
+        return x
+
+
+class GeneralMaxAreaPool(RemapBlock):
+    def forward(self, x, *args, **kwargs):
+        x = super().forward(x, *args, **kwargs)
+        # Some pooling methods (e.g. Avg) do not give source indices, please return None for compatibility reason
+        return x, self.remap_matrix.indices()
+        
+    def process_remap_matrix(self, mat):
+        max_ind_col = np.argmax(mat, axis=1).T
+        row = np.arange(max_ind_col.shape[1]).reshape(1, -1)
+        indices = np.concatenate([row, max_ind_col], axis=0)
+        indices = torch.from_numpy(indices.astype(np.int64))
+        mat = torch.sparse_coo_tensor(indices, torch.ones(indices.shape[1]), mat.shape, dtype=torch.float32)
+        mat = mat.coalesce()
+        return mat
+
+
+class GeneralMaxAreaUnpool(RemapBlock):
+    def process_remap_matrix(self, mat):
+        max_ind_row = np.argmax(mat, axis=0)
+        col = np.arange(max_ind_row.shape[1]).reshape(1, -1)
+        indices = np.concatenate([max_ind_row, col], axis=0)
+        indices = torch.from_numpy(indices.astype(np.int64))
+        mat = torch.sparse_coo_tensor(indices, torch.ones(indices.shape[1]), mat.shape, dtype=torch.float32)
+        mat = mat.coalesce()
+        return mat
+
+
+class GeneralMaxValPool(RemapBlock):
+    def forward(self, x, *args, **kwargs):
+        matrix = self.remap_matrix
+
+        n_batch, n_nodes, n_val = x.shape
+        new_nodes, _ = matrix.shape
+
+        x = x.permute(1, 2, 0).reshape(n_nodes, n_batch * n_val)
+        matrix = matrix.unsqueeze(2)
+        x_unsq = x.unsqueeze(0)
+
+        weighted_val = matrix * x_unsq
+        max_ind_row = torch.argmax(weighted_val, dim=1).detach()
+        x_pooled = torch.gather(x, dim=0, index=max_ind_row)
+
+        _, col = np.indices(x_pooled.shape)
+        col = torch.LongTensor(col)
+        col = col.to(max_ind_row.device)
+        nnz_ind = torch.stack([max_ind_row, col], dim=2)
+        nnz_ind = nnz_ind.permute(1, 0, 2).reshape(-1, 2).T
+        nnz_ind.requires_grad_(False)
+
+        x_pooled = x_pooled.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
+        return x_pooled, nnz_ind
+    
+    def process_remap_matrix(self, mat):
+        # TODO: sparse-dense element-wise product, cuda OOM error
+        return torch.from_numpy(mat.todense().astype(np.float32))
+
+
+class GeneralMaxValUnpool(RemapBlock):
+    def forward(self, x, index, *args, **kwargs):
+        matrix = self.remap_matrix
+
+        n_batch, n_nodes, n_val = x.shape
+        new_nodes, _ = matrix.shape
+
+        x = x.permute(1, 2, 0).flatten()
+        x_unpooled = torch.zeros([new_nodes, n_batch * n_val], dtype=x.dtype, device=x.device)
+        row, col = index
+        x_unpooled =  torch.index_put(x_unpooled, (row, col), x)
+        x_unpooled = x_unpooled.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
+        return x_unpooled

@@ -11,6 +11,8 @@ from torch import nn, optim
 
 import modules.architectures as modelArchitectures
 from modules.full_pipeline import load_data_split, WeatherBenchDatasetXarrayHealpixTempMultiple
+from modules.loss import WeightedMSELoss
+from modules.test import compute_error_weight
 
 
 import warnings
@@ -382,7 +384,9 @@ def main(config_file, load_model=False):
     test_loss_steps_ev = []
     weight_variations_ev = []
 
-    criterion = nn.MSELoss()
+    graph = spherical_unet.graphs[0]
+    weights = torch.from_numpy(compute_error_weight(graph).astype(np.float32))
+    criterion = WeightedMSELoss(weights=weights)
     optimizer = optim.Adam(spherical_unet.parameters(), lr=learning_rate, eps=1e-7, weight_decay=0, amsgrad=False)
 
     # train model

@@ -475,7 +475,7 @@ def create_iterative_observations_eq(input_dir, test_years, lead_time, max_lead_
 def compute_error_weight(graph):
     ds = compute_interpolation_weights(graph, graph, method='conservative', normalization='fracarea') # destarea’
     src_grid_area = ds.src_grid_area.values
-    return src_grid_area / np.sum(src_grid_area) * len(src_grid_area)
+    return src_grid_area / np.sum(src_grid_area)
 
 
 def compute_rmse(pred, obs, dims=('node', 'time'), weights=None):
@@ -484,7 +484,7 @@ def compute_rmse(pred, obs, dims=('node', 'time'), weights=None):
     if weights is None:
         rmse = np.sqrt((error ** 2).mean(dims))
     else:
-        rmse = np.sqrt((error ** 2 * weights).mean(dims))
+        rmse = np.sqrt((error ** 2 * weights * len(weights)).mean(dims))
     return rmse.load()
 
 
