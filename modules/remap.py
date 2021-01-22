@@ -448,7 +448,7 @@ def write_cdo_grid(fpath,
         for line in ybounds[1:,:]:
             txt_file.write("            %s \n" %(arr2str(line)))               
                            
-    print(fpath, "cdo grid written successfully!")  
+    # print(fpath, "cdo grid written successfully!")  
 def get_available_interp_methods(): 
     """Available interpolation methods."""
     methods = ['nearest_neighbors',

@@ -17,7 +17,10 @@ from modules.plotting import plot_rmses, plot_general_skills, plot_skillmaps, pl
 def generate_file_name(path, tag, desc, epoch):
     return "{}{}_{}_epoch_{}.nc".format(path, tag, desc, epoch)
 
-def main(cfg):
+def main(config_file):
+    with open(config_file, 'r') as f:
+        cfg = json.load(f)
+
     net_params = {}
     net_params["sampling"] = cfg['model_parameters'].get("sampling", None)
     net_params["knn"] = cfg['model_parameters'].get("knn", 10)
@@ -118,11 +121,11 @@ def main(cfg):
 
     # compute RMSE
     weights = None
-    # if net_params["conv_type"] == 'graph':
-    #     graph = model.graphs[0]
-    #     weights = compute_error_weight(graph)
-    #     weights = xr.DataArray(weights, dims=["node"])
-    #     weights = weights.assign_coords(node=np.arange(nodes))
+    if net_params["conv_type"] == 'graph':
+        graph = model.sphere_graph
+        weights = compute_error_weight(graph)
+        weights = xr.DataArray(weights, dims=["node"])
+        weights = weights.assign_coords(node=np.arange(nodes))
     rmse = compute_rmse(pred_merged, obs_curr, weights=weights)
     rmse.to_netcdf(rmse_filename)
         
@@ -147,7 +150,7 @@ def main(cfg):
 
     plot_benchmark_simple(rmse_spherical, description, lead_times, input_dir=datadir, output_dir=figures_path, title=False)
     plot_general_skills(rmse_map_norm, corr_map, rbias_map, rsd_map, description, lead_times, output_dir=figures_path, title=False)
-    plot_skillmaps(rmse_map_norm, rsd_map, rbias_map, corr_map, description, lead_times, resolution, output_dir=figures_path)
+    # plot_skillmaps(rmse_map_norm, rsd_map, rbias_map, corr_map, description, lead_times, resolution, output_dir=figures_path)
 
 
 if __name__ == '__main__':
@@ -158,7 +161,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
-    with open(args.config_file, 'r') as f:
-        config = json.load(f)
     
-    main(config)
+    main(args.config_file)

@@ -6,6 +6,7 @@ import torch
 from torch.nn import functional as F
 from torch.nn import Conv1d
 from modules import remap
+from sparselinear import SparseLinear
 
 
 def reformat(x):
@@ -741,7 +742,7 @@ class GeneralMaxAreaPool(RemapBlock):
     def forward(self, x, *args, **kwargs):
         x = super().forward(x, *args, **kwargs)
         # Some pooling methods (e.g. Avg) do not give source indices, please return None for compatibility reason
-        return x, self.remap_matrix.indices()
+        return x, None
         
     def process_remap_matrix(self, mat):
         max_ind_col = np.argmax(mat, axis=1).T
@@ -764,46 +765,24 @@ class GeneralMaxAreaUnpool(RemapBlock):
         return mat
 
 
-class GeneralMaxValPool(RemapBlock):
-    def forward(self, x, *args, **kwargs):
-        matrix = self.remap_matrix
-
-        n_batch, n_nodes, n_val = x.shape
-        new_nodes, _ = matrix.shape
-
-        x = x.permute(1, 2, 0).reshape(n_nodes, n_batch * n_val)
-        matrix = matrix.unsqueeze(2)
-        x_unsq = x.unsqueeze(0)
-
-        weighted_val = matrix * x_unsq
-        max_ind_row = torch.argmax(weighted_val, dim=1).detach()
-        x_pooled = torch.gather(x, dim=0, index=max_ind_row)
-
-        _, col = np.indices(x_pooled.shape)
-        col = torch.LongTensor(col)
-        col = col.to(max_ind_row.device)
-        nnz_ind = torch.stack([max_ind_row, col], dim=2)
-        nnz_ind = nnz_ind.permute(1, 0, 2).reshape(-1, 2).T
-        nnz_ind.requires_grad_(False)
-
-        x_pooled = x_pooled.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
-        return x_pooled, nnz_ind
+class GeneralLearnableUnpool(SparseLinear):
+    def __init__(self, remap_matrix: "sparse.coo.coo_matrix"):
+        out_feature, in_feature = remap_matrix.shape
+        bias = False
+        indices = np.empty((2, remap_matrix.nnz), dtype=np.int64)
+        np.stack((remap_matrix.row, remap_matrix.col), axis=0, out=indices)
+        indices = torch.from_numpy(indices)
+        dynamic = False
+        super().__init__(in_feature, out_feature, bias, connectivity=indices, dynamic=dynamic)
     
-    def process_remap_matrix(self, mat):
-        # TODO: sparse-dense element-wise product, cuda OOM error
-        return torch.from_numpy(mat.todense().astype(np.float32))
+    def forward(self, x, *args, **kwargs):
+        x = x.permute(0, 2, 1)
+        x = super().forward(x)
+        x = x.permute(0, 2, 1)
+        return x
 
 
-class GeneralMaxValUnpool(RemapBlock):
-    def forward(self, x, index, *args, **kwargs):
-        matrix = self.remap_matrix
-
-        n_batch, n_nodes, n_val = x.shape
-        new_nodes, _ = matrix.shape
-
-        x = x.permute(1, 2, 0).flatten()
-        x_unpooled = torch.zeros([new_nodes, n_batch * n_val], dtype=x.dtype, device=x.device)
-        row, col = index
-        x_unpooled =  torch.index_put(x_unpooled, (row, col), x)
-        x_unpooled = x_unpooled.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
-        return x_unpooled
+class GeneralLearnablePool(GeneralLearnableUnpool):    
+    def forward(self, inputs):
+        output = super().forward(inputs)
+        return output, None

@@ -109,13 +109,13 @@ class PoolUnpoolBlock(torch.nn.Module):
             pool = GeneralAvgPool(pool_mat)
             unpool = GeneralAvgUnpool(unpool_mat)
             return pool, unpool
-        elif pool_method == 'maxval':
-            pool = GeneralMaxValPool(pool_mat)
-            unpool = GeneralMaxValUnpool(unpool_mat)
-            return pool, unpool
         elif pool_method == 'maxarea':
             pool = GeneralMaxAreaPool(pool_mat)
             unpool = GeneralMaxAreaUnpool(pool_mat.T)
+            return pool, unpool
+        elif pool_method == 'learn':
+            pool = GeneralLearnablePool(pool_mat)
+            unpool = GeneralLearnableUnpool(unpool_mat)
             return pool, unpool
         else:
             raise ValueError(f'{pool_method} is not supoorted.')
@@ -164,10 +164,17 @@ class UNetSpherical(UNet, torch.nn.Module):
         pool_method = pool_method.lower()
         assert conv_type != 'image' or periodic is not None
         periodic = bool(periodic)
+        
+        ### Delete in the future
+        self.test_mode = False
+        if resolution == [46,92] and pool_method in ['max', 'avg']:
+            resolution = [48, 92]
+            self.test_mode = True
 
         if not isinstance(resolution, Iterable):
             resolution = [resolution]
         resolution = np.array(resolution)
+        self.sphere_graph = UNetSpherical.build_graph([resolution], sampling, knn)[0]
         coarsening = int(np.sqrt(kernel_size_pooling))
         resolutions = [resolution, resolution // coarsening, resolution // coarsening // coarsening]
         self.graphs = []
@@ -178,10 +185,13 @@ class UNetSpherical(UNet, torch.nn.Module):
             self.laplacians = [None] * 20
         else:
             raise ValueError(f'{conv_type} convolution is not supported')
-            
+        
+        ### Delete in the future
+        if self.test_mode:
+            self.sphere_graph = pygsp.graphs.SphereEquiangular(nlat=46, nlon=92, poles=0)
 
         # Pooling - unpooling
-        if pool_method in ('interp', 'maxval', 'maxarea'):
+        if pool_method in ('interp', 'maxval', 'maxarea', 'learn'):
             assert conv_type == 'graph'
             self.pool1, self.unpool1 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(self.graphs[0], self.graphs[1], pool_method)
             self.pool2, self.unpool2 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(self.graphs[1], self.graphs[2], pool_method)
@@ -218,8 +228,11 @@ class UNetSpherical(UNet, torch.nn.Module):
     
 
     def encode(self, x):
-        # Block 1
+        ### Delete in the future
+        if self.test_mode:
+            x = torch.nn.functional.pad(x, [0, 0, 92, 92], mode='constant', value=torch.mean(x).item())
 
+        # Block 1
         x_enc11 = self.conv11(x)
         x_enc1 = self.conv13(x_enc11)
 
@@ -256,6 +269,10 @@ class UNetSpherical(UNet, torch.nn.Module):
         x = self.uconv12(x)
         x_cat = torch.cat((x, x_enc11), dim=2)
         x = self.uconv13(x_cat)
+
+        ### Delete in the future
+        if self.test_mode:
+            x = x[:, 92:-92]
         return x
 
     @staticmethod
