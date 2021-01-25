@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Dict
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 
@@ -154,11 +154,30 @@ class UNetSpherical(UNet, torch.nn.Module):
         Pooling's kernel size
     """
 
-    def __init__(self, resolution: Union[int, List[int]], in_channels: int, out_channels: int, conv_type: str='graph', 
-                 kernel_size: int=3, sampling: str='healpix', knn: int = 10, pool_method: str='max', kernel_size_pooling: int=4, 
-                 periodic: Union[int, bool, None]=None, ratio: Union[int, float, bool, None]=None):
+    def __init__(self,
+                 dim_info: Dict[int,int, List[str], List[str], int, int, int, int, List[str]], # TODO (@Wentao... I don't know this way of definining args)
+                 resolution: Union[int, List[int]],    
+                 conv_type: str='graph', 
+                 kernel_size: int=3,
+                 sampling: str='healpix',
+                 knn: int = 10, 
+                 pool_method: str='max', 
+                 kernel_size_pooling: int=4, 
+                 periodic: Union[int, bool, None]=None, 
+                 ratio: Union[int, float, bool, None]=None):
         super().__init__()
-
+        #---------------------------------------------------------------------.
+        # TODO (@Wentao)
+        # - Added dim_info (contain all input output tensors info)
+        # - Adapt the code to receive as input tensors with dim ['sample', 'time', 'node', 'feature']
+        # - --> Currently it expects as input tensors with dim order ['sample', 'node', 'time-feature']
+        # - --> Reshape input tensor ... and reshape the output as the input ;)  
+        # - --> Must output the full tensors with dim ['sample', 'time', 'node', 'feature'] !!!
+        in_channels = dim_info['input_feature_dim']*dim_info['input_time_dim']
+        out_channels = dim_info['output_feature_dim']*dim_info['output_time_dim']
+                                 
+        #---------------------------------------------------------------------.
+        # As before 
         conv_type = conv_type.lower()
         sampling = sampling.lower()
         pool_method = pool_method.lower()
