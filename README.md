@@ -35,7 +35,7 @@ For a local installation, follow the below instructions.
 - [Natalie Bolón Brun][nbolon]
 - [Icíar Lloréns Jover][illorens]
 - [Laure Vancauwenberghe][lv]
- -[Michael Kevin Allemann][ma]
+- [Michael Kevin Allemann][ma]
 - [Michaël Defferrard][mdeff]
 
 [gg]: https://people.epfl.ch/gionata.ghiggi
