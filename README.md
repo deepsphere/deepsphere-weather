@@ -29,12 +29,12 @@ For a local installation, follow the below instructions.
    ``
    
 ## Contributors
-[Gionata Ghiggi][gg]
-[Wentao Feng][wf]
-[Yann Yasser Haddad][yyh]
-[Natalie Bolón Brun][nbolon]
-[Icíar Lloréns Jover][illorens]
-[Michaël Defferrard][mdeff]
+- [Gionata Ghiggi][gg]
+- [Wentao Feng][wf]
+- [Yann Yasser Haddad][yyh]
+- [Natalie Bolón Brun][nbolon]
+- [Icíar Lloréns Jover][illorens]
+- [Michaël Defferrard][mdeff]
 
 [gg]: https://people.epfl.ch/gionata.ghiggi
 [wf]: https://github.com/ownzonefeng
