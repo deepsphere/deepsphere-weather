@@ -1,6 +1,6 @@
-# DeepSphere-Earth - Deep Learning on the sphere for weather / climate applications
+# DeepSphere-Earth - Deep Learning on the sphere 
 
-The code in this repository provides a scalable and flexible framework to apply convolutions on spherical grids.
+The code in this repository provides a scalable and flexible framework to apply convolutions on spherical grids for weather/climate applications.
 
 The folder `experiments` provide examples for:
 -  weather forecasting using autoregressive CNN models  
