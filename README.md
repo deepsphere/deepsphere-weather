@@ -1,11 +1,4 @@
-# Geometric deep learning for medium-range weather prediction
-
-[Icíar Lloréns Jover][illorens], [Michaël Defferrard][mdeff], [Gionata Ghiggi][gg], [Natalie Bolón Brun][nbolon]
-
-[illorens]: https://www.linkedin.com/in/iciar-llorens-jover/
-[mdeff]: http://deff.ch
-[gg]: https://people.epfl.ch/gionata.ghiggi
-[nbolon]: https://www.linkedin.com/in/nataliebolonbrun/
+# DeepSphere-Earth- Deep Learning on the sphere for weather / climate applications
 
 The code in this repository provides a framework for a deep learning medium range weather prediction method based on graph spherical convolutions. 
 
@@ -142,6 +135,21 @@ Generate healpix data from equiangular data
 1. `generate_observations.ipynb`
 Generate ground-truth data for evaluation of the models 
 
+
+## Contributors
+[Gionata Ghiggi][gg]
+[Wentao Feng][wf]
+[Yann Yasser Haddad][yyh]
+[Natalie Bolón Brun][nbolon]
+[Icíar Lloréns Jover][illorens]
+[Michaël Defferrard][mdeff]
+
+[gg]: https://people.epfl.ch/gionata.ghiggi
+[wf]: https://github.com/ownzonefeng
+[yyh]: https://www.linkedin.com/in/yann-yasser-haddad/?originalSubdomain=ch
+[nbolon]: https://www.linkedin.com/in/nataliebolonbrun/
+[illorens]: https://www.linkedin.com/in/iciar-llorens-jover/
+[mdeff]: http://deff.ch
 
 ## License
 
