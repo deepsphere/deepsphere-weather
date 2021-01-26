@@ -594,12 +594,20 @@ def create_AR_DataLoaders(ds_training_dynamic,
     da_training_dynamic = ds_training_dynamic.to_array(dim='feature', name='Dynamic').transpose('time', 'node', 'feature')
     if ds_validation_dynamic is not None:
         da_validation_dynamic = ds_validation_dynamic.to_array(dim='feature', name='Dynamic').transpose('time', 'node', 'feature')
+    else: 
+        da_validation_dynamic = None
     if ds_training_bc is not None:
         da_training_bc = ds_training_bc.to_array(dim='feature', name='BC').transpose('time', 'node', 'feature')
+    else:
+        da_training_bc = None
     if ds_validation_bc is not None:
         da_validation_bc = ds_validation_bc.to_array(dim='feature', name='BC').transpose('time', 'node', 'feature')
+    else:
+        da_validation_bc = None
     if ds_static is not None: 
         da_static = ds_static.to_array(dim='feature', name='Static').transpose('node','feature') 
+    else: 
+        da_static = None
     print('- Conversion to xarray DataArrays: {:.2f}s'.format(time.time() - t_i))
     #-------------------------------------------------------------------------.
     # Define batch dimensions 
