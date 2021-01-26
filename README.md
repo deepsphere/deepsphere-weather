@@ -34,6 +34,8 @@ For a local installation, follow the below instructions.
 - [Yann Yasser Haddad][yyh]
 - [Natalie Bolón Brun][nbolon]
 - [Icíar Lloréns Jover][illorens]
+- [Laure Vancauwenberghe][lv]
+ -[Michael Kevin Allemann][ma]
 - [Michaël Defferrard][mdeff]
 
 [gg]: https://people.epfl.ch/gionata.ghiggi
@@ -41,6 +43,8 @@ For a local installation, follow the below instructions.
 [yyh]: https://www.linkedin.com/in/yann-yasser-haddad/?originalSubdomain=ch
 [nbolon]: https://www.linkedin.com/in/nataliebolonbrun/
 [illorens]: https://www.linkedin.com/in/iciar-llorens-jover/
+[lv]: https://www.linkedin.com/in/laure-vancauwenberghe/
+[ma]: https://www.linkedin.com/in/michael-allemann/
 [mdeff]: http://deff.ch
 
 ## License
