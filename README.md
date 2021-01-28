@@ -27,6 +27,7 @@ For a local installation, follow the below instructions.
    ```sh
    conda env create -f environment.yml
    ``
+   pip install git+https://github.com/epfl-lts2/pygsp@sphere-graphs
    
 ## Contributors
 - [Gionata Ghiggi][gg]
