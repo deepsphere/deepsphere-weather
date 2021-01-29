@@ -29,11 +29,11 @@ from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.AR_Scheduler import AR_Scheduler
-# from modules.utils_training import EarlyStopping # TODO in preparation
+# from modules.utils_training import EarlyStopping
 ## Project specific functions
 from modules.scalers import temporary_data_scaling
 from modules.my_io import readDatasets   
-import modules.architectures as my_architectures
+# import modules.architectures as my_architectures
 
 ## Disable warnings
 warnings.filterwarnings("ignore")
@@ -247,24 +247,21 @@ def main(cfg_path):
     ##------------------------------------------------------------------------.
     ### - Define AR_Weights_Scheduler 
     AR_scheduler = AR_Scheduler(method = "LinearDecay",
-                                factor = 0.025,
-                                initial_AR_weights=[0.5,0.5])     
+                                factor = 0.025)    
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    # TODO (@GG) # In preparation
     stopping_rounds = 10 
     stopping_metric = "validation_total_loss"   
     stopping_patience = 20   # number of allowed scores without seeing improvements 
     minimum_increase = 0.001  # 0 to not stop 
     stopping_tolerance = 0    # 0 to not stop 
-    #    early_stopping = EarlyStopping(stopping_patience = stopping_patience, 
-    #                                   stopping_rounds = stopping_rounds,
-    #                                   stopping_tolerance = stopping_tolerance,
-    #                                   minimum_increase = minimum_increase,
-    #                                   stopping_metric = stopping_metric,                                                         
-    #                                   mode = "min") # MSE best when low 
-    early_stopping = None
+    early_stopping = EarlyStopping(stopping_patience = stopping_patience, 
+                                   stopping_rounds = stopping_rounds,
+                                   stopping_tolerance = stopping_tolerance,
+                                   minimum_increase = minimum_increase,
+                                   stopping_metric = stopping_metric,                                                         
+                                   mode = "min") # MSE best when low 
     ##------------------------------------------------------------------------.
     ### - Defining LR_Scheduler 
     # TODO (@Yasser)
@@ -292,6 +289,7 @@ def main(cfg_path):
                                            ds_validation_bc = ds_validation_bc,       
                                            # Dataloader settings
                                            preload_data_in_CPU = dataloader_settings['preload_data_in_CPU'], 
+                                           prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],   
                                            random_shuffle = dataloader_settings['random_shuffle'], 
                                            num_workers = dataloader_settings['num_workers'], 
                                            pin_memory = dataloader_settings['pin_memory'], 

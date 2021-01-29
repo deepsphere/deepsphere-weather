@@ -836,6 +836,7 @@ def pygsp_to_CDO_grid(graph, CDO_grid_fpath, rounding=4):
                    xbounds = lon_vertices,
                    ybounds = lat_vertices)
     return 
+
 def pygsp_Healpix_to_CDO_grid(graph, CDO_grid_fpath):
     """
     Define CDO grid of a pygsp SphericalHealpix graph.

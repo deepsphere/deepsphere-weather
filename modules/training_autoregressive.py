@@ -53,6 +53,7 @@ def AutoregressiveTraining(model,
                            ds_validation_bc = None,       
                            # Dataloader options
                            preload_data_in_CPU = False, 
+                           prefetch_in_GPU = False, 
                            random_shuffle = True, 
                            num_workers = 0, 
                            pin_memory = False,
@@ -73,7 +74,7 @@ def AutoregressiveTraining(model,
                            save_model_each_epoch = False,
                            # GPU settings 
                            device = 'cpu'):
-    #-------------------------------------------------------------------------.
+    ##------------------------------------------------------------------------.
     # TODO 
     ## Checks arguments 
     if device == 'cpu' and pin_memory is True:
@@ -85,7 +86,7 @@ def AutoregressiveTraining(model,
                       AR_iterations = AR_iterations, 
                       stack_most_recent_prediction = stack_most_recent_prediction) 
     
-    #-------------------------------------------------------------------------.
+    ##------------------------------------------------------------------------.
     ## Autotune DataLoaders 
     # --> Tune the number of num_workers for best performance 
     # TODO
@@ -118,6 +119,8 @@ def AutoregressiveTraining(model,
                                                                      random_shuffle = random_shuffle,
                                                                      num_workers = num_workers,
                                                                      pin_memory = pin_memory,
+                                                                     prefetch_in_GPU = prefetch_in_GPU,
+                                                                     asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                                                      # Autoregressive settings  
                                                                      input_k = input_k, 
                                                                      output_k = output_k,
@@ -308,13 +311,12 @@ def AutoregressiveTraining(model,
                 # If the model has not improved (based on early stopping settings)
                 # - If current_AR_iterations < AR_iterations --> Update AR scheduler
                 # - If current_AR_iterations = AR_iterations --> Stop training 
-                # TODO: In preparation ! Currently the code perform just 2 iterations
-#                if early_stopping(training_info) is True:
-#                    if AR_scheduler.current_AR_iterations < AR_iterations: 
-#                        AR_scheduler.update()
-#                    else: 
-#                        # Stop training 
-#                        break
+                if early_stopping(training_info) is True:
+                    if AR_scheduler.current_AR_iterations < AR_iterations: 
+                        AR_scheduler.update()
+                    else: 
+                        # Stop training 
+                        break
                     
             ##----------------------------------------------------------------.     
             # - Update iteration count 

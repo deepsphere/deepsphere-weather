@@ -77,7 +77,8 @@ def get_default_dataloader_settings():
     """Return some default settings for the DataLoader."""
     dataloader_settings = {"random_shuffle": True,
                            "pin_memory": False,   
-                           "preload_data_in_CPU": False,  
+                           "preload_data_in_CPU": False, 
+                           "prefetch_in_GPU": False, 
                            "asyncronous_GPU_transfer": True, 
                            "num_workers": 0,
                            }  
