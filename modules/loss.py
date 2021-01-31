@@ -1,5 +1,16 @@
 import torch
 from torch import nn
+import numpy as np
+
+from modules.remap import compute_interpolation_weights
+
+
+def compute_error_weight(graph):
+    ds = compute_interpolation_weights(graph, graph, method='conservative', normalization='fracarea') # destarea’
+    src_grid_area = ds.src_grid_area.values
+    weights = src_grid_area / np.sum(src_grid_area)
+    weights = torch.from_numpy(weights.astype(np.float32))
+    return weights
 
 class WeightedMSELoss(nn.MSELoss):
     def __init__(self, reduction='mean', weights=None):

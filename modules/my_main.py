@@ -8,6 +8,7 @@ Created on Sun Jan  3 18:43:17 2021
 import os
 import warnings
 import time
+import torch
 from torch import nn, optim
 
 os.chdir("/home/ghiggi/Projects/DeepSphere/")
@@ -34,6 +35,7 @@ from modules.AR_Scheduler import AR_Scheduler
 from modules.scalers import temporary_data_scaling
 from modules.my_io import readDatasets   
 # import modules.architectures as my_architectures
+from modules.loss import WeightedMSELoss, compute_error_weight
 
 ## Disable warnings
 warnings.filterwarnings("ignore")
@@ -235,7 +237,8 @@ def main(cfg_path):
     # - --> variable weights 
     # - --> spatial masking 
     # - --> area_weights 
-    criterion = nn.MSELoss()
+    weights = compute_error_weight(model.sphere_graph)
+    criterion = WeightedMSELoss(weights=weights)
 
     ##------------------------------------------------------------------------.
     ### - Define optimizer 

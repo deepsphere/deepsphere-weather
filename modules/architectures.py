@@ -155,40 +155,29 @@ class UNetSpherical(UNet, torch.nn.Module):
     """
 
     def __init__(self,
-                 dim_info: Dict[int,int, List[str], List[str], int, int, int, int, List[str]], # TODO (@Wentao... I don't know this way of definining args)
+                 dim_info: Dict[str, int],
                  resolution: Union[int, List[int]],    
                  conv_type: str='graph', 
                  kernel_size: int=3,
                  sampling: str='healpix',
-                 knn: int = 10, 
+                 knn: int=10, 
                  pool_method: str='max', 
                  kernel_size_pooling: int=4, 
                  periodic: Union[int, bool, None]=None, 
                  ratio: Union[int, float, bool, None]=None):
         super().__init__()
-        #---------------------------------------------------------------------.
-        # TODO (@Wentao)
-        # - Added dim_info (contain all input output tensors info)
-        # - Adapt the code to receive as input tensors with dim ['sample', 'time', 'node', 'feature']
-        # - --> Currently it expects as input tensors with dim order ['sample', 'node', 'time-feature']
-        # - --> Reshape input tensor ... and reshape the output as the input ;)  
-        # - --> Must output the full tensors with dim ['sample', 'time', 'node', 'feature'] !!!
         in_channels = dim_info['input_feature_dim']*dim_info['input_time_dim']
+        self.in_channels = in_channels
         out_channels = dim_info['output_feature_dim']*dim_info['output_time_dim']
+        self.out_channels = out_channels
                                  
-        #---------------------------------------------------------------------.
-        # As before 
+
         conv_type = conv_type.lower()
         sampling = sampling.lower()
         pool_method = pool_method.lower()
         assert conv_type != 'image' or periodic is not None
         periodic = bool(periodic)
-        
-        ### Delete in the future
-        self.test_mode = False
-        if resolution == [46,92] and pool_method in ['max', 'avg']:
-            resolution = [48, 92]
-            self.test_mode = True
+
 
         if not isinstance(resolution, Iterable):
             resolution = [resolution]
@@ -205,9 +194,6 @@ class UNetSpherical(UNet, torch.nn.Module):
         else:
             raise ValueError(f'{conv_type} convolution is not supported')
         
-        ### Delete in the future
-        if self.test_mode:
-            self.sphere_graph = pygsp.graphs.SphereEquiangular(nlat=46, nlon=92, poles=0)
 
         # Pooling - unpooling
         if pool_method in ('interp', 'maxval', 'maxarea', 'learn'):
@@ -247,9 +233,11 @@ class UNetSpherical(UNet, torch.nn.Module):
     
 
     def encode(self, x):
-        ### Delete in the future
-        if self.test_mode:
-            x = torch.nn.functional.pad(x, [0, 0, 92, 92], mode='constant', value=torch.mean(x).item())
+        # ['sample', 'time', 'node', 'feature'] ==> ['sample', 'node', 'time-feature']
+        batchsize, time, nodes, _ = x.shape
+        self.time = time
+        x = x.permute(0, 2, 1, 3)
+        x = x.reshape(batchsize, nodes, self.in_channels)
 
         # Block 1
         x_enc11 = self.conv11(x)
@@ -289,9 +277,10 @@ class UNetSpherical(UNet, torch.nn.Module):
         x_cat = torch.cat((x, x_enc11), dim=2)
         x = self.uconv13(x_cat)
 
-        ### Delete in the future
-        if self.test_mode:
-            x = x[:, 92:-92]
+        # ['sample', 'time', 'node', 'feature'] <== ['sample', 'node', 'time-feature']
+        batchsize, nodes, _ = x.shape
+        x = x.reshape(batchsize, nodes, self.time, -1)
+        x = x.permute(0, 2, 1, 3)
         return x
 
     @staticmethod
