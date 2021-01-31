@@ -31,7 +31,9 @@ from modules.training_autoregressive import AutoregressiveTraining
 from modules.AR_Scheduler import AR_Scheduler
 # from modules.utils_training import EarlyStopping
 ## Project specific functions
-from modules.scalers import temporary_data_scaling
+from modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
+from modules.xscaler import LoadScaler
+ 
 from modules.my_io import readDatasets   
 # import modules.architectures as my_architectures
 
@@ -122,39 +124,42 @@ AR_settings['forecast_cycle'] = 6
 AR_settings['AR_iterations'] = 10
 
 #-----------------------------------------------------------------------------.
-### Apply custom scalers 
-# TODO (@GG)
-# - scaler = None: Should be provided when data are already standardized
-# - scaler = <scaler object to fit> 
-# - scaler =  <filepath of a saved scaler object>
-# --> Need to way x-scaler.py is ready
-# --> scaler.transform(...) 
-# - If data already in memory ... standardize on the fly 
-# - If data lazy loaded ... delayed standardization 
-# - If data lazy loaded (load_memory is False) but need scaler fit --> Stop --> Create before 
+### Scale data with xscaler 
+dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
+bc_scaler = GlobalStandardScaler(data=ds_bc)
+static_scaler = GlobalStandardScaler(data=ds_static)
 
-# # Meanwhile ....  # Do not remove "blank" line here below !
-# da_static, da_training_dynamic, da_validation_dynamic, da_training_bc, da_validation_bc = temporary_data_scaling(da_static = da_static, 
-#                                                                                                                  da_training_dynamic = da_training_dynamic, 
-#                                                                                                                  da_validation_dynamic = da_validation_dynamic, 
-#                                                                                                                  da_training_bc = da_training_bc,
-#                                                                                                                  da_validation_bc = da_validation_bc)
-# ! Do not remove "blank" line here above !
+dynamic_scaler.fit()
+bc_scaler.fit()
+static_scaler.fit()
+
+dynamic_scaler.save("/home/ghiggi/dynamic_scaler.nc")
+dynamic_scaler = LoadScaler("/home/ghiggi/dynamic_scaler.nc")
+
+ds_dynamic_std = dynamic_scaler.transform(ds_dynamic) # delayed computation
+ds_bc_std = bc_scaler.transform(ds_dynamic)           # delayed computation
+ds_static_std = static_scaler.transform(ds_dynamic)   # delayed computation
+
+#ds_dynamic1 = dynamic_scaler.inverse_transform(ds_dynamic_std.compute()).compute()
+#xr.testing.assert_equal(ds_dynamic, ds_dynamic1) 
 
 #-----------------------------------------------------------------------------.
 ### Split data into train, test and validation set 
-### - Defining time split for training 
-# training_years = (1980, 2013)
-# validation_years = (2015, 2016) 
-# test_years = (2017, 2018) 
-
-# t_i = time.time()
-# ds_training_dynamic = ds_dynamic.sel(time=slice(*training_years))
-# ds_training_bc = ds_bc.sel(time=slice(*training_years))
+# - Defining time split for training 
+training_years = (1980, 2013)
+validation_years = (2015, 2016) 
+test_years = (2017, 2018) 
+# - Split data sets 
+t_i = time.time()
+ds_training_dynamic = ds_dynamic_std.sel(time=slice(*training_years))
+ds_training_bc = ds_bc_std.sel(time=slice(*training_years))
   
-# ds_validation_dynamic = ds_dynamic.sel(time=slice(*validation_years))
-# ds_validation_bc = ds_bc.sel(time=slice(*validation_years))
-# print('- Splitting data into train and validation set: {:.2f}s'.format(time.time() - t_i))
+ds_validation_dynamic = ds_dynamic_std.sel(time=slice(*validation_years))
+ds_validation_bc = ds_bc_std.sel(time=slice(*validation_years))
+print('- Splitting data into train and validation set: {:.2f}s'.format(time.time() - t_i))
+
+ds_test_dynamic = ds_dynamic_std.sel(time=slice(*test_years))
+ds_test_bc = ds_bc_std.sel(time=slice(*test_years))
 
 #-----------------------------------------------------------------------------.
 ##############  
@@ -284,7 +289,7 @@ def main(cfg_path):
                                            # Data
                                            ds_training_dynamic = ds_training_dynamic,
                                            ds_validation_dynamic = ds_validation_dynamic,
-                                           ds_static = ds_static,              
+                                           ds_static = ds_static_std,              
                                            ds_training_bc = ds_training_bc,         
                                            ds_validation_bc = ds_validation_bc,       
                                            # Dataloader settings
