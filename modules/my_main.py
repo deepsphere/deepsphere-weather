@@ -9,9 +9,10 @@ import os
 import warnings
 import time
 import torch
+import numpy as np
 from torch import nn, optim
 
-os.chdir("/home/ghiggi/Projects/DeepSphere/")
+os.chdir("/home/ghiggi/Projects/weather_prediction/")
 
 ## DeepSphere-Earth
 from modules.utils_config import get_default_settings
@@ -36,7 +37,7 @@ from modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
 from modules.xscaler import LoadScaler
  
 from modules.my_io import readDatasets   
-# import modules.architectures as my_architectures
+import modules.architectures as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
 ## Disable warnings
@@ -148,20 +149,20 @@ ds_static_std = static_scaler.transform(ds_dynamic)   # delayed computation
 #-----------------------------------------------------------------------------.
 ### Split data into train, test and validation set 
 # - Defining time split for training 
-training_years = (1980, 2013)
-validation_years = (2015, 2016) 
-test_years = (2017, 2018) 
+training_years = np.array(['1980-01-01T07:00','2013-12-31T23:00'], dtype='M8[m]')  
+validation_years = np.array(['2014-01-01T00:00','2015-12-31T23:00'], dtype='M8[m]')    
+test_years = np.array(['2016-01-01T00:00','2018-12-31T23:00'], dtype='M8[m]')   
 # - Split data sets 
 t_i = time.time()
-ds_training_dynamic = ds_dynamic_std.sel(time=slice(*training_years))
-ds_training_bc = ds_bc_std.sel(time=slice(*training_years))
+ds_training_dynamic = ds_dynamic_std.sel(time=slice(training_years[0], training_years[-1]))
+ds_training_bc = ds_bc_std.sel(time=slice(training_years[0], training_years[-1]))
   
-ds_validation_dynamic = ds_dynamic_std.sel(time=slice(*validation_years))
-ds_validation_bc = ds_bc_std.sel(time=slice(*validation_years))
+ds_validation_dynamic = ds_dynamic_std.sel(time=slice(validation_years[0], validation_years[-1]))
+ds_validation_bc = ds_bc_std.sel(time=slice(validation_years[0], validation_years[-1]))
 print('- Splitting data into train and validation set: {:.2f}s'.format(time.time() - t_i))
 
-ds_test_dynamic = ds_dynamic_std.sel(time=slice(*test_years))
-ds_test_bc = ds_bc_std.sel(time=slice(*test_years))
+ds_test_dynamic = ds_dynamic_std.sel(time=slice(test_years[0], test_years[-1]))
+ds_test_bc = ds_bc_std.sel(time=slice(test_years[0], test_years[-1]))
 
 #-----------------------------------------------------------------------------.
 ##############  
