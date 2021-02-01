@@ -4,76 +4,70 @@
 Created on Mon Jan 25 20:00:18 2021
 
 @author: ghiggi
-"""
-import numpy as np
-import torch
-
- 
-
-a = np.arange(40)    
-
-sub = a[-((stopping_rounds)+stopping_rounds):]
-    
-
+"""        
+  
 class EarlyStopping:
-    """Early stops the training if validation loss doesn't improve after a given patience.
-    
-    Inspired by:
-        https://github.com/Bjarten/early-stopping-pytorch/blob/master/pytorchtools.py
-        https://github.com/pytorch/ignite/blob/master/ignite/handlers/early_stopping.py
-        
-    """
+    """Provide functionality for early stopping network training."""
+  
     def __init__(self, 
-                 stopping_patience = 10,
-                 stopping_rounds = stopping_rounds,
-                 stopping_tolerance = stopping_tolerance,
-                 minimum_improvement = minimum_improvement,
-                 stopping_metric = stopping_metric,                                                         
-                 mode = "min"):
-                 
-                 patience=7,  
+                 patience = 10,
+                 minimum_improvement = 0.001,
+                 stopping_metric = 'training_total_loss',                                                         
+                 mode = "min"):  
         """
-        # stopping_rounds: Stops training when the (scored) loss function (or specified metric) 
-        #  doesn’t improve after x stopping_rounds based on a simple moving average. 
-        #  The metric is computed on the validation data (if provided),
-        #   otherwise, training data is used. 
-        # stopping_tolerance = 1e-3
+        Initiate an EarlyStopping object.
         
-        #  - the moving average for last (stopping_round + 1) stopping rounds is calculated  
-        #  - the first moving average is reference value 
-        #  - the other "stopping_round" 3 moving averages to compare
-        
-        # The model will stop if the ratio between the best moving average and 
-        # reference moving average
-        # - (for metrics that low is better)  is more or equal 'stopping_tolerance'
-        # - (for metrics that large is better) is less or equal 'stopping_tolerance'
-        
-        ## Alternative : 
-        # stopping patience: the number of scoring events with no improvement before stop training
-        # delta / minimum_improvement: Minimum change in the monitored quantity
-           to qualify as an improvement
-   
+        It allow to stops training if the stopping_metric doesn't improve after a
+        given number of scoring rounds.
+
+        Parameters
+        ----------
+        patience : int, optional
+            The number of scoring events with no improvement before stop training. 
+            The default is 10.
+        minimum_improvement : float, optional
+            Minimum change in the monitored quantity to qualify as an improvement
+            The default is 0.001.
+        stopping_metric : str, optional
+            Either 'training_total_loss' or 'validation_total_loss'.
+            The default is 'training_total_loss'.
+        mode : str, optional
+            Whether to look for a minimal ('min') or maximal ('max') validation loss.
+            The default is 'min'.
+
         """
+        if not isinstance(patience, int):
+            raise ValueError("'patience' requires a positive integer larger than 1")
+        if patience < 1:
+            raise ValueError("'patience' requires a positive integer larger than 1")
+        if not isinstance(mode, str):  
+            raise ValueError("'mode' has to be either 'min' or 'max' string") 
+        if mode not in ['min', 'max']:
+            raise ValueError("'mode' has to be either 'min' or 'max' string")
+
         self.patience = patience
-        self.verbose = verbose
+        self.stopping_metric = stopping_metric
+        self.minimum_improvement = minimum_improvement
+        self.mode = mode
+
         self.counter = 0
         self.best_score = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
-        self.delta = delta
         
     def __call__(self, training_info):
-        # avg_validation_loss = np.mean(self.validation_total_loss[-self.epoch_iteration:])
-        score = -val_loss
+        """Call to verify if training must stop."""
+        score = getattr(training_info, self.stopping_metric)[-1]
 
         if self.best_score is None:
             self.best_score = score
-            
-        elif score < self.best_score + self.delta:
+
+        elif (score > self.best_score - self.minimum_improvement and self.mode=='min') or \
+             (score < self.best_score + self.minimum_improvement and self.mode=='max'):
             self.counter += 1
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
             self.best_score = score
             self.counter = 0
-        return True
+        
+        return self.early_stop
