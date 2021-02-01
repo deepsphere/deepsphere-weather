@@ -31,7 +31,7 @@ from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.AR_Scheduler import AR_Scheduler
-# from modules.utils_training import EarlyStopping
+from modules.early_stopping import EarlyStopping
 ## Project specific functions
 from modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
 from modules.xscaler import LoadScaler
@@ -260,17 +260,14 @@ def main(cfg_path):
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    stopping_rounds = 10 
-    stopping_metric = "validation_total_loss"   
-    stopping_patience = 20   # number of allowed scores without seeing improvements 
-    minimum_increase = 0.001  # 0 to not stop 
-    stopping_tolerance = 0    # 0 to not stop 
-    early_stopping = EarlyStopping(stopping_patience = stopping_patience, 
-                                   stopping_rounds = stopping_rounds,
-                                   stopping_tolerance = stopping_tolerance,
-                                   minimum_increase = minimum_increase,
+    patience = 10,
+    minimum_improvement = 0.01, # 0 to not stop 
+    stopping_metric = 'validation_total_loss',   # training_total_loss                                                     
+    mode = "min" # MSE best when low  
+    early_stopping = EarlyStopping(patience = patience,
+                                   minimum_improvement = minimum_improvement,
                                    stopping_metric = stopping_metric,                                                         
-                                   mode = "min") # MSE best when low 
+                                   mode = mode)  
     ##------------------------------------------------------------------------.
     ### - Defining LR_Scheduler 
     # TODO (@Yasser)
