@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 """
 Created on Mon Dec 14 13:25:46 2020
 
@@ -12,10 +12,10 @@ import os
 # xscaler.GlobalScaler.StandardScaler  
 # xscaler.GlobalScaler.TrendScaler
 
-## TODO:
-# Save without fitted=True ... raise error 
-# StandardScaler (robust option--> IQR, MEDIAN)
-
+### TemporalScalers 
+# --> When new_data contain new time_groupby indices values, insert NaN values
+#     in mean_, std_  for the missing time_groupby values
+ 
 ##----------------------------------------------------------------------------.
 # # Loop over each variable (for Datasets)
 # gs = GlobalStandardScaler(data=ds)
@@ -31,6 +31,20 @@ import os
 # da.loc[dict(feature='z500')] = da.loc[dict(feature='z500')] - mean_.loc[dict(feature='z500')]   
 
 ##----------------------------------------------------------------------------.
+def get_valid_scaler_class():
+    """Return list of implemented xscaler objects."""
+    scaler_classes = ['GlobalStandardScaler', 'TemporalStandardScaler',
+                      'GlobalMinMaxScaler', 'TemporalMinMaxScaler',
+                      'SequentialScaler']
+    return scaler_classes
+
+def check_valid_scaler(scaler): 
+    """Check is a valid scaler."""
+    # TODO : Check type/class instead looking for attribute...
+    if scaler.scaler_class not in get_valid_scaler_class():
+        print(scaler.scaler_class)
+        raise ValueError("Not a valid scaler")
+        
 def check_variable_dim(variable_dim, data):
     """Check that the correct variable dimension (for DataArray) is specified."""
     # Check type
@@ -59,6 +73,23 @@ def check_groupby_dims(groupby_dims, data):
     # Return grouby_dims as a list of strings     
     return groupby_dims     
 
+def check_rename_dict(data, rename_dict): 
+    """Check rename_dict validity."""
+    if not isinstance(rename_dict, dict):
+        raise ValueError("'rename_dict' must be a dictionary.")
+    data_dims = list(data.dims)
+    keys = list(rename_dict.keys())
+    vals = list(rename_dict.values())
+    keys_all = np.all(np.isin(keys, data_dims))
+    vals_all = np.all(np.isin(vals, data_dims))
+    if keys_all: 
+        new_dict = rename_dict 
+    elif vals_all: 
+        new_dict = {v: k for k,v in rename_dict.items()}
+    else:
+        raise ValueError("The specified dimensions in 'rename_dict' are not dimensions of the supplied data.")
+    return new_dict    
+            
 def get_xarray_variables(data, variable_dim = None):
     """Return the variables of an xarray Dataset or DataArray."""
     if isinstance(data, xr.Dataset):
@@ -86,6 +117,7 @@ class GlobalStandardScaler():
         ##--------------------------------------------------------------------.
         ### Load an already existing scaler (if ds_scaler is provided) 
         if isinstance(ds_scaler, xr.Dataset):
+            self.scaler_class = ds_scaler.attrs['scaler_class']
             self.eps = ds_scaler.attrs['eps']
             self.aggregating_dims = ds_scaler.attrs['aggregating_dims']
             self.center = True if ds_scaler.attrs['center'] == 'True' else False
@@ -140,6 +172,7 @@ class GlobalStandardScaler():
                 self.aggregating_dims = dims[np.isin(dims, groupby_dims, invert=True)].tolist()
             ##--------------------------------------------------------------------. 
             # Initialize 
+            self.scaler_class = "GlobalStandardScaler"
             self.data = data
             self.fitted = False
             self.eps = eps 
@@ -152,6 +185,7 @@ class GlobalStandardScaler():
     def fit(self):
         """Fit the GlobalStandardScaler."""
         #---------------------------------------------------------------------.
+        # Checks
         if self.fitted is True: 
             raise ValueError("The scaler has been already fitted!")
         #---------------------------------------------------------------------.
@@ -166,6 +200,7 @@ class GlobalStandardScaler():
     def save(self, fpath):
         """Save the scaler object to disk in netCDF format."""
         ##--------------------------------------------------------------------.
+        # Checks
         if self.fitted is False:
             raise ValueError("Please fit() the scaler before saving it!")
         # Check basepath exists 
@@ -188,7 +223,7 @@ class GlobalStandardScaler():
             ds_scaler = mean_.to_dataset()
         else:
             ds_scaler = std_.to_dataset()
-        ds_scaler.attrs = {'scaler': 'GlobalStandardScaler', 
+        ds_scaler.attrs = {'scaler_class': self.scaler_class,
                            'eps': self.eps,
                            'aggregating_dims': self.aggregating_dims, 
                            'center': str(self.center),
@@ -198,7 +233,7 @@ class GlobalStandardScaler():
         print("The GlobalStandardScaler has been written to disk!")
         
     ##------------------------------------------------------------------------.   
-    def transform(self, new_data, variable_dim=None): 
+    def transform(self, new_data, variable_dim=None, rename_dict=None): 
         """Transform data using the fitted GlobalStandardScaler."""
         ##--------------------------------------------------------------------.
         if self.fitted is False: 
@@ -212,7 +247,19 @@ class GlobalStandardScaler():
             da_dims_order = new_data.dims
             variable_dim = check_variable_dim(variable_dim = variable_dim, data = new_data)
             new_data = new_data.to_dataset(dim=variable_dim)
-                
+        
+        ##--------------------------------------------------------------------.
+        # Rename new_data dimensions if rename_dict is provided 
+        flag_dim_renamed = False
+        if rename_dict is not None:  
+            flag_dim_renamed = True
+            # Check rename_dict (ensure {from:to} format )
+            rename_dict = check_rename_dict(data=new_data, rename_dict=rename_dict)   
+            # Create dictionary for resetting dimensions name as original 
+            inv_rename_dict = {v: k for k,v in rename_dict.items()}
+            # Rename dimensions 
+            new_data = new_data.rename(rename_dict)
+            
         ##--------------------------------------------------------------------.
         # Get variables to transform 
         data_vars = get_xarray_variables(new_data)
@@ -223,6 +270,19 @@ class GlobalStandardScaler():
         transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
         
         ##--------------------------------------------------------------------.
+        # Check dimension name coincides 
+        new_data_dims = list(new_data.dims)
+        if self.center: 
+            required_dims = list(self.mean_.dims)
+        else:
+            required_dims = list(self.std_.dims)
+        
+        if len(required_dims) >= 1:
+            idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
+            if np.any(idx_missing_dims):
+                raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
+            
+        ##--------------------------------------------------------------------.
         ## Transform variables 
         if len(transform_vars) > 0: 
             new_data = new_data.copy()
@@ -232,7 +292,13 @@ class GlobalStandardScaler():
                 if self.standardize: 
                     new_data[var] = new_data[var] / (self.std_[var] + self.eps)    
                     
-        ##--------------------------------------------------------------------.            
+        ##--------------------------------------------------------------------.   
+        # Rename dimension as new_data (if necessary)
+        if flag_dim_renamed is True: 
+            new_data = new_data.rename(inv_rename_dict)
+
+        ##--------------------------------------------------------------------.      
+        # Reshape to DataArray if new_data was a DataArray
         if flag_DataArray is True:
             if variable_dim is None:
                 return new_data.to_array(dim='variable', name=da_name).squeeze().drop('variable').transpose(*da_dims_order) 
@@ -242,7 +308,7 @@ class GlobalStandardScaler():
             return new_data 
         
     ##------------------------------------------------------------------------.     
-    def inverse_transform(self, new_data, variable_dim=None):
+    def inverse_transform(self, new_data, variable_dim=None, rename_dict=None):
         """Inverse transform data using the fitted GlobalStandardScaler."""
         ##--------------------------------------------------------------------.
         if self.fitted is False: 
@@ -256,16 +322,41 @@ class GlobalStandardScaler():
             da_dims_order = new_data.dims
             variable_dim = check_variable_dim(variable_dim = variable_dim, data = new_data)
             new_data = new_data.to_dataset(dim=variable_dim)
-                
+        
+        ##--------------------------------------------------------------------.
+        # Rename new_data dimensions if rename_dict is provided 
+        flag_dim_renamed = False
+        if rename_dict is not None:
+            flag_dim_renamed = True
+            # Check rename_dict (ensure {from:to} format )
+            rename_dict = check_rename_dict(data=new_data, rename_dict=rename_dict)   
+            # Create dictionary for resetting dimensions name as original 
+            inv_rename_dict = {v: k for k,v in rename_dict.items()}
+            # Rename dimensions 
+            new_data = new_data.rename(rename_dict)
+            
         ##--------------------------------------------------------------------.
         # Get variables to transform 
         data_vars = get_xarray_variables(new_data)
         if self.center:
             transform_vars = get_xarray_variables(self.mean_)
         else:
-            transform_vars = get_xarray_variables(self.std_) 
+            transform_vars = get_xarray_variables(self.std_)    
         transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
         
+        ##--------------------------------------------------------------------.
+        # Check dimension name coincides 
+        new_data_dims = list(new_data.dims)
+        if self.center: 
+            required_dims = list(self.mean_.dims)
+        else:
+            required_dims = list(self.std_.dims)
+        
+        if len(required_dims) >= 1:
+            idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
+            if np.any(idx_missing_dims):
+                raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
+                    
         ##--------------------------------------------------------------------.
         ## Transform variables 
         if len(transform_vars) > 0: 
@@ -277,7 +368,13 @@ class GlobalStandardScaler():
                 if self.center: 
                     new_data[var] = new_data[var] + self.mean_[var] 
         
-        ##--------------------------------------------------------------------.            
+        ##--------------------------------------------------------------------.   
+        # Rename dimension as new_data (if necessary)
+        if flag_dim_renamed is True: 
+            new_data = new_data.rename(inv_rename_dict)
+
+        ##--------------------------------------------------------------------.      
+        # Reshape to DataArray if new_data was a DataArray           
         if flag_DataArray is True:
             if variable_dim is None:
                 return new_data.to_array(dim='variable', name=da_name).squeeze().drop('variable').transpose(*da_dims_order)
@@ -450,6 +547,13 @@ def check_dict_factors(dict_factors, time_groups):
     else:
         return {} 
 
+def check_new_time_groupby_idx(time_groupby_idx, scaler_stat):
+    """Check that the fitted scaler contains all time_groupby_idx of new_data."""
+    time_groupby_idx_orig = np.unique(scaler_stat[time_groupby_idx.name].values)
+    time_groupby_idx_new = np.unique(time_groupby_idx.values)
+    if not np.all(np.isin(time_groupby_idx_new, time_groupby_idx_orig)):
+        raise ValueError("The TemporalScaler does not contain representative statistics for all time_groups indices of 'new_data'.")       
+        
 ##----------------------------------------------------------------------------.   
 def get_time_groupby_idx(data, time_dim, time_groups, dict_factors=None): 
     """Return a 1D array with unique index for temporal groupby operation."""
@@ -538,11 +642,13 @@ class TemporalStandardScaler():
         ##--------------------------------------------------------------------.
         ### Load an already existing scaler (if ds_scaler is provided) 
         if isinstance(ds_scaler, xr.Dataset):
+            self.scaler_class = ds_scaler.attrs['scaler_class']
             self.eps = ds_scaler.attrs['eps']
             self.aggregating_dims = ds_scaler.attrs['aggregating_dims']
             self.time_dim = ds_scaler.attrs['time_dim']
             self.time_groups = eval(ds_scaler.attrs['time_groups'])
             self.dict_factors = eval(ds_scaler.attrs['dict_factors'])
+            self.time_groupby_name = 'time_groupby_name'
             self.center = True if ds_scaler.attrs['center'] == 'True' else False
             self.standardize = True if ds_scaler.attrs['standardize'] == 'True' else False
             self.fitted = True
@@ -599,6 +705,7 @@ class TemporalStandardScaler():
             # Retrieve indexing for temporal groupby   
             time_groupby_idx, dict_factors = get_time_groupby_idx(data=data, time_dim=time_dim, time_groups=time_groups)
             self.time_groupby_idx = time_groupby_idx
+            self.time_groupby_name = time_groupby_idx.name
             self.dict_factors = dict_factors
             ##--------------------------------------------------------------------.    
             # Retrieve dimensions over which to aggregate 
@@ -611,6 +718,7 @@ class TemporalStandardScaler():
                 self.aggregating_dims = dims[np.isin(dims, groupby_dims, invert=True)].tolist()
             ##--------------------------------------------------------------------. 
             # Initialize 
+            self.scaler_class = 'TemporalStandardScaler'
             self.data = data
             self.fitted = False
             self.eps = eps 
@@ -622,10 +730,10 @@ class TemporalStandardScaler():
     ##------------------------------------------------------------------------. 
     def fit(self):
         """Fit the TemporalStandardScaler."""
-        #---------------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         if self.fitted is True: 
             raise ValueError("The scaler has been already fitted!")
-        #---------------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         # Fit the scaler 
         if self.center:
             self.mean_ = self.data.groupby(self.time_groupby_idx).mean(self.aggregating_dims).compute() 
@@ -661,7 +769,7 @@ class TemporalStandardScaler():
         else:
             ds_scaler = std_.to_dataset()
         # Add attributes 
-        ds_scaler.attrs = {'scaler': 'TemporalStandardScaler', 
+        ds_scaler.attrs = {'scaler_class': self.scaler_class,
                            'eps': self.eps,
                            'aggregating_dims': self.aggregating_dims, 
                            "time_dim": self.time_dim, 
@@ -669,12 +777,13 @@ class TemporalStandardScaler():
                            'standardize': str(self.standardize),
                            'dict_factors': str(self.dict_factors), 
                            'time_groups': str(self.time_groups),
+                           'time_groupby_name': self.time_groupby_name
                            }
         ds_scaler.to_netcdf(fpath)
         print("The TemporalStandardScaler has been written to disk!")
         
     ##------------------------------------------------------------------------.   
-    def transform(self, new_data, variable_dim=None): 
+    def transform(self, new_data, variable_dim=None, rename_dict=None): 
         """Transform data using the fitted TemporalStandardScaler."""
         ##--------------------------------------------------------------------.
         if self.fitted is False: 
@@ -688,7 +797,35 @@ class TemporalStandardScaler():
             da_dims_order = new_data.dims
             variable_dim = check_variable_dim(variable_dim = variable_dim, data = new_data)
             new_data = new_data.to_dataset(dim=variable_dim)
-                
+        
+        ##--------------------------------------------------------------------.
+        # Rename new_data dimensions if rename_dict is provided 
+        flag_dim_renamed = False
+        if rename_dict is not None:
+            flag_dim_renamed = True
+            # Check rename_dict (ensure {from:to} format )
+            rename_dict = check_rename_dict(data=new_data, rename_dict=rename_dict)   
+            # Create dictionary for resetting dimensions name as original 
+            inv_rename_dict = {v: k for k,v in rename_dict.items()}
+            # Rename dimensions 
+            new_data = new_data.rename(rename_dict)
+        
+        ##--------------------------------------------------------------------.
+        # Check dimension name coincides 
+        new_data_dims = list(new_data.dims)
+        if self.center: 
+            required_dims = list(self.mean_.dims)
+        else:
+            required_dims = list(self.std_.dims)
+            
+        # - Replace time_grouby dim, with time_dim   
+        required_dims = [ self.time_dim if nm == self.time_groupby_name else nm for nm in required_dims]      
+        
+        # - Check no missing dims in new data 
+        idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
+        if np.any(idx_missing_dims):
+            raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
+                    
         ##--------------------------------------------------------------------.
         # Get variables to transform 
         data_vars = get_xarray_variables(new_data)
@@ -704,7 +841,12 @@ class TemporalStandardScaler():
                                                    time_dim=self.time_dim, 
                                                    time_groups=self.time_groups,
                                                    dict_factors=self.dict_factors)
-            
+        
+        # Check that the fitted scaler contains all time_groupby_idx of new_data
+        if self.center: 
+            check_new_time_groupby_idx(time_groupby_idx, scaler_stat = self.mean_)
+        else: 
+            check_new_time_groupby_idx(time_groupby_idx, scaler_stat = self.std_)    
         ##--------------------------------------------------------------------.
         ## Transform variables 
         if len(transform_vars) > 0: 
@@ -717,7 +859,14 @@ class TemporalStandardScaler():
             ##----------------------------------------------------------------.
             ## Remove non-dimension (time groupby) coordinate      
             new_data = new_data.drop(time_groupby_idx.name)
-        ##--------------------------------------------------------------------.            
+            
+        ##--------------------------------------------------------------------.      
+        # Rename dimension as new_data (if necessary)
+        if flag_dim_renamed is True: 
+            new_data = new_data.rename(inv_rename_dict)
+            
+        ##--------------------------------------------------------------------.   
+        # Reshape to DataArray if new_data was a DataArray
         if flag_DataArray is True:
             if variable_dim is None:
                 return new_data.to_array(dim='variable', name=da_name).squeeze().drop('variable').transpose(*da_dims_order) 
@@ -727,7 +876,7 @@ class TemporalStandardScaler():
             return new_data 
         
     ##------------------------------------------------------------------------.     
-    def inverse_transform(self, new_data, variable_dim=None):
+    def inverse_transform(self, new_data, variable_dim=None, rename_dict=None):
         """Inverse transform data using the fitted TemporalStandardScaler."""
         ##--------------------------------------------------------------------.
         if self.fitted is False: 
@@ -741,7 +890,35 @@ class TemporalStandardScaler():
             da_dims_order = new_data.dims
             variable_dim = check_variable_dim(variable_dim = variable_dim, data = new_data)
             new_data = new_data.to_dataset(dim=variable_dim)
-                
+        
+        ##--------------------------------------------------------------------.
+        # Rename new_data dimensions if rename_dict is provided 
+        flag_dim_renamed = False
+        if rename_dict is not None:
+            flag_dim_renamed = True
+            # Check rename_dict (ensure {from:to} format )
+            rename_dict = check_rename_dict(data=new_data, rename_dict=rename_dict)   
+            # Create dictionary for resetting dimensions name as original 
+            inv_rename_dict = {v: k for k,v in rename_dict.items()}
+            # Rename dimensions 
+            new_data = new_data.rename(rename_dict)
+        
+        ##--------------------------------------------------------------------.
+        # Check dimension name coincides 
+        new_data_dims = list(new_data.dims)
+        if self.center: 
+            required_dims = list(self.mean_.dims)
+        else:
+            required_dims = list(self.std_.dims)
+            
+        # - Replace time_grouby dim, with time_dim   
+        required_dims = [ self.time_dim if nm == self.time_groupby_name else nm for nm in required_dims]      
+        
+        # - Check no missing dims in new data 
+        idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
+        if np.any(idx_missing_dims):
+            raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
+          
         ##--------------------------------------------------------------------.
         # Get variables to transform 
         data_vars = get_xarray_variables(new_data)
@@ -758,6 +935,12 @@ class TemporalStandardScaler():
                                                    time_groups=self.time_groups,
                                                    dict_factors=self.dict_factors)
         
+        # Check that the fitted scaler contains all time_groupby_idx of new_data
+        if self.center: 
+            check_new_time_groupby_idx(time_groupby_idx, scaler_stat = self.mean_)
+        else: 
+            check_new_time_groupby_idx(time_groupby_idx, scaler_stat = self.std_)
+
         ##--------------------------------------------------------------------.
         ## Transform variables 
         if len(transform_vars) > 0: 
@@ -771,7 +954,14 @@ class TemporalStandardScaler():
             ##----------------------------------------------------------------.
             ## Remove non-dimension (time groupby) coordinate      
             new_data = new_data.drop(time_groupby_idx.name)
-        ##--------------------------------------------------------------------.            
+        
+        ##--------------------------------------------------------------------.      
+        # Rename dimension as new_data (if necessary)
+        if flag_dim_renamed is True: 
+            new_data = new_data.rename(inv_rename_dict)
+            
+        ##--------------------------------------------------------------------.   
+        # Reshape to DataArray if new_data was a DataArray
         if flag_DataArray is True:
             if variable_dim is None:
                 return new_data.to_array(dim='variable', name=da_name).squeeze().drop('variable').transpose(*da_dims_order)
@@ -793,9 +983,7 @@ class TemporalStandardScaler():
 ##-----------------------------------------------------------------------------. 
 ### TemporalMinMaxScaler 
 ### TemporalTrendScaler
-
-### SequentialScalers
-### CompositeScalers
+ 
 #-----------------------------------------------------------------------------.
 #####################
 ### Load Scalers ####
@@ -810,11 +998,65 @@ def LoadScaler(fpath):
         raise ValueError("{} does not exist on disk.".format(fpath))
     # Create scaler 
     ds_scaler = xr.open_dataset(fpath)
-    scaler_class = ds_scaler.attrs['scaler']
+    scaler_class = ds_scaler.attrs['scaler_class']
     if scaler_class == "GlobalStandardScaler":
         return GlobalStandardScaler(data=None, ds_scaler=ds_scaler)
     if scaler_class == "TemporalStandardScaler":
         return TemporalStandardScaler(data=None, time_dim=None, ds_scaler=ds_scaler)
+
+
+#-----------------------------------------------------------------------------.
+########################## 
+### SequentialScalers ####
+########################## 
+# SequentialScaler(scaler1, scaler2, ... ) 
+# --> (PixelwiseAnomalies + GlobalStandardScaler)
+# --> (Ad-hoc scaler for specific variables)
+# --> Allow nested SequentialScaler
+   
+class SequentialScaler():
+    """Enable sequential scaling operations."""
+    
+    def __init__(self, *scalers):  
+        # Check is a valid scaler 
+        for scaler in scalers: 
+            check_valid_scaler(scaler)  
+        self.list_scalers = scalers 
+        self.fitted = False
+        self.scaler_class = 'SequentialScaler'
+
+    def fit(self): 
+        """Fit all scalers within a SequentialScaler."""
+        new_list_scaler = []
+        for scaler in self.list_scalers:
+            if scaler.fitted is False:
+                scaler.fit()
+            new_list_scaler.append(scaler)
+        self.list_scalers = new_list_scaler
+        self.fitted = True
+        
+    def save(self): 
+        """Save a SequentialScaler to disk."""
+        raise NotImplementedError("Saving of SequentialScaler has not been yet implemented!")
+        
+    def transform(self, new_data, variable_dim = None, rename_dict=None): 
+        """Transform data using the fitted SequentialScaler."""
+        for scaler in self.list_scalers:
+            if scaler.fitted is False:
+                raise ValueError("The SequentialScaler contains scalers that have not been fit. Use .fit() first!")
+        for scaler in self.list_scalers:
+            new_data = scaler.transform(new_data=new_data, variable_dim = variable_dim, rename_dict=rename_dict)
+        return new_data
+    
+    def inverse_transform(self, new_data, variable_dim = None, rename_dict=None): 
+        """Inverse transform data using the fitted SequentialScaler."""
+        reversed_scalers = self.list_scalers[::-1] 
+        for scaler in reversed_scalers:
+            if scaler.fitted is False:
+                raise ValueError("The SequentialScaler contains scalers that have not been fit. Use .fit() first!")
+        for scaler in reversed_scalers:
+            new_data = scaler.inverse_transform(new_data=new_data, variable_dim = variable_dim, rename_dict=rename_dict)
+        return new_data 
 
 #-----------------------------------------------------------------------------.
 ####################
@@ -836,6 +1078,10 @@ class Climatology():
     def compute(self):
         self.data = self.scaler.fit().mean_ # TODO: return dataarray if if data is dataarray
         self.fitted = True 
+    
+    # # - Option to add time group dimensions to mean_, std_
+    
+    # groupby ... and then multiply by 1 
         
     # def forecast(datetime64_arr):
          # Retrieve the values for each timestep based on ds_clim 
