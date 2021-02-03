@@ -360,6 +360,11 @@ class ConvCheb(torch.nn.Module):
 
 
 # Conv layers
+
+# TODO: 
+# - Where do we use Conv1dAuto? 
+# - Should we not use nnLinear instead of Conv1d when kernel_size = 1? Would be faster 
+
 class Conv1dAuto(Conv1d):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
