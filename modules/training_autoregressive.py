@@ -17,27 +17,22 @@ from modules.dataloader_autoregressive import cylic_iterator
 from modules.utils_autoregressive import get_dict_stack_info
 from modules.utils_autoregressive import check_AR_settings
 from modules.utils_training import TrainingInfo
-
+from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
 # TODO DataLoader Options    
 # - sampler                    # Could be useful for bootstraping ? 
 # - worker_init_fn             # to initialize dask scheduler? to set RNG?
-# - prefetch_factor            # need to understand better what it means
 # - persistent_workers = False # but True might be appropriate
-# - Adapt code for drop_last=True in DataLoader (adaptive batch_size of static)
 
 ##----------------------------------------------------------------------------.
 # TODOs
 # - ONNX for saving model weights 
-# - Loss per variable 
-# - Weights per variable  
-# - Loss area weights 
-# - Loss spatial mask 
+# - Record the loss per variable 
 
 ##----------------------------------------------------------------------------.               
-###########################
+# #########################
 #### Training function ####
-###########################
+# #########################
 def AutoregressiveTraining(model, 
                            model_fpath,        
                            # Loss settings 
@@ -53,7 +48,9 @@ def AutoregressiveTraining(model,
                            ds_validation_bc = None,       
                            # Dataloader options
                            preload_data_in_CPU = False, 
-                           prefetch_in_GPU = False, 
+                           prefetch_in_GPU = False,
+                           prefetch_factor = 2,
+                           drop_last_batch = True,
                            random_shuffle = True, 
                            num_workers = 0, 
                            pin_memory = False,
@@ -77,9 +74,20 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     # TODO 
     ## Checks arguments 
-    if device == 'cpu' and pin_memory is True:
-        pin_memory = False
-     
+    device = check_torch_device(device)
+
+    if device.type == 'cpu':
+        if pin_memory is True:
+            print("GPU is not available. 'pin_memory' set to False.")
+            pin_memory = False
+        if prefetch_in_GPU is True: 
+            print("GPU is not available. 'prefetch_in_GPU' set to False.")
+            prefetch_in_GPU = False
+        if asyncronous_GPU_transfer is True: 
+            print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
+            asyncronous_GPU_transfer = False
+    ##------------------------------------------------------------------------.         
+    # - Check AR settings 
     check_AR_settings(input_k = input_k, 
                       output_k = output_k, 
                       forecast_cycle = forecast_cycle,
@@ -116,10 +124,12 @@ def AutoregressiveTraining(model,
                                                                      # DataLoader options 
                                                                      training_batch_size = training_batch_size,
                                                                      validation_batch_size = validation_batch_size, 
+                                                                     drop_last_batch = drop_last_batch,
                                                                      random_shuffle = random_shuffle,
                                                                      num_workers = num_workers,
-                                                                     pin_memory = pin_memory,
+                                                                     prefetch_factor = prefetch_factor,
                                                                      prefetch_in_GPU = prefetch_in_GPU,
+                                                                     pin_memory = pin_memory,
                                                                      asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                                                      # Autoregressive settings  
                                                                      input_k = input_k, 
@@ -146,10 +156,7 @@ def AutoregressiveTraining(model,
                                  epochs = epochs)
 
     ##------------------------------------------------------------------------.
-    # Transfer model and criterion to GPU 
-    model.to(device)  
-    criterion.to(device) 
-    
+    # Zeros gradients     
     optimizer.zero_grad() 
     
     ##------------------------------------------------------------------------.
@@ -223,7 +230,7 @@ def AutoregressiveTraining(model,
             # - Update the network weights 
             optimizer.step() 
             
-            #-----------------------------------------------------------------. 
+            ##----------------------------------------------------------------. 
             # - Update training statistics
             if training_info.score_interval == scoring_interval:
                 training_info.update_training_stats(total_loss = training_total_loss,
@@ -231,7 +238,7 @@ def AutoregressiveTraining(model,
                                                     AR_scheduler = AR_scheduler, 
                                                     LR_scheduler = LR_scheduler) 
     
-            #-----------------------------------------------------------------. 
+            ##----------------------------------------------------------------. 
             ### Run validation 
             if validation_data_available:
                 if training_info.score_interval == scoring_interval:
@@ -287,27 +294,27 @@ def AutoregressiveTraining(model,
                         else: 
                             validation_total_loss += AR_scheduler.AR_weights[leadtime] * loss
                     
-                    #---------------------------------------------------------. 
+                    ##---------------------------------------------------------. 
                     ### Update validation info 
                     training_info.update_validation_stats(total_loss = validation_total_loss,
                                                           dict_loss_per_leadtime = dict_validation_loss_per_leadtime)
 
-            #-----------------------------------------------------------------. 
+            ##-----------------------------------------------------------------. 
             # - Update learning rate 
             if LR_scheduler is not None:
                 LR_scheduler.step() 
                 
-            #-----------------------------------------------------------------. 
+            ##-----------------------------------------------------------------. 
             # - Update the AR weights 
             AR_scheduler.step()
             
-            #-----------------------------------------------------------------. 
+            ##-----------------------------------------------------------------. 
             # - Evaluate stopping metrics  
             # --> Update AR scheduler if the loss has plateau
             if training_info.score_interval == scoring_interval:
                 # Reset counter for scoring 
                 training_info.reset_score_interval()  
-                #-------------------------------------------------------------.
+                ##-------------------------------------------------------------.
                 # If the model has not improved (based on early stopping settings)
                 # - If current_AR_iterations < AR_iterations --> Update AR scheduler
                 # - If current_AR_iterations = AR_iterations --> Stop training 
@@ -334,6 +341,6 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     # Save final model 
     torch.save(model.state_dict(), f=model_fpath)
-    #-------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Return training info object 
     return training_info

@@ -62,18 +62,15 @@ warnings.filterwarnings("ignore")
 # Feature dimension data order = [static, bc, dynamic]
 #-----------------------------------------------------------------------------.
 ### TODO
-# - Loss function  
-# - Loss weights / mask ... 
-# - LR_scheduler ?
 # - kernel_size vs kernel_size_pooling 
 # - conv_type: graph --> DeepSphere 
+
+# Torch precision 
+# --> Set torch.set_default_tensor_type() 
 
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/config.example.yml
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/temporality/run_ar_tc.py
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/run_ar_tc.py
-
-# Torch precision 
-# --> Set torch.set_default_tensor_type() 
 #-----------------------------------------------------------------------------.
 #######################
 # Pytorch Settings ####
@@ -82,10 +79,6 @@ warnings.filterwarnings("ignore")
 data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/data/" # to change to scratch/... 
 #-----------------------------------------------------------------------------.
 ### Lazy Loading of Datasets 
-# TODO 
-# - Check that "auto" xarray adapt to nc/zarr chunking 
-# - da_static standardization of categorical variables ? 
-
 t_i = time.time()
 # - Dynamic data (i.e. pressure and surface levels variables)
 ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
@@ -121,7 +114,7 @@ training_settings = get_training_settings(cfg)
 dataloader_settings = get_dataloader_settings(cfg) 
 
 # Current experiment (6h deltat)
-AR_settings['input_k'] = [-18, -12,  -6]
+AR_settings['input_k'] = [-18, -12, -6]
 AR_settings['output_k'] = [0]
 AR_settings['forecast_cycle'] = 6
 AR_settings['AR_iterations'] = 10
@@ -165,6 +158,10 @@ ds_test_dynamic = ds_dynamic_std.sel(time=slice(test_years[0], test_years[-1]))
 ds_test_bc = ds_bc_std.sel(time=slice(test_years[0], test_years[-1]))
 
 #-----------------------------------------------------------------------------.
+### GPU options 
+# os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
+
 ##############  
 #### Main ####
 ############## 
@@ -182,6 +179,7 @@ def main(cfg_path):
     AR_settings = get_AR_settings(cfg)
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
+    
     ##------------------------------------------------------------------------.
     ### Define pyTorch settings 
     device = pytorch_settings(training_settings)
@@ -194,6 +192,7 @@ def main(cfg_path):
                                            ds_bc=ds_bc)
     model_settings['dim_info'] = dim_info
     print_model_description(dim_info)
+    
     ##------------------------------------------------------------------------.
     ### Define the model architecture   
     # TODO (@Wentao ... )  
@@ -211,7 +210,17 @@ def main(cfg_path):
     # TODO: To better define required settings (exp_dir, and weights_fpath?)
     if model_settings['pretrained_model_name'] is not None:
         load_pretrained_model(model = model, model_settings = model_settings)
-
+        
+    ###-----------------------------------------------------------------------.
+    ### Transfer model to GPU 
+    model = model.to(device)
+    
+    ###-----------------------------------------------------------------------.
+    # DataParallel training option on multiple GPUs
+    if training_settings['DataParallel_training'] is True:
+        if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
+            model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
+        
     ###-----------------------------------------------------------------------.
     ## Generate the (new) model name and its directories 
     else: 
@@ -223,6 +232,7 @@ def main(cfg_path):
     
     exp_dir = create_experiment_directories(model_dir = model_settings['model_dir'],      
                                             model_name = model_name) 
+    
     ##------------------------------------------------------------------------.
     # Define model weights filepath 
     # TODO: (@Yasser, Wentao) (better name convention?)
@@ -242,10 +252,11 @@ def main(cfg_path):
     # TODO (@Wentao) 
     # - --> variable weights 
     # - --> spatial masking 
-    # - --> area_weights 
+    # - --> area_weights   
     weights = compute_error_weight(model.sphere_graph)
     criterion = WeightedMSELoss(weights=weights)
-
+    criterion.to(device) 
+    
     ##------------------------------------------------------------------------.
     ### - Define optimizer 
     optimizer = optim.Adam(model.parameters(),    
@@ -295,9 +306,11 @@ def main(cfg_path):
                                            ds_validation_bc = ds_validation_bc,       
                                            # Dataloader settings
                                            preload_data_in_CPU = dataloader_settings['preload_data_in_CPU'], 
-                                           prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],   
-                                           random_shuffle = dataloader_settings['random_shuffle'], 
                                            num_workers = dataloader_settings['num_workers'], 
+                                           prefetch_factor = dataloader_settings['prefetch_factor'],  
+                                           prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 
+                                           drop_last_batch = dataloader_settings['drop_last_batch'],     
+                                           random_shuffle = dataloader_settings['random_shuffle'], 
                                            pin_memory = dataloader_settings['pin_memory'], 
                                            asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'], 
                                            # Autoregressive settings  

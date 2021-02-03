@@ -13,20 +13,13 @@ import random
 import importlib
 import importlib.util
 import numpy as np
+
+from utils_torch import set_pytorch_deterministic
 #-----------------------------------------------------------------------------.
-## Key names 
-# AR_iterations --> AR_iterations ?
-
 # Keys values:
-# conv_type --> Graph  Capital
-# pool_method --> Max  Capital
+# conv_type --> Graph  Capital (or DeepSphere)
+# pool_method --> Max  Capital   
 
-# cfg = get_default_settings()
-# cfg['model_settings']['architecture_name'] = "SphericalUNet"
-# cfg['model_settings']['sampling'] = "Healpix"
-# cfg['model_settings']['resolution'] = "16"
-# model_name = get_model_name(cfg)
-   
 ########################
 ### Default settings ###
 ########################
@@ -60,6 +53,9 @@ def get_default_training_settings():
                          "deterministic_training": False, 
                          "deterministic_training_seed": 100,
                          "benchmark_cuDNN": True,
+                         "GPU_training": True, 
+                         "GPU_devices_ids": [0], 
+                         "DataParallel_training": False, 
                          }
     return training_settings
 
@@ -76,9 +72,11 @@ def get_default_AR_settings():
 def get_default_dataloader_settings():
     """Return some default settings for the DataLoader."""
     dataloader_settings = {"random_shuffle": True,
-                           "pin_memory": False,   
+                           "drop_last_batch": True, 
                            "preload_data_in_CPU": False, 
                            "prefetch_in_GPU": False, 
+                           "prefetch_factor": 2,
+                           "pin_memory": False,  
                            "asyncronous_GPU_transfer": True, 
                            "num_workers": 0,
                            }  
@@ -153,7 +151,7 @@ def get_model_settings(cfg):
     # Retrieve optional model settings  
     for key in optional_keys:
         model_settings[key] = cfg['model_settings'].get(key, default_model_settings[key])
-    
+
     # Return model settings 
     return model_settings
  
@@ -175,6 +173,15 @@ def get_training_settings(cfg):
     # Retrieve optional training settings  
     for key in available_keys:
         training_settings[key] = cfg['training_settings'].get(key, default_training_settings[key])
+    
+    # Special checks 
+    if not isinstance(training_settings['GPU_devices_ids'], list):
+        training_settings['GPU_devices_ids'] = [training_settings['GPU_devices_ids']]
+        
+    if training_settings['GPU_training'] is False:    
+        if training_settings['DataParallel_training'] is True:
+            print("DataParallel training is available only on GPUs!")
+            training_settings['DataParallel_training'] = False
     
     # Return training settings 
     return training_settings
@@ -321,7 +328,7 @@ def get_pytorch_model(model_settings):
     ##------------------------------------------------------------------------.
     # Retrieve file paths
     MODULE_PATH = os.path.dirname(architecture_fpath)
-    MODULE_INIT_PATH = os.path.join(MODULE_PATH, "__init__.py")
+    # MODULE_INIT_PATH = os.path.join(MODULE_PATH, "__init__.py")
     MODULE_NAME = os.path.basename(architecture_fpath).split(".")[0]
     
     # MODULE_PATH = "/home/ghiggi/Projects/DeepSphere/modules/"
@@ -371,26 +378,6 @@ def load_pretrained_model(model, model_settings):
 ######################### 
 ### Pytorch settings ####
 #########################
-def set_pytorch_deterministic(seed=100):
-    """Set seeds for deterministic training with pytorch."""
-    # TODO
-    # - https://pytorch.org/docs/stable/generated/torch.set_deterministic.html#torch.set_deterministic
-    torch.backends.cudnn.deterministic = True
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    return 
-
-def get_torch_dtype(numeric_precision): 
-    """Provide torch dtype based on numeric precision string."""
-    dtypes = {'float64': torch.float64,
-              'float32': torch.float32,
-              'float16': torch.float16,
-              'bfloat16': torch.bfloat16
-              }
-    return dtypes[numeric_precision]
-
 # TODO set_numeric_precision 
 
 def pytorch_settings(training_settings):
@@ -399,28 +386,33 @@ def pytorch_settings(training_settings):
     deterministic_training = training_settings['deterministic_training'] 
     deterministic_training_seed = training_settings['deterministic_training_seed'] 
     benchmark_cuDNN = training_settings['benchmark_cuDNN'] 
-    
+    GPU_training = training_settings['GPU_training'] 
+    GPU_devices_ids = training_settings['GPU_devices_ids']     
     ##------------------------------------------------------------------------.
     # Set options for deterministic training 
     if deterministic_training is True:
         set_pytorch_deterministic(seed=deterministic_training_seed)
     
     ##------------------------------------------------------------------------.
-    # If requested, enable the inbuilt cudnn auto-tuner 
+    # If requested, autotunes to the best cuDNN kernel (for performing convolutions)
     # --> Find the best algorithm to use with the available hardware.
-    # --> Usually leads to faster runtime.
+    # --> Usually leads to faster runtime. 
     if benchmark_cuDNN is True:
+        torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
     else: 
         torch.backends.cudnn.benchmark = False
     
     ##------------------------------------------------------------------------.
     # Return the device to make the pytorch architecture working both on CPU and GPU
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
+    if GPU_training is True:
+        if torch.cuda.is_available():
+            device = torch.device(GPU_devices_ids[0])
+        else:
+            print("GPU is not available. Switching to CPU.")
+            device = torch.device('cpu')
     else:
-        device = 'cpu'
-    
+        device = torch.device('cpu')   
     return device
 
 #-----------------------------------------------------------------------------.
