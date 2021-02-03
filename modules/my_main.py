@@ -158,6 +158,10 @@ ds_test_dynamic = ds_dynamic_std.sel(time=slice(test_years[0], test_years[-1]))
 ds_test_bc = ds_bc_std.sel(time=slice(test_years[0], test_years[-1]))
 
 #-----------------------------------------------------------------------------.
+### GPU options 
+# os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
+
 ##############  
 #### Main ####
 ############## 
@@ -175,6 +179,7 @@ def main(cfg_path):
     AR_settings = get_AR_settings(cfg)
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
+    
     ##------------------------------------------------------------------------.
     ### Define pyTorch settings 
     device = pytorch_settings(training_settings)
@@ -187,6 +192,7 @@ def main(cfg_path):
                                            ds_bc=ds_bc)
     model_settings['dim_info'] = dim_info
     print_model_description(dim_info)
+    
     ##------------------------------------------------------------------------.
     ### Define the model architecture   
     # TODO (@Wentao ... )  
@@ -204,7 +210,17 @@ def main(cfg_path):
     # TODO: To better define required settings (exp_dir, and weights_fpath?)
     if model_settings['pretrained_model_name'] is not None:
         load_pretrained_model(model = model, model_settings = model_settings)
-
+        
+    ###-----------------------------------------------------------------------.
+    ### Transfer model to GPU 
+    model = model.to(device)
+    
+    ###-----------------------------------------------------------------------.
+    # DataParallel training option on multiple GPUs
+    if training_settings['DataParallel_training'] is True:
+        if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
+            model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
+        
     ###-----------------------------------------------------------------------.
     ## Generate the (new) model name and its directories 
     else: 
@@ -216,6 +232,7 @@ def main(cfg_path):
     
     exp_dir = create_experiment_directories(model_dir = model_settings['model_dir'],      
                                             model_name = model_name) 
+    
     ##------------------------------------------------------------------------.
     # Define model weights filepath 
     # TODO: (@Yasser, Wentao) (better name convention?)
@@ -238,7 +255,8 @@ def main(cfg_path):
     # - --> area_weights   
     weights = compute_error_weight(model.sphere_graph)
     criterion = WeightedMSELoss(weights=weights)
-
+    criterion.to(device) 
+    
     ##------------------------------------------------------------------------.
     ### - Define optimizer 
     optimizer = optim.Adam(model.parameters(),    

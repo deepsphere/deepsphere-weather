@@ -17,7 +17,7 @@ from modules.dataloader_autoregressive import cylic_iterator
 from modules.utils_autoregressive import get_dict_stack_info
 from modules.utils_autoregressive import check_AR_settings
 from modules.utils_training import TrainingInfo
-
+from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
 # TODO DataLoader Options    
 # - sampler                    # Could be useful for bootstraping ? 
@@ -74,7 +74,9 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     # TODO 
     ## Checks arguments 
-    if device == 'cpu':
+    device = check_torch_device(device)
+
+    if device.type == 'cpu':
         if pin_memory is True:
             print("GPU is not available. 'pin_memory' set to False.")
             pin_memory = False
@@ -154,10 +156,7 @@ def AutoregressiveTraining(model,
                                  epochs = epochs)
 
     ##------------------------------------------------------------------------.
-    # Transfer model and criterion to GPU 
-    model.to(device)  
-    criterion.to(device) 
-    
+    # Zeros gradients     
     optimizer.zero_grad() 
     
     ##------------------------------------------------------------------------.

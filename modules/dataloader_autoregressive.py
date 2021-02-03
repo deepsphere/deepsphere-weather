@@ -22,8 +22,8 @@ from modules.utils_autoregressive import check_output_k
 from modules.utils_autoregressive import check_AR_settings
 from modules.utils_io import check_Datasets
 from modules.utils_io import is_dask_DataArray
-from modules.utils_config import get_torch_dtype
-
+from modules.utils_torch import get_torch_dtype
+from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
 ### TODO Improvements
 # collate_fn
@@ -40,8 +40,10 @@ from modules.utils_config import get_torch_dtype
 # dask.config.set(schedular='threads', pool=ThreadPool(5)) 
 # - https://stackoverflow.com/questions/44193979/how-do-i-run-a-dask-distributed-cluster-in-a-single-thread
 # - https://docs.dask.org/en/latest/scheduling.html
-    
+
+#-----------------------------------------------------------------------------. 
 # - Dim info passed along the way 
+# - Timestep info passed along the way 
 #-----------------------------------------------------------------------------. 
 # ############################# 
 ### Autoregressive Dataset ####
@@ -88,12 +90,16 @@ class AutoregressiveDataset(Dataset):
             Number of AR iterations.
         stack_most_recent_prediction : bool
             Whether to use the most recent prediction when autoregressing.
-        device : str, optional
+        device : torch.device, optional
             Device on which to train the model. The default is 'cpu'.
         numeric_precision : str, optional
             Numeric precision for model training. The default is 'float64'.
 
-        """                
+        """        
+        ##--------------------------------------------------------------------.
+        # Checks 
+        device = check_torch_device(device)
+        
         ## -------------------------------------------------------------------.
         ### - Initialize autoregressive configs   
         self.input_k = input_k 
@@ -105,6 +111,7 @@ class AutoregressiveDataset(Dataset):
         ### - Retrieve data
         self.da_dynamic = da_dynamic 
         self.da_bc = da_bc 
+        
         ##--------------------------------------------------------------------.
         ### - Define data precision
         torch_dtype = get_torch_dtype(numeric_precision)
@@ -363,9 +370,9 @@ def AutoregressiveDataLoader(dataset,
     asyncronous_GPU_transfer: bool, optional 
         Only used if 'prefetch_in_GPU' = True. 
         Indicates whether to transfer data into GPU asynchronously 
-    device: list, optional 
+    device: torch.device, optional 
          Only used if 'prefetch_in_GPU' = True.
-         Indicates to which GPUs to transfer the data 
+         Indicates to which GPUs to transfer the data. 
          
     Returns
     -------
@@ -373,11 +380,10 @@ def AutoregressiveDataLoader(dataset,
         pytorch DataLoader for autoregressive model training.
 
     """
-    # TODO
-    # --> Device str or list ? 
     ##------------------------------------------------------------------------.
     ## Checks 
-    if device == 'cpu':
+    device = check_torch_device(device)
+    if device.type == 'cpu':
         if pin_memory is True:
             print("GPU is not available. 'pin_memory' set to False.")
             pin_memory = False
@@ -386,7 +392,8 @@ def AutoregressiveDataLoader(dataset,
             prefetch_in_GPU = False
         if asyncronous_GPU_transfer is True: 
             print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
-            asyncronous_GPU_transfer = False        
+            asyncronous_GPU_transfer = False    
+            
     ##------------------------------------------------------------------------.  
     # Retrieve static feature tensor (preloaded in GPU) (if available)
     torch_static = dataset.torch_static  
@@ -683,7 +690,7 @@ def create_AR_DataLoaders(ds_training_dynamic,
                                                         drop_last_batch = drop_last_batch,
                                                         random_shuffle = random_shuffle,
                                                         num_workers = num_workers,
-                                                        prefetch_in_GPU = False, # TODO decide ...
+                                                        prefetch_in_GPU = prefetch_in_GPU,  
                                                         prefetch_factor = prefetch_factor, 
                                                         pin_memory = pin_memory,
                                                         asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
