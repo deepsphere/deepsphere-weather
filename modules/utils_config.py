@@ -76,9 +76,11 @@ def get_default_AR_settings():
 def get_default_dataloader_settings():
     """Return some default settings for the DataLoader."""
     dataloader_settings = {"random_shuffle": True,
-                           "pin_memory": False,   
+                           "drop_last_batch": True, 
                            "preload_data_in_CPU": False, 
                            "prefetch_in_GPU": False, 
+                           "prefetch_factor": 2,
+                           "pin_memory": False,  
                            "asyncronous_GPU_transfer": True, 
                            "num_workers": 0,
                            }  
@@ -406,10 +408,11 @@ def pytorch_settings(training_settings):
         set_pytorch_deterministic(seed=deterministic_training_seed)
     
     ##------------------------------------------------------------------------.
-    # If requested, enable the inbuilt cudnn auto-tuner 
+    # If requested, autotunes to the best cuDNN kernel (for performing convolutions)
     # --> Find the best algorithm to use with the available hardware.
-    # --> Usually leads to faster runtime.
+    # --> Usually leads to faster runtime. 
     if benchmark_cuDNN is True:
+        torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
     else: 
         torch.backends.cudnn.benchmark = False

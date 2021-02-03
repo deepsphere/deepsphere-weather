@@ -40,17 +40,12 @@ from modules.utils_config import get_torch_dtype
 # dask.config.set(schedular='threads', pool=ThreadPool(5)) 
 # - https://stackoverflow.com/questions/44193979/how-do-i-run-a-dask-distributed-cluster-in-a-single-thread
 # - https://docs.dask.org/en/latest/scheduling.html
-
-#-----------------------------------------------------------------------------.
-############## 
-### Utils ####
-##############
-
     
+# - Dim info passed along the way 
 #-----------------------------------------------------------------------------. 
-############################### 
+# ############################# 
 ### Autoregressive Dataset ####
-###############################   
+# #############################   
 class AutoregressiveDataset(Dataset):
     """Map-style autoregressive pytorch dataset."""
     
@@ -315,16 +310,18 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
     return batch_dict
      
 #-----------------------------------------------------------------------------.
-##################################
+# ################################
 ### Autoregressive DataLoader ####
-##################################
+# ################################
 def AutoregressiveDataLoader(dataset, 
                              dim_info, 
                              batch_size = 64,  
+                             drop_last_batch = True,
                              random_shuffle = True,
                              num_workers = 0,
                              pin_memory = False,
                              prefetch_in_GPU = False, 
+                             prefetch_factor = 2, 
                              asyncronous_GPU_transfer = True, 
                              device = 'cpu'):
     """
@@ -336,8 +333,10 @@ def AutoregressiveDataLoader(dataset,
         An AutoregressiveDataset.
     dim_info : dict
         Dictiorary providing information of Torch Tensor dimensions.
-    batch_size : init, optional
+    batch_size : int, optional
         Number of samples within a batch. The default is 64.
+    drop_last_batch : bool, optional
+        Wheter to drop the last batch_size (with less samples). The default is True.
     random_shuffle : bool, optional
         Wheter to random shuffle the samples each epoch. The default is True.
     num_workers : 0, optional
@@ -349,20 +348,23 @@ def AutoregressiveDataLoader(dataset,
         CPU memory consumption.
         The Dataloader prefetch into the CPU 2*num_workers batches.
         The default is 0.
+    prefetch_factor: int, optional 
+        Number of sample loaded in advance by each worker.
+        The default is 2.
+    prefetch_in_GPU: bool, optional 
+        Whether to prefetch 'prefetch_factor'*'num_workers' batches of data into GPU instead of CPU.
+        By default it prech 'prefetch_factor'*'num_workers' batches of data into CPU (when False)
+        The default is False.
     pin_memory : bool, optional
         When True, it prefetch the batch data into the pinned memory.  
         pin_memory=True enables (asynchronous) fast data transfer to CUDA-enabled GPUs.
         Useful only if training on GPU.
         The default is False.
-    prefetch_in_GPU: bool, optional 
-        Whether to prefetch 2*num_workers batches of data into GPU instead of CPU.
-        By default it prech 2*num_workers batches of data into CPU (when False)
-        The default is False.
     asyncronous_GPU_transfer: bool, optional 
-        Only used if prefetch_in_GPU = True. 
+        Only used if 'prefetch_in_GPU' = True. 
         Indicates whether to transfer data into GPU asynchronously 
     device: list, optional 
-         Only used if prefetch_in_GPU = True.
+         Only used if 'prefetch_in_GPU' = True.
          Indicates to which GPUs to transfer the data 
          
     Returns
@@ -372,10 +374,19 @@ def AutoregressiveDataLoader(dataset,
 
     """
     # TODO
-    # --> If drop_last=False, need to expand ad-hoc the static tensor (to match the batch dimension) !  
-    # --> Check prefetch_in_GPU = True that device is not CPU 
     # --> Device str or list ? 
-    # check dim_info 
+    ##------------------------------------------------------------------------.
+    ## Checks 
+    if device == 'cpu':
+        if pin_memory is True:
+            print("GPU is not available. 'pin_memory' set to False.")
+            pin_memory = False
+        if prefetch_in_GPU is True: 
+            print("GPU is not available. 'prefetch_in_GPU' set to False.")
+            prefetch_in_GPU = False
+        if asyncronous_GPU_transfer is True: 
+            print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
+            asyncronous_GPU_transfer = False        
     ##------------------------------------------------------------------------.  
     # Retrieve static feature tensor (preloaded in GPU) (if available)
     torch_static = dataset.torch_static  
@@ -402,8 +413,9 @@ def AutoregressiveDataLoader(dataset,
     dataloader = DataLoader(dataset = dataset, 
                             batch_size = batch_size,  
                             shuffle = random_shuffle,
-                            drop_last = True, 
+                            drop_last = drop_last_batch, 
                             num_workers = num_workers,
+                            prefetch_factor = prefetch_factor, 
                             pin_memory = False,  # pin after data have been stacked into the collate_fn
                             collate_fn = partial(autoregressive_collate_fn, 
                                                  dim_info = dim_info, 
@@ -417,9 +429,9 @@ def AutoregressiveDataLoader(dataset,
     return dataloader
 
 #-----------------------------------------------------------------------------.
-#######################
+# #####################
 ### AR batch tools ####
-#######################               
+# #####################               
 def get_AR_batch(AR_iteration, 
                  batch_dict, 
                  dict_Y_predicted,
@@ -462,12 +474,12 @@ def get_AR_batch(AR_iteration,
         if bc_is_available:
             torch_X_bc = dict_X_bc_batched[i] 
         torch_Y = dict_Y_batched[i] 
-    #-------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Stack together data required for the current forecast 
     # --> Previous predictions to stack are already in the GPU
     # --> Data need to be already in the GPU (if device is not cpu)!
     if list_tuple_idx_to_stack is not None:
-        torch_X_to_stack = torch.cat([dict_Y_predicted[ldt][:,idx,:,:] for ldt, idx in list_tuple_idx_to_stack], dim=feature_dim) 
+        torch_X_to_stack = torch.cat([dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack], dim=feature_dim) 
         torch_X_dynamic = torch.cat(torch_X_dynamic, torch_X_to_stack, dim=time_dim)
     
     # - Add boundary conditions data (if available)
@@ -477,8 +489,10 @@ def get_AR_batch(AR_iteration,
         torch_X = torch_X_dynamic
        
     # - Combine with the static tensor (which is constantly in the GPU)
+    # --> In the batch dimension, match the number of samples of torch X
     if static_is_available: 
-        torch_X = torch.cat((torch_static, torch_X), dim=feature_dim)
+        batch_size = torch_X.shape[0]
+        torch_X = torch.cat((torch_static[0:batch_size,...], torch_X), dim=feature_dim)
         
     ##------------------------------------------------------------------------.
     # - Remove unused torch Tensors 
@@ -509,9 +523,9 @@ def cylic_iterator(iterable):
     return iter(_cyclic(iterable))
             
 #-----------------------------------------------------------------------------.
-#################
+# ###############
 ### Wrappers ####
-#################
+# ###############
 def create_AR_DataLoaders(ds_training_dynamic,
                           ds_validation_dynamic = None,
                           ds_static = None,              
@@ -528,10 +542,12 @@ def create_AR_DataLoaders(ds_training_dynamic,
                           # DataLoader options
                           training_batch_size = 128,
                           validation_batch_size = 128, 
+                          drop_last_batch = True,
                           random_shuffle = True,
                           num_workers = 0,
                           pin_memory = False,
                           prefetch_in_GPU = False,  
+                          prefetch_factor = 2, 
                           asyncronous_GPU_transfer = True, 
                           # GPU settings 
                           device = 'cpu',
@@ -632,12 +648,14 @@ def create_AR_DataLoaders(ds_training_dynamic,
     
     t_i = time.time()
     trainingDataLoader = AutoregressiveDataLoader(dataset = trainingDataset, 
+                                                  dim_info = dim_info,                                                   
                                                   batch_size = training_batch_size,  
+                                                  drop_last_batch = drop_last_batch,
                                                   random_shuffle = random_shuffle,
                                                   num_workers = num_workers,
-                                                  pin_memory = pin_memory,
-                                                  dim_info = dim_info,
+                                                  prefetch_factor = prefetch_factor, 
                                                   prefetch_in_GPU = prefetch_in_GPU,  
+                                                  pin_memory = pin_memory,
                                                   asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                                   device = device)
     print('- Creation of Training AutoregressiveDataLoader: {:.2f}s'.format(time.time() - t_i))
@@ -662,10 +680,12 @@ def create_AR_DataLoaders(ds_training_dynamic,
         validationDataLoader = AutoregressiveDataLoader(dataset = validationDataset, 
                                                         dim_info = dim_info,
                                                         batch_size = validation_batch_size,  
+                                                        drop_last_batch = drop_last_batch,
                                                         random_shuffle = random_shuffle,
                                                         num_workers = num_workers,
-                                                        pin_memory = pin_memory,
                                                         prefetch_in_GPU = False, # TODO decide ...
+                                                        prefetch_factor = prefetch_factor, 
+                                                        pin_memory = pin_memory,
                                                         asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                                         device = device)
         print('- Creation of Validation AutoregressiveDataLoader: {:.2f}s'.format(time.time() - t_i))
