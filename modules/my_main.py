@@ -67,6 +67,7 @@ warnings.filterwarnings("ignore")
 # Torch precision 
 # --> Set torch.set_default_tensor_type() 
 
+# - Example applications
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/config.example.yml
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/temporality/run_ar_tc.py
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/run_ar_tc.py
