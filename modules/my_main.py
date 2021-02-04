@@ -63,7 +63,6 @@ warnings.filterwarnings("ignore")
 #-----------------------------------------------------------------------------.
 ### TODO
 # - kernel_size vs kernel_size_pooling 
-# - conv_type: graph --> DeepSphere 
 
 # Torch precision 
 # --> Set torch.set_default_tensor_type() 
