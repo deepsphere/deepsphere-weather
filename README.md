@@ -3,9 +3,9 @@
 The code in this repository provides a scalable and flexible framework to apply convolutions on spherical grids for weather/climate applications.
 
 The folder `experiments` provide examples for:
--  weather forecasting using autoregressive CNN models  
--  weather field downscaling (aka superesolution)f
--  classication of atmospheric features (i.e. tropical cyclone and atmospheric rivers).
+-  Weather forecasting using autoregressive CNN models  
+-  Weather field downscaling (aka superesolution)f
+-  Classication of atmospheric features (i.e. tropical cyclone and atmospheric rivers).
 
 The folder `tutorials` provide jupyter notebooks describing various features of DeepSphere-Earth.
 
