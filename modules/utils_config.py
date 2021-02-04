@@ -10,11 +10,12 @@ import sys
 import json
 import torch
 import random
+import shutil
 import importlib
 import importlib.util
 import numpy as np
 
-from utils_torch import set_pytorch_deterministic
+from modules.utils_torch import set_pytorch_deterministic
 #-----------------------------------------------------------------------------.
 # Keys values:
 # conv_type --> Graph  Capital (or DeepSphere)
@@ -466,15 +467,19 @@ def get_model_name(cfg):
     return model_name 
  
 
-def create_experiment_directories(model_dir, model_name): 
+def create_experiment_directories(model_dir, model_name, force=False): 
     """Create the required directory for a specific DeepSphere model."""
     # Check if the experiment directory already exists 
     exp_dir = os.path.join(model_dir, model_name)
     if os.path.exists(exp_dir):
-        raise ValueError("The directory {} already exists.\
-                         Please delete such directory manually or: \
-                         - specify 'model_name' in model_settings \
-                         - specify 'model_prefix' and/or 'model_suffix' in model_settings".format(exp_dir))
+        if force is True: 
+            shutil.rmtree(exp_dir)
+        else:
+            raise ValueError("The directory {} already exists.\
+                             force=True in create_experiment_directories() will delete content of the existing directory.\
+                             Please delete such directory manually or: \
+                                 - specify 'model_name' in model_settings \
+                                 - specify 'model_prefix' and/or 'model_suffix' in model_settings".format(exp_dir))
     
     ##------------------------------------------------------------------------.
     # Define standard directories 

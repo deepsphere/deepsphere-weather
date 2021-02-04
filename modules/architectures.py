@@ -14,7 +14,6 @@ from modules.layers import PoolMaxHealpix, UnpoolMaxHealpix
 from modules.layers import PoolAvgHealpix, UnpoolAvgHealpix
 from modules.layers import PoolMaxEquiangular, UnpoolMaxEquiangular
 from modules.layers import PoolAvgEquiangular, UnpoolAvgEquiangular
-from modules.layers import HEALPIX_POOL, EQUIANGULAR_POOl
 from modules.layers import GeneralAvgPool, GeneralAvgUnpool
 from modules.layers import GeneralMaxAreaUnpool, GeneralMaxAreaPool
 from modules.layers import GeneralLearnablePool, GeneralLearnableUnpool

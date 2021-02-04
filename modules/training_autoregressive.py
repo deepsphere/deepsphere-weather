@@ -5,6 +5,7 @@ Created on Sun Jan  3 18:42:12 2021
 
 @author: ghiggi
 """
+import pdb
 import torch
 import time
 import numpy as np
@@ -165,14 +166,26 @@ def AutoregressiveTraining(model,
     if validation_data_available:
         validationDataLoader_iter = cylic_iterator(validationDataLoader)
     
+    # pdb.set_trace()
+    
+    # for i in trainingDataLoader:
+    #     print(i)
+        
+    # d_iter = iter(trainingDataLoader)
+    # for i in range(3):
+    #     a = next(d_iter)
+    #     print(".", end="")
+    # print('a')
     ##------------------------------------------------------------------------.
     # Iterate along epochs
     for epoch in range(epochs):
         training_info.new_epoch()
         model.train() # Set model layers (i.e. batchnorm) in training mode 
-        ##--------------------------------------------------------------------.     
+        ##--------------------------------------------------------------------. 
         # Iterate along training batches       
-        for batch_count, training_batch_dict in enumerate(trainingDataLoader):            
+        for batch_count, training_batch_dict in enumerate(trainingDataLoader):   
+            print(batch_count)
+            print(".", end="")
             ##----------------------------------------------------------------.      
             # Perform autoregressive training loop
             # - The number of AR iterations is determined by AR_scheduler.AR_weights 

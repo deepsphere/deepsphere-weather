@@ -52,7 +52,7 @@ class TrainingInfo():
         
         #---------------------------------------------------------------------.
         # - Initialize list for learning rate
-        self.learning_rate_list
+        self.learning_rate_list = []
         
         #---------------------------------------------------------------------. 
         # - Initialize dictionary for AR weights per leadtime 
