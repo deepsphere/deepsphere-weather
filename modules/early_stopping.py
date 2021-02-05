@@ -36,14 +36,18 @@ class EarlyStopping:
             The default is 'min'.
 
         """
+        if not isinstance(stopping_metric, str):
+            raise ValueError("'stopping_metric' must be a string.")  
         if not isinstance(patience, int):
-            raise ValueError("'patience' requires a positive integer larger than 1")
+            raise ValueError("'patience' requires a positive integer larger than 1.")
         if patience < 1:
-            raise ValueError("'patience' requires a positive integer larger than 1")
+            raise ValueError("'patience' requires a positive integer larger than 1.")
+        if not isinstance(minimum_improvement, (int, float)):
+            raise ValueError("'minimum_improvement' must be a value (int or float).")
         if not isinstance(mode, str):  
-            raise ValueError("'mode' has to be either 'min' or 'max' string") 
+            raise ValueError("'mode' has to be either 'min' or 'max' string.") 
         if mode not in ['min', 'max']:
-            raise ValueError("'mode' has to be either 'min' or 'max' string")
+            raise ValueError("'mode' has to be either 'min' or 'max' string.")
 
         self.patience = patience
         self.stopping_metric = stopping_metric
@@ -56,13 +60,14 @@ class EarlyStopping:
         
     def __call__(self, training_info):
         """Call to verify if training must stop."""
-        score = getattr(training_info, self.stopping_metric)[-1]
+        stopping_metric = self.stopping_metric
+        score = getattr(training_info, stopping_metric)[-1]
 
         if self.best_score is None:
             self.best_score = score
 
-        elif (score > self.best_score - self.minimum_improvement and self.mode=='min') or \
-             (score < self.best_score + self.minimum_improvement and self.mode=='max'):
+        elif ((score > (self.best_score - self.minimum_improvement)) and (self.mode=='min')) or \
+             ((score < (self.best_score + self.minimum_improvement)) and (self.mode=='max')):
             self.counter += 1
             if self.counter >= self.patience:
                 self.early_stop = True
