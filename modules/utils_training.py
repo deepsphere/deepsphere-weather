@@ -77,7 +77,7 @@ class TrainingInfo():
                               AR_scheduler, LR_scheduler=None):
         """Update training info statistics."""
         # Retrieve current number of AR iterations 
-        current_AR_iterations = len(dict_loss_per_leadtime)
+        current_AR_iterations = len(dict_loss_per_leadtime) - 1
         
         # Update the iteration_list recording when the update occurs
         self.iteration_list.append(self.iteration)
@@ -103,7 +103,7 @@ class TrainingInfo():
     def update_validation_stats(self, total_loss, dict_loss_per_leadtime):
         """Update validation loss statistics."""
         # Retrieve current number of AR iterations 
-        current_AR_iterations = len(dict_loss_per_leadtime)
+        current_AR_iterations = len(dict_loss_per_leadtime) - 1
                       
         # Update validation_total_loss 
         self.validation_total_loss.append(total_loss.item())
@@ -120,6 +120,7 @@ class TrainingInfo():
   
     def new_epoch(self):
         """Update training_info at the beginning of an epoch."""
+        self.previous_epoch_final_iteration = self.iteration
         self.current_epoch_iteration = 0
         self.current_epoch = self.current_epoch + 1
         self.current_epoch_time_start = time.time()
@@ -127,29 +128,11 @@ class TrainingInfo():
         
     def print_epoch_info(self):
         """Print training info at the end of an epoch."""
-        avg_training_loss = np.mean(self.training_total_loss[-self.epoch_iteration:])
+        avg_training_loss = np.mean(self.training_total_loss[self.previous_epoch_final_iteration:])
+        print("- Epoch: {epoch:3d}/{n_epoch:3d}".format(epoch = self.current_epoch, n_epoch = self.n_epochs))
+        print("- Training loss: {training_total_loss:.3f}".format(training_total_loss=avg_training_loss))
         # If validation data are provided
         if len(self.validation_total_loss) != 0:
-            avg_validation_loss = np.mean(self.validation_total_loss[-self.epoch_iteration:])
-        
-            print('Epoch: {epoch:3d}/{n_epoch:3d} - \
-                   Training loss: {training_total_loss:.3f} - \
-                   Validation Loss: {validation_total_loss:.5f} - \
-                   Time: {elapsed_time:2f}'.format(epoch = self.current_epoch, 
-                                                   n_epoch = self.n_epochs,
-                                                   training_total_loss=avg_training_loss, 
-                                                   validation_total_loss=avg_validation_loss,   
-                                                   elapsed_time = time.time() - self.current_epoch_time_start))
-        # If only training data are available 
-        else: 
-            print('Epoch: {epoch:3d}/{n_epoch:3d} - \
-                   Training loss: {training_total_loss:.3f} - \
-                   Time: {elapsed_time:2f}'.format(epoch = self.current_epoch, 
-                                                   n_epoch = self.n_epochs,
-                                                   training_total_loss = avg_training_loss,   
-                                                   elapsed_time = time.time() - self.current_epoch_time_start))
-            
-##----------------------------------------------------------------------------.         
-####################### 
-### Early stopping ####
-#######################    
+            avg_validation_loss = np.mean(self.validation_total_loss[self.previous_epoch_final_iteration:])   
+            print("- Validation Loss: {validation_total_loss:.3f}".format(validation_total_loss=avg_validation_loss))
+        print("- Elapsed time: {elapsed_time:2f}".format(elapsed_time = time.time() - self.current_epoch_time_start))                                                  

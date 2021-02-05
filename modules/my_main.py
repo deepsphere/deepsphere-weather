@@ -22,13 +22,14 @@ from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
 from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
-from modules.utils_config import get_AR_model_dimension_info
 # from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
 from modules.utils_config import pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
+from modules.utils_io import get_AR_model_diminfo
+from modules.utils_io import check_DataArrays_dimensions
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
@@ -37,6 +38,7 @@ from modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
 from modules.xscaler import LoadScaler
  
 from modules.my_io import readDatasets   
+from modules.my_io import reformat_Datasets
 import modules.architectures as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
@@ -63,6 +65,7 @@ warnings.filterwarnings("ignore")
 #-----------------------------------------------------------------------------.
 ### TODO
 # - kernel_size vs kernel_size_pooling 
+# - numeric_precision: currently work only for float32 !!!
 
 # Torch precision 
 # --> Set torch.set_default_tensor_type() 
@@ -76,7 +79,7 @@ warnings.filterwarnings("ignore")
 # Pytorch Settings ####
 #######################
 data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/data/" # to change to scratch/... 
-data_dir = "/data/weather_prediction/ToyData/Healpix_400km/data/"
+# data_dir = "/data/weather_prediction/ToyData/Healpix_400km/data/"
 
 #-----------------------------------------------------------------------------.
 ### Lazy Loading of Datasets 
@@ -94,6 +97,8 @@ ds_bc = ds_bc.drop(["lat","lon"])
 ds_static = ds_static.drop(["lat","lon"])
 
 ds_dynamic = ds_dynamic.isel(time=slice(7,None))  # because bc start at 1980-01-01T07:00:00.000000000
+# ds_dynamic = ds_dynamic.isel(time=slice(0, 50))
+# ds_bc = ds_bc.isel(time=slice(0, 50))
 
 # TO DEBUG
 ds_training_dynamic = ds_dynamic
@@ -110,35 +115,44 @@ cfg['model_settings']['resolution'] = 16
 cfg['model_settings']['model_dir'] = "/home/ghiggi/Projects/DeepSphere/models"
 
 # Current experiment (6h deltat)
-cfg['AR_settings']['input_k'] = [-18, -12, -6]
+cfg['AR_settings']['input_k'] = [-3, -2, -1]
 cfg['AR_settings']['output_k'] = [0]
-cfg['AR_settings']['forecast_cycle'] = 6
-cfg['AR_settings']['AR_iterations'] = 10
+cfg['AR_settings']['forecast_cycle'] = 1
+cfg['AR_settings']['AR_iterations'] = 3
 
+# cfg['AR_settings']['input_k'] = [-18, -12, -6]
+# cfg['AR_settings']['output_k'] = [0]
+# cfg['AR_settings']['forecast_cycle'] = 6
+# cfg['AR_settings']['AR_iterations'] = 10
+
+cfg['training_settings']["scoring_interval"] = 1
+cfg['training_settings']['numeric_precision'] = "float32"
 
 cfg['dataloader_settings']["preload_data_in_CPU"] = True
 cfg['dataloader_settings']["prefetch_in_GPU"] = False
 cfg['dataloader_settings']["prefetch_factor"] = 2
 cfg['dataloader_settings']["pin_memory"] = True
 cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-cfg['dataloader_settings']["num_workers"] = 0          
-
+cfg['dataloader_settings']["num_workers"] = 0  
+cfg['dataloader_settings']["drop_last_batch"] = False  
+        
+ 
 #-----------------------------------------------------------------------------.
 ### Scale data with xscaler 
-dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
-bc_scaler = GlobalStandardScaler(data=ds_bc)
-static_scaler = GlobalStandardScaler(data=ds_static)
+# dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
+# bc_scaler = GlobalStandardScaler(data=ds_bc)
+# static_scaler = GlobalStandardScaler(data=ds_static)
 
-dynamic_scaler.fit()
-bc_scaler.fit()
-static_scaler.fit()
+# dynamic_scaler.fit()
+# bc_scaler.fit()
+# static_scaler.fit()
 
 # dynamic_scaler.save("/home/ghiggi/dynamic_scaler.nc")
 # dynamic_scaler = LoadScaler("/home/ghiggi/dynamic_scaler.nc")
 
 # ds_dynamic_std = dynamic_scaler.transform(ds_dynamic) # delayed computation
 # ds_bc_std = bc_scaler.transform(ds_bc)           # delayed computation
-ds_static_std = static_scaler.transform(ds_static)   # delayed computation
+# ds_static_std = static_scaler.transform(ds_static)   # delayed computation
 
 #ds_dynamic1 = dynamic_scaler.inverse_transform(ds_dynamic_std.compute()).compute()
 #xr.testing.assert_equal(ds_dynamic, ds_dynamic1) 
@@ -162,6 +176,28 @@ ds_static_std = static_scaler.transform(ds_static)   # delayed computation
 # ds_test_bc = ds_bc_std.sel(time=slice(test_years[0], test_years[-1]))
 
 #-----------------------------------------------------------------------------.
+### Dataset to DataArray conversion 
+dict_DataArrays = reformat_Datasets(ds_training_dynamic = ds_training_dynamic,
+                                    ds_validation_dynamic = ds_validation_dynamic,
+                                    ds_static = ds_static,              
+                                    ds_training_bc = ds_training_bc,         
+                                    ds_validation_bc = ds_validation_bc,
+                                    preload_data_in_CPU = True)
+
+da_static = dict_DataArrays['da_static']
+da_training_dynamic = dict_DataArrays['da_training_dynamic']
+da_validation_dynamic = dict_DataArrays['da_validation_dynamic']
+da_training_bc = dict_DataArrays['da_training_bc']
+da_validation_bc = dict_DataArrays['da_validation_bc']
+
+check_DataArrays_dimensions(da_training_dynamic = da_training_dynamic,
+                            da_validation_dynamic = da_validation_dynamic,
+                            da_static = da_static,              
+                            da_training_bc = da_training_bc,         
+                            da_validation_bc = da_validation_bc)                         
+
+#-----------------------------------------------------------------------------.
+
 ### GPU options 
 # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
@@ -187,13 +223,14 @@ dataloader_settings = get_dataloader_settings(cfg)
 ##------------------------------------------------------------------------.
 ### Define pyTorch settings 
 device = pytorch_settings(training_settings)
-       
+
 ##------------------------------------------------------------------------.
 ## Retrieve dimension info of input-output Torch Tensors
-dim_info = get_AR_model_dimension_info(AR_settings=AR_settings,
-                                       ds_dynamic=ds_dynamic, 
-                                       ds_static=ds_static, 
-                                       ds_bc=ds_bc)
+dim_info = get_AR_model_diminfo(AR_settings=AR_settings,
+                                da_dynamic=da_training_dynamic, 
+                                da_static=da_static, 
+                                da_bc=da_training_bc)
+
 model_settings['dim_info'] = dim_info
 print_model_description(dim_info)
 
@@ -227,14 +264,13 @@ if training_settings['DataParallel_training'] is True:
     
 ###-----------------------------------------------------------------------.
 ## Generate the (new) model name and its directories 
+if model_settings['model_name'] is not None:
+    model_name = model_settings['model_name']
 else: 
-    if model_settings['model_name'] is not None:
-        model_name = model_settings['model_name']
-    else: 
-        cfg['model_settings']["model_name_prefix"] = None
-        cfg['model_settings']["model_name_suffix"] = None
-        model_name = get_model_name(cfg)
-        model_settings['model_name'] = model_name
+    cfg['model_settings']["model_name_prefix"] = None
+    cfg['model_settings']["model_name_suffix"] = None
+    model_name = get_model_name(cfg)
+    model_settings['model_name'] = model_name
 
 exp_dir = create_experiment_directories(model_dir = model_settings['model_dir'],      
                                         model_name = model_name,
@@ -279,8 +315,8 @@ AR_scheduler = AR_Scheduler(method = "LinearDecay",
 ### - Define Early Stopping 
 # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
 patience = 10
-minimum_improvement = 0.01, # 0 to not stop 
-stopping_metric = 'validation_total_loss',   # training_total_loss                                                     
+minimum_improvement = 0.01 # 0 to not stop 
+stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
 mode = "min" # MSE best when low  
 early_stopping = EarlyStopping(patience = patience,
                                minimum_improvement = minimum_improvement,
@@ -306,13 +342,12 @@ training_info = AutoregressiveTraining(model = model,
                                        AR_scheduler = AR_scheduler,                                
                                        early_stopping = early_stopping,
                                        # Data
-                                       ds_training_dynamic = ds_training_dynamic,
-                                       ds_validation_dynamic = ds_validation_dynamic,
-                                       ds_static = ds_static_std,              
-                                       ds_training_bc = ds_training_bc,         
-                                       ds_validation_bc = ds_validation_bc,       
+                                       da_training_dynamic = da_training_dynamic,
+                                       da_validation_dynamic = da_validation_dynamic,
+                                       da_static = da_static,              
+                                       da_training_bc = da_training_bc,         
+                                       da_validation_bc = da_validation_bc,       
                                        # Dataloader settings
-                                       preload_data_in_CPU = dataloader_settings['preload_data_in_CPU'], 
                                        num_workers = dataloader_settings['num_workers'], 
                                        prefetch_factor = dataloader_settings['prefetch_factor'],  
                                        prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 

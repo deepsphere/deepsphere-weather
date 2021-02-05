@@ -5,6 +5,39 @@ Created on Mon Jan 25 11:31:25 2021
 
 @author: ghiggi
 """
+import time
+import torch
+import numpy as np
+import pdb
+from torch import optim
+from functools import partial 
+from torch.utils.data import Dataset, DataLoader
+
+from modules.utils_autoregressive import get_dict_stack_info
+from modules.utils_autoregressive import get_first_valid_idx
+from modules.utils_autoregressive import get_last_valid_idx
+from modules.utils_autoregressive import get_dict_Y
+from modules.utils_autoregressive import get_dict_X_dynamic
+from modules.utils_autoregressive import get_dict_X_bc    
+from modules.utils_autoregressive import check_input_k
+from modules.utils_autoregressive import check_output_k 
+from modules.utils_autoregressive import check_AR_settings
+from modules.utils_io import check_Datasets
+from modules.utils_io import is_dask_DataArray
+from modules.utils_torch import get_torch_dtype
+from modules.utils_torch import check_torch_device
+
+from modules.dataloader_autoregressive import AutoregressiveDataset
+from modules.dataloader_autoregressive import AutoregressiveDataLoader
+from modules.dataloader_autoregressive import get_AR_batch
+from modules.dataloader_autoregressive import remove_unused_Y
+from modules.dataloader_autoregressive import cylic_iterator
+from modules.utils_autoregressive import get_dict_stack_info
+from modules.utils_autoregressive import check_AR_settings
+from modules.utils_autoregressive import check_input_k
+from modules.utils_autoregressive import check_output_k 
+from modules.utils_io import check_DataArrays_dimensions
+from modules.utils_training import TrainingInfo
 
 preload_data_in_CPU = dataloader_settings['preload_data_in_CPU']
 num_workers = dataloader_settings['num_workers'] 
@@ -44,6 +77,9 @@ learning_rate = 0.001
 batch_size = 128
 epochs = 10
 training_info = None
-numeric_precision = "float64"
+numeric_precision = "float32"
 # GPU settings 
 device = 'cpu'
+
+num_workers = 0
+shuffle = random_shuffle

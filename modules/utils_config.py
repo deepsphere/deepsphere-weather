@@ -16,6 +16,7 @@ import importlib.util
 import numpy as np
 
 from modules.utils_torch import set_pytorch_deterministic
+from modules.utils_io import check_DataArray_dim_names
 #-----------------------------------------------------------------------------.
 # Keys values:
 # conv_type --> Graph  Capital (or DeepSphere)
@@ -254,58 +255,6 @@ def check_numeric_precision(numeric_precision):
 ########################
 ### Model definition ###
 ########################
-# Retrieve input-output dims 
-def get_AR_model_dimension_info(AR_settings, ds_dynamic, ds_static=None, ds_bc=None):
-    """Retrieve dimension information for AR DeepSphere models."""
-    # Dynamic variables 
-    dynamic_variables = list(ds_dynamic.data_vars.keys())
-    n_dynamic_variables = len(dynamic_variables)
-    # Static variables 
-    if ds_static is not None:
-        static_variables = list(ds_static.data_vars.keys()) 
-        n_static_variables = len(static_variables)
-    else:
-        static_variables = []
-        n_static_variables = 0
-    # Boundary condition variables     
-    if ds_bc is not None:
-        bc_variables = list(ds_bc.data_vars.keys())  
-        n_bc_variables = len(bc_variables)
-    else: 
-        bc_variables = []
-        n_bc_variables = 0
-    ##------------------------------------------------------------------------. 
-    # Define feature dimensions 
-    input_feature_dim = n_static_variables + n_bc_variables + n_dynamic_variables 
-    output_feature_dim = n_dynamic_variables
-    input_features = static_variables + bc_variables + dynamic_variables                     
-    output_features = dynamic_variables
-    ##------------------------------------------------------------------------. 
-    # Define time dimension 
-    input_time_dim = len(AR_settings['input_k']) 
-    output_time_dim = len(AR_settings['output_k']) 
-    ##------------------------------------------------------------------------. 
-    # Define number of nodes 
-    input_node_dim = len(ds_dynamic['node'])
-    output_node_dim = len(ds_dynamic['node'])
-    ##------------------------------------------------------------------------. 
-    # Define dimension order
-    dim_order = ['sample', 'time', 'node', 'feature'] 
-    ##------------------------------------------------------------------------. 
-    # Create dictionary with dimension infos 
-    dim_info = {'input_feature_dim': input_feature_dim,
-                'output_feature_dim': output_feature_dim,
-                'input_features': input_features,
-                'output_features': output_features,
-                'input_time_dim': input_time_dim,
-                'output_time_dim': output_time_dim,
-                'input_node_dim': input_node_dim,
-                'output_node_dim': output_node_dim,
-                'dim_order': dim_order,
-                }
-    ##------------------------------------------------------------------------. 
-    return dim_info
-
 def get_pytorch_model(model_settings):
     """Define a DeepSphere model based on general architecture structure.
        
