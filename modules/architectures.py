@@ -85,7 +85,7 @@ class ConvBlock(torch.nn.Module):
     def forward(self, x):
         """Define forward pass of a ConvBlock."""
         x = self.conv(x)
-        if self.norm:
+        if self.norm:   # [batch, node, time-feature]
             x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
         if self.act:
             x = F.relu(x)
@@ -191,11 +191,18 @@ class UNetSpherical(UNet, torch.nn.Module):
         super().__init__()
         ##--------------------------------------------------------------------.
         # Retrieve tensor informations 
-        in_channels = dim_info['input_feature_dim']*dim_info['input_time_dim']
-        self.in_channels = in_channels
-        out_channels = dim_info['output_feature_dim']*dim_info['output_time_dim']
-        self.out_channels = out_channels
+        self.dim_order = dim_info['dim_order']
+        self.input_feature_dim = dim_info['input_feature_dim']
+        self.input_time_dim = dim_info['input_time_dim']
+        self.input_node_dim = dim_info['input_node_dim'] 
         
+        self.output_time_dim = dim_info['output_time_dim']
+        self.output_feature_dim = dim_info['output_feature_dim']
+        self.output_node_dim = dim_info['output_node_dim']   
+        
+        self.input_channels = dim_info['input_feature_dim']*dim_info['input_time_dim']
+        self.output_channels = dim_info['output_feature_dim']*dim_info['output_time_dim']
+   
         ##--------------------------------------------------------------------.
         # Check arguments 
         conv_type = conv_type.lower()
@@ -247,7 +254,7 @@ class UNetSpherical(UNet, torch.nn.Module):
         ##--------------------------------------------------------------------.
         ### Encoding blocks 
         # Encoding block 1
-        self.conv11 = ConvBlock(in_channels, 32 * 2,  
+        self.conv11 = ConvBlock(self.input_channels, 32 * 2,  
                                 kernel_size=kernel_size, 
                                 conv_type=conv_type,
                                 batch_norm=True, relu_activation=True,
@@ -261,7 +268,7 @@ class UNetSpherical(UNet, torch.nn.Module):
                                 laplacian=self.laplacians[0],
                                 periodic=periodic, ratio=ratio)
 
-        self.conv1_res = Linear(in_channels, 64 * 2)
+        self.conv1_res = Linear(self.input_channels, 64 * 2)
 
         # Encoding block 2
         self.conv21 = ConvBlock(64 * 2, 96 * 2, 
@@ -273,8 +280,8 @@ class UNetSpherical(UNet, torch.nn.Module):
         
         self.conv23 = ConvBlock(96 * 2, 128 * 2,  
                                 kernel_size=kernel_size, 
-                                conv_type=conv_type, batch_norm=True, 
-                                relu_activation=True, 
+                                conv_type=conv_type, 
+                                batch_norm=True, relu_activation=True, 
                                 laplacian=self.laplacians[1], 
                                 periodic=periodic, ratio=ratio)
 
@@ -325,7 +332,7 @@ class UNetSpherical(UNet, torch.nn.Module):
                                  batch_norm=True, relu_activation=True, 
                                  laplacian=self.laplacians[0], 
                                  periodic=periodic, ratio=ratio)
-        self.uconv13 = ConvBlock(32 * 2 * 2, out_channels, 
+        self.uconv13 = ConvBlock(32 * 2 * 2, self.output_channels, 
                                  kernel_size=kernel_size, 
                                  conv_type=conv_type, 
                                  batch_norm=False, relu_activation=False, 
@@ -336,12 +343,21 @@ class UNetSpherical(UNet, torch.nn.Module):
 
     def encode(self, x):
         """Define UNet encoder."""
-        # ['sample', 'time', 'node', 'feature'] ==> ['sample', 'node', 'time-feature']
-        batchsize, time, nodes, _ = x.shape
-        self.time = time
-        x = x.permute(0, 2, 1, 3)
-        x = x.reshape(batchsize, nodes, self.in_channels)
+        # Current input shape: ['sample', 'time', 'node', 'feature'] 
+        # Desired shape: ['sample', 'node', 'time-feature']
+        ##--------------------------------------------------------------------.
+        # TODO? 
+        # - Using view() to avoid copy?  
+        # - Provide tensor with sample [sample, node, time, feature]?
+        # - Contiguous inputs can be reshaped without copying
+        ##--------------------------------------------------------------------.
+        batch_size = x.shape[0]
 
+        ##--------------------------------------------------------------------.
+        # Reorder and reshape data 
+        x = x.permute(0, 2, 1, 3)  # => [sample, node, time, feature]
+        x = x.reshape(batch_size, self.input_node_dim, self.input_channels)  # reshape to ['sample', 'node', 'time-feature'] 
+        ##--------------------------------------------------------------------.
         # Block 1
         x_enc11 = self.conv11(x)
         x_enc1 = self.conv13(x_enc11)
@@ -380,11 +396,12 @@ class UNetSpherical(UNet, torch.nn.Module):
         x = self.uconv12(x)
         x_cat = torch.cat((x, x_enc11), dim=2)
         x = self.uconv13(x_cat)
-
-        # ['sample', 'time', 'node', 'feature'] <== ['sample', 'node', 'time-feature']
-        batchsize, nodes, _ = x.shape
-        x = x.reshape(batchsize, nodes, self.time, -1)
-        x = x.permute(0, 2, 1, 3)
+        
+        ##--------------------------------------------------------------------.
+        # Reshape data to ['sample', 'time', 'node', 'feature']
+        batch_size = x.shape[0]   # ['sample', 'node', 'time-feature'] 
+        x = x.reshape(batch_size, self.output_node_dim, self.output_time_dim, self.output_feature_dim)   # ==> ['sample', 'node', 'time', 'feature']
+        x = x.permute(0, 2, 1, 3) # ==> ['sample', 'time', 'node', 'feature']
         return x
 
     ##------------------------------------------------------------------------.
