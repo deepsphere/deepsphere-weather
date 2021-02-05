@@ -10,13 +10,18 @@ import torch
 import time
 import numpy as np
 from torch import optim
- 
-from modules.dataloader_autoregressive import create_AR_DataLoaders
+
+from modules.dataloader_autoregressive import AutoregressiveDataset
+from modules.dataloader_autoregressive import AutoregressiveDataLoader
 from modules.dataloader_autoregressive import get_AR_batch
 from modules.dataloader_autoregressive import remove_unused_Y
 from modules.dataloader_autoregressive import cylic_iterator
 from modules.utils_autoregressive import get_dict_stack_info
 from modules.utils_autoregressive import check_AR_settings
+from modules.utils_autoregressive import check_input_k
+from modules.utils_autoregressive import check_output_k 
+from modules.utils_io import check_DataArrays_dimensions
+
 from modules.utils_training import TrainingInfo
 from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
@@ -29,6 +34,7 @@ from modules.utils_torch import check_torch_device
 # TODOs
 # - ONNX for saving model weights 
 # - Record the loss per variable 
+# - Loss --> Reshape data before applying loss
 
 ##----------------------------------------------------------------------------.               
 # #########################
@@ -42,13 +48,12 @@ def AutoregressiveTraining(model,
                            early_stopping,
                            optimizer, 
                            # Data
-                           ds_training_dynamic,
-                           ds_validation_dynamic = None,
-                           ds_static = None,              
-                           ds_training_bc = None,         
-                           ds_validation_bc = None,       
+                           da_training_dynamic,
+                           da_validation_dynamic = None,
+                           da_static = None,              
+                           da_training_bc = None,         
+                           da_validation_bc = None,       
                            # Dataloader options
-                           preload_data_in_CPU = False, 
                            prefetch_in_GPU = False,
                            prefetch_factor = 2,
                            drop_last_batch = True,
@@ -87,14 +92,23 @@ def AutoregressiveTraining(model,
         if asyncronous_GPU_transfer is True: 
             print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
             asyncronous_GPU_transfer = False
-    ##------------------------------------------------------------------------.         
-    # - Check AR settings 
-    check_AR_settings(input_k = input_k, 
-                      output_k = output_k, 
-                      forecast_cycle = forecast_cycle,
+    ##------------------------------------------------------------------------.   
+    # Check that autoregressive settings are valid 
+    # - input_k and output_k must be numpy arrays hereafter ! 
+    input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
+    output_k = check_output_k(output_k=output_k)
+    check_AR_settings(input_k = input_k,
+                      output_k = output_k,
+                      forecast_cycle = forecast_cycle,                           
                       AR_iterations = AR_iterations, 
-                      stack_most_recent_prediction = stack_most_recent_prediction) 
-    
+                      stack_most_recent_prediction = stack_most_recent_prediction)    
+    ##------------------------------------------------------------------------.
+    # Check that DataArrays are valid 
+    check_DataArrays_dimensions(da_training_dynamic = da_training_dynamic,
+                                da_validation_dynamic = da_validation_dynamic, 
+                                da_training_bc = da_training_bc,
+                                da_validation_bc = da_validation_bc, 
+                                da_static = da_static)
     ##------------------------------------------------------------------------.
     ## Autotune DataLoaders 
     # --> Tune the number of num_workers for best performance 
@@ -109,48 +123,85 @@ def AutoregressiveTraining(model,
         
     ##------------------------------------------------------------------------.
     ## Create DataLoaders
-    # - Prefetch (2*num_workers) batches parallelly into CPU
+    # - Prefetch (prefetch_factor*num_workers) batches parallelly into CPU
     # - At each AR iteration, the required data are transferred asynchronously to GPU 
     # - If static data are provided, they are prefetched into the GPU 
     # - Some data are duplicated in CPU memory because of the data overlap between forecast iterations.
     #   However this mainly affect boundary conditions data, because dynamic data
     #   after few AR iterations are the predictions of previous AR iteration.
-    trainingDataLoader, validationDataLoader = create_AR_DataLoaders(ds_training_dynamic = ds_training_dynamic,
-                                                                     ds_validation_dynamic = ds_validation_dynamic,
-                                                                     ds_static = ds_static,              
-                                                                     ds_training_bc = ds_training_bc,         
-                                                                     ds_validation_bc = ds_validation_bc,       
-                                                                     # Data loading options
-                                                                     preload_data_in_CPU = preload_data_in_CPU, 
-                                                                     # DataLoader options 
-                                                                     training_batch_size = training_batch_size,
-                                                                     validation_batch_size = validation_batch_size, 
-                                                                     drop_last_batch = drop_last_batch,
-                                                                     random_shuffle = random_shuffle,
-                                                                     num_workers = num_workers,
-                                                                     prefetch_factor = prefetch_factor,
-                                                                     prefetch_in_GPU = prefetch_in_GPU,
-                                                                     pin_memory = pin_memory,
-                                                                     asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
-                                                                     # Autoregressive settings  
-                                                                     input_k = input_k, 
-                                                                     output_k = output_k,
-                                                                     forecast_cycle = forecast_cycle,                           
-                                                                     AR_iterations = AR_iterations, 
-                                                                     stack_most_recent_prediction = stack_most_recent_prediction, 
-                                                                     # GPU settings 
-                                                                     device = device,
-                                                                     # Precision setting
-                                                                     numeric_precision = numeric_precision)
-
+    #
+    # Create training Autoregressive Dataset and DataLoader    
+    t_i = time.time()
+    trainingDataset = AutoregressiveDataset(da_dynamic = da_training_dynamic,  
+                                            da_bc = da_training_bc,
+                                            da_static = da_static,
+                                            # Autoregressive settings  
+                                            input_k = input_k,
+                                            output_k = output_k,
+                                            forecast_cycle = forecast_cycle,  
+                                            AR_iterations = AR_scheduler.current_AR_iterations,
+                                            max_AR_iterations = AR_iterations,
+                                            stack_most_recent_prediction = stack_most_recent_prediction, 
+                                            # GPU settings 
+                                            device = device,
+                                            # Precision settings
+                                            numeric_precision = numeric_precision)
+    print('- Creation of Training AutoregressiveDataset: {:.0f}s'.format(time.time() - t_i))
+    
+    t_i = time.time()
+    trainingDataLoader = AutoregressiveDataLoader(dataset = trainingDataset,                                                   
+                                                  batch_size = training_batch_size,  
+                                                  drop_last_batch = drop_last_batch,
+                                                  random_shuffle = random_shuffle,
+                                                  num_workers = num_workers,
+                                                  prefetch_factor = prefetch_factor, 
+                                                  prefetch_in_GPU = prefetch_in_GPU,  
+                                                  pin_memory = pin_memory,
+                                                  asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                                  device = device)
+    print('- Creation of Training AutoregressiveDataLoader: {:.0f}s'.format(time.time() - t_i))
+    
+    ### Create validation Autoregressive Dataset and DataLoader
+    if da_validation_dynamic is not None:
+        t_i = time.time()
+        validationDataset = AutoregressiveDataset(da_dynamic = da_validation_dynamic,  
+                                                  da_bc = da_validation_bc,
+                                                  da_static = da_static,   
+                                                  # Autoregressive settings  
+                                                  input_k = input_k,
+                                                  output_k = output_k,
+                                                  forecast_cycle = forecast_cycle,                           
+                                                  AR_iterations = AR_scheduler.current_AR_iterations,
+                                                  max_AR_iterations = AR_iterations,
+                                                  stack_most_recent_prediction = stack_most_recent_prediction, 
+                                                  # GPU settings 
+                                                  device = device,
+                                                  # Precision settings
+                                                  numeric_precision = numeric_precision)
+        print('- Creation of Validation AutoregressiveDataset: {:.0f}s'.format(time.time() - t_i))
+        validationDataLoader = AutoregressiveDataLoader(dataset = validationDataset, 
+                                                        batch_size = validation_batch_size,  
+                                                        drop_last_batch = drop_last_batch,
+                                                        random_shuffle = random_shuffle,
+                                                        num_workers = num_workers,
+                                                        prefetch_in_GPU = prefetch_in_GPU,  
+                                                        prefetch_factor = prefetch_factor, 
+                                                        pin_memory = pin_memory,
+                                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                                        device = device)
+        print('- Creation of Validation AutoregressiveDataLoader: {:.0f}s'.format(time.time() - t_i))
+    else: 
+        validationDataset = None
+        validationDataLoader = None
+        
     ##------------------------------------------------------------------------.
     # Retrieve information for autoregress/stack the predicted data 
-    dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(AR_iterations = AR_iterations, 
-                                                            forecast_cycle = forecast_cycle, 
-                                                            input_k = input_k, 
-                                                            output_k = output_k, 
-                                                            stack_most_recent_prediction = stack_most_recent_prediction)
-    
+    _, dict_Y_to_remove = get_dict_stack_info(AR_iterations = AR_iterations, 
+                                              forecast_cycle = forecast_cycle, 
+                                              input_k = input_k, 
+                                              output_k = output_k, 
+                                              stack_most_recent_prediction = stack_most_recent_prediction)
+
     ##------------------------------------------------------------------------.
     # Initialize training info object 
     training_info = TrainingInfo(AR_iterations=AR_iterations,
@@ -165,17 +216,7 @@ def AutoregressiveTraining(model,
     validation_data_available = validationDataLoader is not None
     if validation_data_available:
         validationDataLoader_iter = cylic_iterator(validationDataLoader)
-    
-    # pdb.set_trace()
-    
-    # for i in trainingDataLoader:
-    #     print(i)
         
-    # d_iter = iter(trainingDataLoader)
-    # for i in range(3):
-    #     a = next(d_iter)
-    #     print(".", end="")
-    # print('a')
     ##------------------------------------------------------------------------.
     # Iterate along epochs
     for epoch in range(epochs):
@@ -183,8 +224,7 @@ def AutoregressiveTraining(model,
         model.train() # Set model layers (i.e. batchnorm) in training mode 
         ##--------------------------------------------------------------------. 
         # Iterate along training batches       
-        for batch_count, training_batch_dict in enumerate(trainingDataLoader):   
-            print(batch_count)
+        for training_batch_dict in trainingDataLoader:   
             print(".", end="")
             ##----------------------------------------------------------------.      
             # Perform autoregressive training loop
@@ -208,13 +248,15 @@ def AutoregressiveTraining(model,
                 
                 ##------------------------------------------------------------.
                 # Compute loss for current forecast iteration 
-                # TODO (@Wentao)
-                # ---> Weights are defined outside the AutoregressiveTraining function?
-                # - --> variable weights 
-                # - --> spatial masking 
-                # - --> area_weights 
-                dict_training_loss_per_leadtime[i] = criterion(dict_training_Y_predicted[i], torch_Y) 
-                             
+                # - The torch tensors are [sample, time, nodes, features]
+                # - The criterion expects [samples, nodes, features]
+                # - Collapse time dimension with sample dimension 
+                Y_dims = torch_Y.shape
+                reshape_dims = (-1, Y_dims[2], Y_dims[3])
+                dict_training_loss_per_leadtime[i] = criterion(dict_training_Y_predicted[i].reshape(*reshape_dims), 
+                                                               torch_Y.reshape(*reshape_dims))  
+                # dict_training_loss_per_leadtime[i] = criterion(dict_training_Y_predicted[i], torch_Y) 
+
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
                 remove_unused_Y(AR_iteration = i, 
@@ -225,7 +267,7 @@ def AutoregressiveTraining(model,
 
             ##----------------------------------------------------------------.    
             ### Compute total (AR weighted) loss 
-            for i, (leadtime, loss) in enumerate(dict_training_loss_per_leadtime.items):
+            for i, (leadtime, loss) in enumerate(dict_training_loss_per_leadtime.items()):
                 if i == 0:
                     training_total_loss = AR_scheduler.AR_weights[leadtime] * loss 
                 else: 
@@ -255,17 +297,15 @@ def AutoregressiveTraining(model,
             ### Run validation 
             if validation_data_available:
                 if training_info.score_interval == scoring_interval:
-                                       
-                    # Initialize 
-                    dict_validation_loss_per_leadtime = {}
-                    dict_validation_Y_predicted = {}
-                    
                     # Set model layers (i.e. batchnorm) in evaluation mode 
                     model.eval() 
                     
                     # Retrieve batch for validation
                     validation_batch_dict = next(validationDataLoader_iter)
                     
+                    # Initialize 
+                    dict_validation_loss_per_leadtime = {}
+                    dict_validation_Y_predicted = {}
                     #-#-------------------------------------------------------.
                     # Disable gradient calculations 
                     # - And do not update network weights  
@@ -285,12 +325,12 @@ def AutoregressiveTraining(model,
                 
                             ##------------------------------------------------.
                             # Compute loss for current forecast iteration 
-                            # ---> Weights are defined outside the AutoregressiveTraining function?
-                            # - --> variable weights 
-                            # - --> spatial masking 
-                            # - --> area_weights 
-                            dict_validation_loss_per_leadtime[i] = criterion(dict_validation_Y_predicted[i], torch_Y) 
-                                         
+                            # - The criterion expects [samples, nodes, features]
+                            Y_dims = torch_Y.shape
+                            reshape_dims = (-1, Y_dims[2], Y_dims[3])
+                            dict_validation_loss_per_leadtime[i] = criterion(dict_validation_Y_predicted[i].reshape(*reshape_dims), 
+                                                                             torch_Y.reshape(*reshape_dims))  
+                            
                             ##------------------------------------------------.
                             # Remove unnecessary stored Y predictions 
                             remove_unused_Y(AR_iteration = i, 
@@ -301,7 +341,7 @@ def AutoregressiveTraining(model,
 
                     ##--------------------------------------------------------.    
                     ### Compute total (AR weighted) loss 
-                    for i, (leadtime, loss) in enumerate(dict_validation_loss_per_leadtime.items):
+                    for i, (leadtime, loss) in enumerate(dict_validation_loss_per_leadtime.items()):
                         if i == 0:
                             validation_total_loss = AR_scheduler.AR_weights[leadtime] * loss 
                         else: 
@@ -332,8 +372,16 @@ def AutoregressiveTraining(model,
                 # - If current_AR_iterations < AR_iterations --> Update AR scheduler
                 # - If current_AR_iterations = AR_iterations --> Stop training 
                 if early_stopping(training_info) is True:
+                   
                     if AR_scheduler.current_AR_iterations < AR_iterations: 
+                        # Update the AR scheduler
+                        print("Updating AR scheduler")
                         AR_scheduler.update()
+                        # Update Datasets (to prefetch the correct amount of data)
+                        # - TODO: check that also if prefetch is on... it works 
+                        trainingDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
+                        if validationDataset is not None: 
+                            validationDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
                     else: 
                         # Stop training 
                         break

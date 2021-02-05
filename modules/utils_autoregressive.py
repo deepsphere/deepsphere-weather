@@ -221,7 +221,7 @@ def check_forecast_cycle(forecast_cycle, AR_iterations):
     if forecast_cycle < 1:
         raise ValueError("'forecast_cycle' must be equal or longer than 1")  
     if AR_iterations >= 1:
-        print(' - Forecast cycle of %d --> Specified'% forecast_cycle)     
+        print(' - Forecast cycle of %d --> Specified.'% forecast_cycle)     
     return None   
 
 def check_AR_settings(input_k, output_k, forecast_cycle, AR_iterations, stack_most_recent_prediction):

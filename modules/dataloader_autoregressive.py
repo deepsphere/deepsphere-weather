@@ -20,7 +20,6 @@ from modules.utils_autoregressive import get_dict_X_bc
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_autoregressive import check_AR_settings
-from modules.utils_io import check_Datasets
 from modules.utils_io import is_dask_DataArray
 from modules.utils_torch import get_torch_dtype
 from modules.utils_torch import check_torch_device
@@ -41,7 +40,8 @@ from modules.utils_torch import check_torch_device
 # - https://stackoverflow.com/questions/44193979/how-do-i-run-a-dask-distributed-cluster-in-a-single-thread
 # - https://docs.dask.org/en/latest/scheduling.html
 
-#-----------------------------------------------------------------------------. 
+##----------------------------------------------------------------------------.
+# TODO 
 # - Dim info passed along the way 
 # - Timestep info passed along the way 
 #-----------------------------------------------------------------------------. 
@@ -59,6 +59,7 @@ class AutoregressiveDataset(Dataset):
                  output_k,
                  forecast_cycle,                           
                  AR_iterations, 
+                 max_AR_iterations, 
                  stack_most_recent_prediction, 
                  # Facultative input data
                  da_bc = None, 
@@ -88,6 +89,8 @@ class AutoregressiveDataset(Dataset):
             Indicates the lag between forecasts.
         AR_iterations : int
             Number of AR iterations.
+        max_AR_iterations : int 
+            Maximum number of AR iterations
         stack_most_recent_prediction : bool
             Whether to use the most recent prediction when autoregressing.
         device : torch.device, optional
@@ -99,23 +102,36 @@ class AutoregressiveDataset(Dataset):
         ##--------------------------------------------------------------------.
         # Checks 
         device = check_torch_device(device)
-        
+        if AR_iterations > max_AR_iterations:
+            raise ValueError("'AR_iterations' can not exceed 'max_AR_iterations'")
         ## -------------------------------------------------------------------.
         ### - Initialize autoregressive configs   
         self.input_k = input_k 
         self.output_k = output_k
         self.forecast_cycle = forecast_cycle
         self.AR_iterations = AR_iterations
+        self.max_AR_iterations = max_AR_iterations
         self.stack_most_recent_prediction = stack_most_recent_prediction
         ##--------------------------------------------------------------------.
-        ### - Retrieve data
-        self.da_dynamic = da_dynamic 
-        self.da_bc = da_bc 
-        
+        ### - Define dimension index 
+        dims = da_dynamic.dims
+        self.dims = dims 
+        dim_info = {}
+        dim_info['sample'] = 0
+        dim_info['time'] = np.argwhere(np.array(dims) == 'time')[0][0] + 1
+        dim_info['node'] = np.argwhere(np.array(dims) == 'node')[0][0] + 1 
+        dim_info['feature'] = np.argwhere(np.array(dims) == 'feature')[0][0] + 1  
+        self.dim_info = dim_info 
+
         ##--------------------------------------------------------------------.
         ### - Define data precision
         torch_dtype = get_torch_dtype(numeric_precision)
         self.torch_dtype = torch_dtype
+        
+        ##--------------------------------------------------------------------.
+        ### - Retrieve data
+        self.da_dynamic = da_dynamic 
+        self.da_bc = da_bc 
         
         ##--------------------------------------------------------------------.
         ### Load static tensor into GPU (and expand over the time dimension) 
@@ -129,40 +145,10 @@ class AutoregressiveDataset(Dataset):
             self.torch_static = None
             
         ##--------------------------------------------------------------------.
-        ### - Generate valid sample indices
-        n_timesteps = da_dynamic.shape[0]
-        idx_start = get_first_valid_idx(input_k)
-        idx_end = get_last_valid_idx(output_k = output_k,
-                                     forecast_cycle = forecast_cycle, 
-                                     AR_iterations = AR_iterations)
-        self.idxs = np.arange(n_timesteps)[idx_start:-(idx_end)]
-        self.n_samples = len(self.idxs)
+        ### - Generate indexing
+        self.n_timesteps = da_dynamic.shape[0]
+        self.update_indexing()
         
-        ##--------------------------------------------------------------------.
-        ### - Define dictionary with indexing information for autoregressive training
-        self.dict_rel_idx_Y = get_dict_Y(AR_iterations = AR_iterations,
-                                         forecast_cycle = forecast_cycle, 
-                                         output_k = output_k)
-        self.dict_rel_idx_X_dynamic = get_dict_X_dynamic(AR_iterations = AR_iterations,
-                                                         forecast_cycle = forecast_cycle, 
-                                                         input_k = input_k)
-        self.dict_rel_idx_X_bc = get_dict_X_bc(AR_iterations = AR_iterations,
-                                               forecast_cycle = forecast_cycle,
-                                               input_k = input_k)
-        
-        ##--------------------------------------------------------------------.
-        ### - Based on the current value of AR_iterations, create a
-        #     list of (relative) indices required to load data from da_dynamic and da_bc 
-        #   --> This indices are updated when Dataset.update_AR_iterations() is called
-        rel_idx_X_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_dynamic.values() if x is not None]))
-        rel_idx_Y_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_Y.values() if x is not None]))
-        self.rel_idx_dynamic_required = np.unique(np.concatenate((rel_idx_X_dynamic_required, rel_idx_Y_dynamic_required)))
-        
-        if da_bc is not None:
-            self.rel_idx_bc_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_bc.values() if x is not None]))
-        else: 
-            self.rel_idx_bc_required = None
-            
         ##--------------------------------------------------------------------.    
    
     ##------------------------------------------------------------------------.
@@ -201,9 +187,11 @@ class AutoregressiveDataset(Dataset):
         dict_Y_data = {}
         for i in range(self.AR_iterations + 1): 
             # Extract numpy array from DataArray and conver to Torch Tensor
-            dict_X_dynamic_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_X_dynamic[i]).values), dtype=self.torch_dtype)
             dict_Y_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).values), dtype=self.torch_dtype)
-        
+            if self.dict_rel_idx_X_dynamic[i] is not None:
+                dict_X_dynamic_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_X_dynamic[i]).values), dtype=self.torch_dtype)
+            else: 
+                dict_X_dynamic_data[i] = None
         ## -------------------------------------------------------------------.
         ### Retrieve boundary conditions data (if provided)
         if self.da_bc is not None: 
@@ -226,6 +214,51 @@ class AutoregressiveDataset(Dataset):
         ## -------------------------------------------------------------------.
         # Return the sample dictionary  
         return {'X_dynamic': dict_X_dynamic_data, 'X_bc': dict_X_bc_data, 'Y': dict_Y_data}
+    
+    def update_indexing(self):
+        """Update indices."""
+        input_k = self.input_k 
+        output_k = self.output_k
+        forecast_cycle = self.forecast_cycle
+        AR_iterations = self.AR_iterations
+        n_timesteps = self.n_timesteps
+        
+        ##--------------------------------------------------------------------.
+        # - Update valid data range indexing 
+        idx_start = get_first_valid_idx(input_k)
+        idx_end = get_last_valid_idx(output_k = output_k,
+                                     forecast_cycle = forecast_cycle, 
+                                     AR_iterations = AR_iterations)
+        self.idxs = np.arange(n_timesteps)[idx_start:-1*(idx_end+1)]
+        self.idx_start = idx_start
+        self.idx_end = idx_end
+        self.n_samples = len(self.idxs)
+        ##--------------------------------------------------------------------.
+        ### - Update dictionary with indexing information for autoregressive training
+        self.dict_rel_idx_Y = get_dict_Y(AR_iterations = AR_iterations,
+                                         forecast_cycle = forecast_cycle, 
+                                         output_k = output_k)
+        self.dict_rel_idx_X_dynamic = get_dict_X_dynamic(AR_iterations = AR_iterations,
+                                                         forecast_cycle = forecast_cycle, 
+                                                         input_k = input_k)
+        self.dict_rel_idx_X_bc = get_dict_X_bc(AR_iterations = AR_iterations,
+                                               forecast_cycle = forecast_cycle,
+                                               input_k = input_k)
+        
+        ##--------------------------------------------------------------------.
+        ### - Based on the current value of AR_iterations, create a
+        #     list of (relative) indices required to load data from da_dynamic and da_bc 
+        #   --> This indices are updated when Dataset.update_AR_iterations() is called
+        rel_idx_X_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_dynamic.values() if x is not None]))
+        rel_idx_Y_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_Y.values() if x is not None]))
+        self.rel_idx_dynamic_required = np.unique(np.concatenate((rel_idx_X_dynamic_required, rel_idx_Y_dynamic_required)))
+        
+        if self.da_bc is not None:
+            self.rel_idx_bc_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_bc.values() if x is not None]))
+        else: 
+            self.rel_idx_bc_required = None
+            
+        ##--------------------------------------------------------------------.
             
     def update_AR_iterations(self, new_AR_iterations):  
         """Update Dataset informations.
@@ -235,20 +268,16 @@ class AutoregressiveDataset(Dataset):
         The changes to the Dataset implicitly affect the next DataLoader call!
         """
         if self.AR_iterations != new_AR_iterations:
+            # Check do not exceed max_AR_iterations
+            if new_AR_iterations > self.max_AR_iterations:
+                raise ValueError("'AR_iterations' can not exceed 'max_AR_iterations'.")
+                
+            # Update AR iterations
             self.AR_iterations = new_AR_iterations
             
-            # Infos for dynamic data (X and Y)
-            rel_idx_X_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_dynamic.values() if x is not None]))
-            rel_idx_Y_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_Y.values() if x is not None]))
-            self.rel_idx_dynamic_required = np.unique(np.concatenate((rel_idx_X_dynamic_required, rel_idx_Y_dynamic_required)))
-            
-            # Infos for boundary conditions data
-            if self.da_bc is not None:
-                self.rel_idx_bc_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_bc.values() if x is not None]))
-            else: 
-                self.rel_idx_bc_required = None    
-        return None
-        
+            # Update valid idxs and rel_idx_dictionaries 
+            self.update_indexing()
+                
 ##----------------------------------------------------------------------------.    
 def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info, 
                               torch_static=None, 
@@ -279,12 +308,24 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
     dict_Y_batched = {}
     for i in range(AR_iterations+1):
         if pin_memory is True:
-            dict_X_dynamic_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples], dim=0).pin_memory()
+            # Y
             dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=0).pin_memory()  
+            # X dynamic 
+            list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
+            if len(list_X_dynamic_tensors) > 0: 
+                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=0).pin_memory()
+            else: # when no X dynamic (after some AR iterations)
+                dict_X_dynamic_batched[i] = None
         else: 
-            dict_X_dynamic_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples], dim=0)
+            # Y
             dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=0)    
-    
+            # X dynamic 
+            list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
+            if len(list_X_dynamic_tensors) > 0: 
+                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=0) 
+            else: # when no X dynamic (after some AR iterations)
+                dict_X_dynamic_batched[i] = None
+                
     # - Process X_bc
     dict_X_bc_batched = {}  
     for i in range(AR_iterations+1):
@@ -321,7 +362,6 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
 ### Autoregressive DataLoader ####
 # ################################
 def AutoregressiveDataLoader(dataset, 
-                             dim_info, 
                              batch_size = 64,  
                              drop_last_batch = True,
                              random_shuffle = True,
@@ -337,9 +377,7 @@ def AutoregressiveDataLoader(dataset,
     Parameters
     ----------
     dataset : AutoregressiveDataset
-        An AutoregressiveDataset.
-    dim_info : dict
-        Dictiorary providing information of Torch Tensor dimensions.
+        An AutoregressiveDataset.        
     batch_size : int, optional
         Number of samples within a batch. The default is 64.
     drop_last_batch : bool, optional
@@ -394,10 +432,15 @@ def AutoregressiveDataLoader(dataset,
             print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
             asyncronous_GPU_transfer = False    
             
-    ##------------------------------------------------------------------------.  
+    ##------------------------------------------------------------------------. 
+    # Retrieve dimension info dictiorary from Dataset 
+    # - Provide information of Torch Tensor dimensions.
+    dim_info = dataset.dim_info 
+    
+    ##------------------------------------------------------------------------. 
     # Retrieve static feature tensor (preloaded in GPU) (if available)
     torch_static = dataset.torch_static  
-    
+     
     ##------------------------------------------------------------------------. 
     # Expand static feature tensor (along first dimension) to match the batch size ! 
     if torch_static is not None:
@@ -406,8 +449,8 @@ def AutoregressiveDataLoader(dataset,
         torch_static = torch_static.expand(new_dim_size)  
 
     ##------------------------------------------------------------------------.
-    # Retrieve information for autoregress/stack the predicted data  
-    dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(AR_iterations = dataset.AR_iterations, 
+    # Retrieve information for autoregress/stack the predicted data 
+    dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(AR_iterations = dataset.max_AR_iterations, 
                                                             forecast_cycle = dataset.forecast_cycle, 
                                                             input_k = dataset.input_k, 
                                                             output_k = dataset.output_k, 
@@ -448,7 +491,7 @@ def get_AR_batch(AR_iteration,
     i = AR_iteration
     ##------------------------------------------------------------------------.
     # Get dimension info 
-    # batch_dim = batch_dict['dim_info']['batch_dim']  
+    # batch_dim = batch_dict['dim_info']['sample']  
     # node_dim = batch_dict['dim_info']['node']  
     time_dim = batch_dict['dim_info']['time']  
     feature_dim = batch_dict['dim_info']['feature']  
@@ -472,9 +515,15 @@ def get_AR_batch(AR_iteration,
     ##------------------------------------------------------------------------.
     # Transfer into GPU (if available, or not prefetched in GPU)
     if not prefetched_in_GPU:
-        torch_X_dynamic = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)  
+        # X_dynamic
+        if dict_X_dynamic_batched[i] is not None:
+            torch_X_dynamic = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
+        else:
+            torch_X_dynamic = None
+        # X_bc
         if bc_is_available:
-            torch_X_bc = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer) 
+            torch_X_bc = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
+        # Y 
         torch_Y = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
     else:
         torch_X_dynamic = dict_X_dynamic_batched[i] 
@@ -486,9 +535,13 @@ def get_AR_batch(AR_iteration,
     # --> Previous predictions to stack are already in the GPU
     # --> Data need to be already in the GPU (if device is not cpu)!
     if list_tuple_idx_to_stack is not None:
-        torch_X_to_stack = torch.cat([dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack], dim=feature_dim) 
-        torch_X_dynamic = torch.cat(torch_X_dynamic, torch_X_to_stack, dim=time_dim)
-    
+        list_Y_to_stack = [dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack]
+        torch_X_to_stack = torch.stack(list_Y_to_stack, dim=time_dim)  
+        if torch_X_dynamic is not None:
+            torch_X_dynamic = torch.cat((torch_X_dynamic, torch_X_to_stack), dim=time_dim)
+        else:
+            torch_X_dynamic = torch_X_to_stack
+            
     # - Add boundary conditions data (if available)
     if bc_is_available:
         torch_X = torch.cat((torch_X_bc, torch_X_dynamic), dim=feature_dim) 
@@ -509,6 +562,7 @@ def get_AR_batch(AR_iteration,
     if bc_is_available:
         # del torch_X_bc
         del dict_X_bc_batched[i]   # free space
+    ##------------------------------------------------------------------------.    
     return (torch_X, torch_Y)
 
 ##----------------------------------------------------------------------------.
@@ -530,174 +584,3 @@ def cylic_iterator(iterable):
     return iter(_cyclic(iterable))
             
 #-----------------------------------------------------------------------------.
-# ###############
-### Wrappers ####
-# ###############
-def create_AR_DataLoaders(ds_training_dynamic,
-                          ds_validation_dynamic = None,
-                          ds_static = None,              
-                          ds_training_bc = None,         
-                          ds_validation_bc = None,       
-                          # Data loading options
-                          preload_data_in_CPU = False, 
-                          # Autoregressive settings  
-                          input_k = [-3,-2,-1], 
-                          output_k = [0],
-                          forecast_cycle = 1,                           
-                          AR_iterations = 2, 
-                          stack_most_recent_prediction = True, 
-                          # DataLoader options
-                          training_batch_size = 128,
-                          validation_batch_size = 128, 
-                          drop_last_batch = True,
-                          random_shuffle = True,
-                          num_workers = 0,
-                          pin_memory = False,
-                          prefetch_in_GPU = False,  
-                          prefetch_factor = 2, 
-                          asyncronous_GPU_transfer = True, 
-                          # GPU settings 
-                          device = 'cpu',
-                          # Precision settings
-                          numeric_precision = 'float64'):
-    """DOC STRING."""    
-    ##------------------------------------------------------------------------. 
-    # Check Datasets are in the expected format for AR training 
-    check_Datasets(ds_training_dynamic = ds_training_dynamic,
-                   ds_validation_dynamic = ds_validation_dynamic,
-                   ds_static = ds_static,              
-                   ds_training_bc = ds_training_bc,         
-                   ds_validation_bc = ds_validation_bc)   
-    
-    ##------------------------------------------------------------------------.
-    # Check that autoregressive settings are valid 
-    # - input_k and output_k must be numpy arrays hereafter ! 
-    input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
-    output_k = check_output_k(output_k=output_k)
-    check_AR_settings(input_k = input_k,
-                      output_k = output_k,
-                      forecast_cycle = forecast_cycle,                           
-                      AR_iterations = AR_iterations, 
-                      stack_most_recent_prediction = stack_most_recent_prediction)
-                      
-    ##------------------------------------------------------------------------.
-    ### Load all data into CPU memory here if asked 
-    if preload_data_in_CPU is True:
-        ##  Dynamic data
-        print("- Preload xarray Dataset of dynamic data into CPU memory:")
-        t_i = time.time()
-        ds_training_dynamic = ds_training_dynamic.compute()
-        print('  --> Training Dynamic Dataset: {:.2f}s'.format(time.time() - t_i))
-        if ds_validation_dynamic is not None:
-            t_i = time.time()
-            ds_validation_dynamic = ds_validation_dynamic.compute()
-            print('  --> Validation Dynamic Dataset: {:.2f}s'.format(time.time() - t_i))
-        
-        ##--------------------------------------------------------------------.
-        ## Boundary conditions data
-        if ds_training_bc is not None: 
-            print("- Preload xarray Dataset of boundary conditions data into CPU memory:")
-            t_i = time.time()
-            ds_training_bc = ds_training_bc.compute()
-            print('  --> Training Boundary Condition Dataset: {:.2f}s'.format(time.time() - t_i))
-            if ds_validation_bc is not None:
-                t_i = time.time()
-                ds_validation_bc = ds_validation_bc.compute()
-                print('  --> Validation Boundary Condition Dataset: {:.2f}s'.format(time.time() - t_i))
-            
-    ##------------------------------------------------------------------------. 
-    ### Conversion to DataArray and order dimensions 
-    # - For dynamic and bc: ['time', 'node', 'features']
-    # - For static: ['node', 'features']
-    t_i = time.time()
-    da_training_dynamic = ds_training_dynamic.to_array(dim='feature', name='Dynamic').transpose('time', 'node', 'feature')
-    if ds_validation_dynamic is not None:
-        da_validation_dynamic = ds_validation_dynamic.to_array(dim='feature', name='Dynamic').transpose('time', 'node', 'feature')
-    else: 
-        da_validation_dynamic = None
-    if ds_training_bc is not None:
-        da_training_bc = ds_training_bc.to_array(dim='feature', name='BC').transpose('time', 'node', 'feature')
-    else:
-        da_training_bc = None
-    if ds_validation_bc is not None:
-        da_validation_bc = ds_validation_bc.to_array(dim='feature', name='BC').transpose('time', 'node', 'feature')
-    else:
-        da_validation_bc = None
-    if ds_static is not None: 
-        da_static = ds_static.to_array(dim='feature', name='Static').transpose('node','feature') 
-    else: 
-        da_static = None
-    print('- Conversion to xarray DataArrays: {:.2f}s'.format(time.time() - t_i))
-    #-------------------------------------------------------------------------.
-    # Define batch dimensions 
-    dim_info = {}
-    dim_info['batch_dim'] = 0
-    dim_info['time'] = 1
-    dim_info['node'] = 2
-    dim_info['feature'] = 3    
-    ##------------------------------------------------------------------------. 
-    ### Create training Autoregressive Dataset and DataLoader    
-    t_i = time.time()
-    trainingDataset = AutoregressiveDataset(da_dynamic = da_training_dynamic,  
-                                            da_bc = da_training_bc,
-                                            da_static = da_static,
-                                            # Autoregressive settings  
-                                            input_k = input_k,
-                                            output_k = output_k,
-                                            forecast_cycle = forecast_cycle,                           
-                                            AR_iterations = AR_iterations, 
-                                            stack_most_recent_prediction = stack_most_recent_prediction, 
-                                            # GPU settings 
-                                            device = device,
-                                            # Precision settings
-                                            numeric_precision = numeric_precision)
-    print('- Creation of Training AutoregressiveDataset: {:.2f}s'.format(time.time() - t_i))
-    
-    t_i = time.time()
-    trainingDataLoader = AutoregressiveDataLoader(dataset = trainingDataset, 
-                                                  dim_info = dim_info,                                                   
-                                                  batch_size = training_batch_size,  
-                                                  drop_last_batch = drop_last_batch,
-                                                  random_shuffle = random_shuffle,
-                                                  num_workers = num_workers,
-                                                  prefetch_factor = prefetch_factor, 
-                                                  prefetch_in_GPU = prefetch_in_GPU,  
-                                                  pin_memory = pin_memory,
-                                                  asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
-                                                  device = device)
-    print('- Creation of Training AutoregressiveDataLoader: {:.2f}s'.format(time.time() - t_i))
-    
-    ### Create validation Autoregressive Dataset and DataLoader
-    if da_validation_dynamic is not None:
-        t_i = time.time()
-        validationDataset = AutoregressiveDataset(da_dynamic = da_validation_dynamic,  
-                                                  da_bc = da_validation_bc,
-                                                  da_static = da_static,   
-                                                  # Autoregressive settings  
-                                                  input_k = input_k,
-                                                  output_k = output_k,
-                                                  forecast_cycle = forecast_cycle,                           
-                                                  AR_iterations = AR_iterations, 
-                                                  stack_most_recent_prediction = stack_most_recent_prediction, 
-                                                  # GPU settings 
-                                                  device = device,
-                                                  # Precision settings
-                                                  numeric_precision = numeric_precision)
-        print('- Creation of Validation AutoregressiveDataset: {:.2f}s'.format(time.time() - t_i))
-        validationDataLoader = AutoregressiveDataLoader(dataset = validationDataset, 
-                                                        dim_info = dim_info,
-                                                        batch_size = validation_batch_size,  
-                                                        drop_last_batch = drop_last_batch,
-                                                        random_shuffle = random_shuffle,
-                                                        num_workers = num_workers,
-                                                        prefetch_in_GPU = prefetch_in_GPU,  
-                                                        prefetch_factor = prefetch_factor, 
-                                                        pin_memory = pin_memory,
-                                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
-                                                        device = device)
-        print('- Creation of Validation AutoregressiveDataLoader: {:.2f}s'.format(time.time() - t_i))
-    else: 
-        validationDataLoader = None
-    
-    ##------------------------------------------------------------------------. 
-    return trainingDataLoader, validationDataLoader
