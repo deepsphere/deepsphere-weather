@@ -26,7 +26,7 @@ class TrainingInfo():
         #---------------------------------------------------------------------.
         # Initialize iteration counts
         self.iteration = 0        # to keep track of the total number of forward-backward pass
-        self.current_epoch_iteration = 0  # to keep track of iteration within the epoc
+        self.current_epoch_iteration = 0  # to keep track of iteration within the epoch
         self.score_interval = 0   # to decide when to score 
         #---------------------------------------------------------------------.
         # - Initialize dictionary to save the loss at different leadtimes

@@ -7,7 +7,7 @@ Created on Sun Jan  3 18:46:41 2021
 """
 import time
 import xarray as xr
-from modules.utils_io import check_Datasets
+from modules.utils_io import check_AR_Datasets
 
 
 ##----------------------------------------------------------------------------.
@@ -53,11 +53,11 @@ def reformat_Datasets(ds_training_dynamic,
                       preload_data_in_CPU = False):
     ##------------------------------------------------------------------------. 
     # Check Datasets are in the expected format for AR training 
-    check_Datasets(ds_training_dynamic = ds_training_dynamic,
-                   ds_validation_dynamic = ds_validation_dynamic,
-                   ds_static = ds_static,              
-                   ds_training_bc = ds_training_bc,         
-                   ds_validation_bc = ds_validation_bc)   
+    check_AR_Datasets(ds_training_dynamic = ds_training_dynamic,
+                      ds_validation_dynamic = ds_validation_dynamic,
+                      ds_static = ds_static,              
+                      ds_training_bc = ds_training_bc,         
+                      ds_validation_bc = ds_validation_bc)   
                   
     ##------------------------------------------------------------------------.
     ### Load all data into CPU memory here if asked 

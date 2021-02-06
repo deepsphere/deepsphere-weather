@@ -28,11 +28,15 @@ from modules.utils_config import pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
+
 from modules.utils_io import get_AR_model_diminfo
-from modules.utils_io import check_DataArrays_dimensions
+from modules.utils_io import check_AR_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
+from modules.predictions_autoregressive import AutoregressivePredictions
+
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
+
 ## Project specific functions
 from modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
 from modules.xscaler import LoadScaler
@@ -139,12 +143,13 @@ cfg['dataloader_settings']["drop_last_batch"] = False
  
 #-----------------------------------------------------------------------------.
 ### Scale data with xscaler 
-# dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
-# bc_scaler = GlobalStandardScaler(data=ds_bc)
-# static_scaler = GlobalStandardScaler(data=ds_static)
+dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
+dynamic_scaler.fit()
 
-# dynamic_scaler.fit()
+# bc_scaler = GlobalStandardScaler(data=ds_bc)
 # bc_scaler.fit()
+
+# static_scaler = GlobalStandardScaler(data=ds_static)
 # static_scaler.fit()
 
 # dynamic_scaler.save("/home/ghiggi/dynamic_scaler.nc")
@@ -190,11 +195,17 @@ da_validation_dynamic = dict_DataArrays['da_validation_dynamic']
 da_training_bc = dict_DataArrays['da_training_bc']
 da_validation_bc = dict_DataArrays['da_validation_bc']
 
-check_DataArrays_dimensions(da_training_dynamic = da_training_dynamic,
-                            da_validation_dynamic = da_validation_dynamic,
-                            da_static = da_static,              
-                            da_training_bc = da_training_bc,         
-                            da_validation_bc = da_validation_bc)                         
+# to debug
+da_test_dynamic = da_training_dynamic
+da_test_static = da_static             
+da_bc = da_test_bc = da_training_bc
+                                         
+check_AR_DataArrays(da_training_dynamic = da_training_dynamic,
+                    da_validation_dynamic = da_validation_dynamic,
+                    da_static = da_static,              
+                    da_training_bc = da_training_bc,         
+                    da_validation_bc = da_validation_bc,
+                    verbose=True)                         
 
 #-----------------------------------------------------------------------------.
 
@@ -288,7 +299,7 @@ write_config_file(cfg = cfg,
 
 ##------------------------------------------------------------------------.
 # Print model settings 
-print_model_description(cfg)
+# print_model_description(cfg)
 
 ##------------------------------------------------------------------------.
 ### - Define custom loss function 
@@ -332,7 +343,7 @@ early_stopping = EarlyStopping(patience = patience,
 # LR_scheduler = optim.lr_scheduler.ReduceLROnPlateau
 LR_scheduler = None
 ##------------------------------------------------------------------------.
-# Train the model 
+### - Train the model 
 training_info = AutoregressiveTraining(model = model,
                                        model_fpath = model_fpath,  
                                        # Loss settings 
@@ -372,21 +383,112 @@ training_info = AutoregressiveTraining(model = model,
                                        device = device)
 
 #-------------------------------------------------------------------------.
-    # Create plots related to training evolution                     
+# Create plots related to training evolution  
+# --> Savefig option   
+
+import pickle 
+
+with open('/home/ghiggi/training_info.pickle', 'wb') as handle:
+    pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+with open('/home/ghiggi/training_info.pickle', 'rb') as handle:
+    training_info1 = pickle.load(handle)
+
+
+training_info
+import matplotlib.pyplot as plt 
+
+AR_iterations = training_info.AR_iterations
+i = 0    # 
+
+### Plot loss per number of AR iterations (for all AR iteration)
+# - Add iteration on bottom x axis 
+# - Add epoch on top x axis 
+# - Add ylabels 
+# - Add title 
+# - Add legend (training/validation)
+
+# --> Plot only training (with all leadtimes) 
+# --> Plot only validation (with all leadtimes) 
+# --> Plot training/validation (for each leadtime) 
+
+training_iteration = training_info.training_loss_per_leadtime[i]['iteration'] 
+training_loss = training_info.training_loss_per_leadtime[i]['loss'] 
+validation_iteration = training_info.validation_loss_per_leadtime[i]['iteration'] 
+validation_loss = training_info.validation_loss_per_leadtime[i]['loss'] 
+plt.plot(training_iteration, training_loss)
+plt.plot(validation_iteration, validation_loss)
+
+### Plot total loss 
+# - Add iteration on bottom x axis 
+# - Add epoch on top x axis 
+# - Add ylabels 
+# - Add title 
+# - Add legend (training/validation)
+iteration_list = training_info.iteration_list
+training_total_loss = training_info.training_total_loss
+validation_total_loss = training_info.validation_total_loss
+plt.plot(iteration_list, training_total_loss)
+plt.plot(iteration_list, validation_total_loss)
+
+
+## TODO: Add self iteration_changing_epoch (plot vertical line)
+
+## Iterations at which AR weight took place 
+iter_AR_update = [training_info.training_loss_per_leadtime[i]['iteration'][0] for i in range(AR_iterations+1)]
+# iter_AR_update --> Remove 1 
+
+## TODO: Smooth loss by averaging over X values ... 
+
+## Plot AR weights     
+# --> Take from examples ...          
+AR_weights_per_leadtime[i]['iteration'] = []
+AR_weights_per_leadtime[i]['AR_absolute_weights'] = []
+AR_weights_per_leadtime[i]['AR_weights'] = []
+## Plot execution time x n. AR iterations 
+
+#-------------------------------------------------------------------------.
+### - Create predictions 
+zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
+# zarr_fpath = os.path.join(exp_dir, "/model_predictions/temporal_chunks/test_pred.zarr")
+ds_forecasts = AutoregressivePredictions(model = model, 
+                                         # Data
+                                         da_dynamic = da_test_dynamic,
+                                         da_static = da_test_static,              
+                                         da_bc = da_test_bc, 
+                                         scaler = dynamic_scaler,
+                                         # Dataloader options
+                                         device = 'cpu',
+                                         batch_size = 100,  # number of forecasts per batch
+                                         num_workers = 0, 
+                                         prefetch_factor = 2, 
+                                         prefetch_in_GPU = False,  
+                                         pin_memory = True,
+                                         asyncronous_GPU_transfer = True,
+                                         numeric_precision = training_settings['numeric_precision'], 
+                                         # Autoregressive settings
+                                         input_k = AR_settings['input_k'], 
+                                         output_k = AR_settings['output_k'], 
+                                         forecast_cycle = AR_settings['forecast_cycle'],                         
+                                         stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
+                                         AR_iterations = 100, 
+                                         # Save options 
+                                         zarr_fpath = zarr_fpath,  # None --> do not write to disk
+                                         rounding = 2,             # Default None. Accept also a dictionary 
+                                         compressor = "auto",      # Accept also a dictionary per variable
+                                         chunks = "auto",          
+                                         timedelta_unit='hour')
     
-    #-------------------------------------------------------------------------.
-    # Create predictions 
+    ##------------------------------------------------------------------------.
+    ### - Run deterministic verification 
     
-    #-------------------------------------------------------------------------.
-    # Run deterministic verification 
+    ##------------------------------------------------------------------------.
+    ### - Create verification summaries 
     
-    #-------------------------------------------------------------------------.
-    # Create verification summaries 
+    ##------------------------------------------------------------------------.
+    ### - Create verification maps 
     
-    #-------------------------------------------------------------------------.
-    # Create verification maps 
-    
-    #-------------------------------------------------------------------------.
-    # Create animations 
+    ##------------------------------------------------------------------------.
+    ### - Create animations 
     
     #-------------------------------------------------------------------------.

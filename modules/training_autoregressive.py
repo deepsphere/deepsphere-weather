@@ -20,8 +20,7 @@ from modules.utils_autoregressive import get_dict_stack_info
 from modules.utils_autoregressive import check_AR_settings
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
-from modules.utils_io import check_DataArrays_dimensions
-
+from modules.utils_io import check_AR_DataArrays 
 from modules.utils_training import TrainingInfo
 from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
@@ -104,11 +103,11 @@ def AutoregressiveTraining(model,
                       stack_most_recent_prediction = stack_most_recent_prediction)    
     ##------------------------------------------------------------------------.
     # Check that DataArrays are valid 
-    check_DataArrays_dimensions(da_training_dynamic = da_training_dynamic,
-                                da_validation_dynamic = da_validation_dynamic, 
-                                da_training_bc = da_training_bc,
-                                da_validation_bc = da_validation_bc, 
-                                da_static = da_static)
+    check_AR_DataArrays(da_training_dynamic = da_training_dynamic,
+                        da_validation_dynamic = da_validation_dynamic, 
+                        da_training_bc = da_training_bc,
+                        da_validation_bc = da_validation_bc, 
+                        da_static = da_static)
     ##------------------------------------------------------------------------.
     ## Autotune DataLoaders 
     # --> Tune the number of num_workers for best performance 
@@ -222,9 +221,10 @@ def AutoregressiveTraining(model,
     for epoch in range(epochs):
         training_info.new_epoch()
         model.train() # Set model layers (i.e. batchnorm) in training mode 
-        ##--------------------------------------------------------------------. 
+        ##--------------------------------------------------------------------.
         # Iterate along training batches       
-        for training_batch_dict in trainingDataLoader:   
+        for training_batch_dict in trainingDataLoader:  
+            
             print(".", end="")
             ##----------------------------------------------------------------.      
             # Perform autoregressive training loop
