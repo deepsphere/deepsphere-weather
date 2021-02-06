@@ -21,6 +21,7 @@ from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_autoregressive import check_AR_settings
 from modules.utils_io import is_dask_DataArray
+from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import get_torch_dtype
 from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
@@ -100,10 +101,14 @@ class AutoregressiveDataset(Dataset):
 
         """        
         ##--------------------------------------------------------------------.
-        # Checks 
+        # Checks device 
         device = check_torch_device(device)
         if AR_iterations > max_AR_iterations:
             raise ValueError("'AR_iterations' can not exceed 'max_AR_iterations'")
+        # Check DataArrays   
+        check_AR_DataArrays(da_training_dynamic = da_dynamic,
+                            da_training_bc = da_bc,
+                            da_static = da_static)  
         ## -------------------------------------------------------------------.
         ### - Initialize autoregressive configs   
         self.input_k = input_k 
@@ -122,9 +127,8 @@ class AutoregressiveDataset(Dataset):
         dim_info['node'] = np.argwhere(np.array(dims) == 'node')[0][0] + 1 
         dim_info['feature'] = np.argwhere(np.array(dims) == 'feature')[0][0] + 1  
         self.dim_info = dim_info 
-
         ##--------------------------------------------------------------------.
-        ### - Define data precision
+        #### - Define data precision
         torch_dtype = get_torch_dtype(numeric_precision)
         self.torch_dtype = torch_dtype
         
@@ -159,6 +163,7 @@ class AutoregressiveDataset(Dataset):
     ##------------------------------------------------------------------------.
     def __getitem__(self, idx):
         """Return sample and label corresponding to an index as torch.Tensor objects."""
+        # rel_idx correspond to input_k and output_k (aka leadtime_idx)
         # TODO:
         # - Wrap already into torch ? 
         # - Check if dask cause problems 
@@ -192,6 +197,21 @@ class AutoregressiveDataset(Dataset):
                 dict_X_dynamic_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_X_dynamic[i]).values), dtype=self.torch_dtype)
             else: 
                 dict_X_dynamic_data[i] = None
+        ##--------------------------------------------------------------------.
+        ## Retrieve forecast time infos     
+        # - Forecast reference time 
+        forecast_reference_time = self.da_dynamic.isel(time=xr_idx_k_0).time.values
+        # - Forecast leadtime_idx 
+        dict_forecast_leadtime_idx = self.dict_rel_idx_Y
+        # - Forecasted time
+        dict_forecasted_time = {}
+        for i in range(self.AR_iterations + 1): 
+            dict_forecasted_time[i] = da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).time.values 
+        # - Create forecast_time_info dictionary 
+        forecast_time_info = {'forecast_reference_time': forecast_reference_time,
+                              'dict_forecast_leadtime_idx': dict_forecast_leadtime_idx,
+                              'dict_forecasted_time': dict_forecasted_time}
+         
         ## -------------------------------------------------------------------.
         ### Retrieve boundary conditions data (if provided)
         if self.da_bc is not None: 
@@ -213,7 +233,7 @@ class AutoregressiveDataset(Dataset):
         
         ## -------------------------------------------------------------------.
         # Return the sample dictionary  
-        return {'X_dynamic': dict_X_dynamic_data, 'X_bc': dict_X_bc_data, 'Y': dict_Y_data}
+        return {'X_dynamic': dict_X_dynamic_data, 'X_bc': dict_X_bc_data, 'Y': dict_Y_data, 'forecast_time_info': forecast_time_info}
     
     def update_indexing(self):
         """Update indices."""
@@ -288,15 +308,22 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
     """Stack the list of samples into batch of data."""
     # list_samples is a list of what returned by __get_item__ of AutoregressiveDataset
     ##------------------------------------------------------------------------.
-    # Retrieve the different data 
+    # Retrieve the different data (and forecast time info)
     list_X_dynamic_samples = []
     list_X_bc_samples = []
     list_Y_samples = []
+    
+    list_forecast_reference_time = []
+    list_dict_forecasted_time = []
+    dict_forecast_leadtime_idx = list_samples[0]['forecast_time_info']['dict_forecast_leadtime_idx']
+
     for dict_samples in list_samples:
         list_X_dynamic_samples.append(dict_samples['X_dynamic'])
         list_X_bc_samples.append(dict_samples['X_bc'])
         list_Y_samples.append(dict_samples['Y'])
-        
+        # Forecast time info 
+        list_forecast_reference_time.append(dict_samples['forecast_time_info']['forecast_reference_time'])
+        list_dict_forecasted_time.append(dict_samples['forecast_time_info']['dict_forecasted_time'])
     ##------------------------------------------------------------------------.
     # Retrieve the number of autoregressive iterations 
     AR_iterations = len(list_X_dynamic_samples[0]) - 1
@@ -336,6 +363,14 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
                 dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=0) 
         else:
             dict_X_bc_batched[i] = None   
+    ##------------------------------------------------------------------------. 
+    # Assemble forecast_time_info 
+    # dict_forecast_leadtime_idx
+    # list_dict_forecasted_time 
+    forecast_reference_time = np.stack(list_forecast_reference_time)
+    forecast_time_info = {"forecast_reference_time": forecast_reference_time,
+                          "dict_forecast_leadtime_idx": dict_forecast_leadtime_idx}
+ 
     ##------------------------------------------------------------------------.
     # Prefetch to GPU if asked
     if prefetch_in_GPU:
@@ -352,6 +387,7 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
                   'X_static': torch_static,
                   'Y': dict_Y_batched, 
                   'dim_info': dim_info, 
+                  'forecast_time_info': forecast_time_info,
                   'dict_Y_to_stack': dict_Y_to_stack,
                   'prefetched_in_GPU': prefetch_in_GPU}
     
