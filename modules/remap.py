@@ -506,7 +506,8 @@ def cdo_genweights(method,
                    src_fpath,
                    weights_fpath, 
                    normalization = 'fracarea',
-                   n_threads = 1):
+                   n_threads = 1,
+                   verbose = True):
     """
     Wrap around CDO gen* to compute interpolation weights.
 
@@ -583,7 +584,8 @@ def cdo_genweights(method,
                         src_fpath, " ",
                         weights_fpath])    
     # Run command
-    flag_cmd = subprocess.run(command, shell=True, capture_output=False)
+    capture_output = not verbose 
+    flag_cmd = subprocess.run(command, shell=True, capture_output=capture_output)
     if (flag_cmd.returncode != 0):
         raise ValueError("An error with code {} occured during the computation of interpolation weights with CDO.".format(flag_cmd.returncode))
     return
@@ -879,7 +881,9 @@ def compute_interpolation_weights(src_graph, dst_graph,
                                   src_CDO_grid_fpath = None, 
                                   dst_CDO_grid_fpath = None, 
                                   recreate_CDO_grids = False,
-                                  return_weights = True): 
+                                  return_weights = True,
+                                  n_threads = 1, 
+                                  verbose=False): 
     """
     Compute interpolation weights between two pygsp spherical samplings.
     
@@ -914,6 +918,8 @@ def compute_interpolation_weights(src_graph, dst_graph,
     recreate_CDO_grids : bool, optional
         Wheter to redefine the CDO grids if src_CDO_grid_fpath or dst_CDO_grid_fpath are provided.
         The default is False.
+    n_threads : int, optional
+        Number of threads to compute the interpolation weights. The default is 1.
     return_weights : bool, optional
         Wheter to return the interpolation weights. The default is True.
 
@@ -970,7 +976,8 @@ def compute_interpolation_weights(src_graph, dst_graph,
                    src_fpath = src_fpath,
                    weights_fpath = weights_fpath, 
                    normalization = normalization,
-                   n_threads = 1)
+                   n_threads = n_threads,
+                   verbose=verbose)
     ##-------------------------------------------------------------------------.
     # Load the weights if required
     if (return_weights):
@@ -1162,7 +1169,9 @@ def compute_interpolation_weights_Healpix(src_graph, dst_graph,
                                           src_CDO_grid_fpath = None, 
                                           dst_CDO_grid_fpath = None, 
                                           recreate_CDO_grids = False,
-                                          return_weights = True): 
+                                          return_weights = True,
+                                          n_threads = 1,
+                                          verbose = False): 
     """
     Compute interpolation weights between two Healpix samplings.
    
@@ -1199,6 +1208,8 @@ def compute_interpolation_weights_Healpix(src_graph, dst_graph,
     recreate_CDO_grids : bool, optional
         Wheter to redefine the CDO grids if src_CDO_grid_fpath or dst_CDO_grid_fpath are provided.
         The default is False.
+    n_threads : int, optional
+        Number of threads to compute the interpolation weights. The default is 1.
     return_weights : bool, optional
         Wheter to return the interpolation weights. The default is True.
 
@@ -1208,7 +1219,6 @@ def compute_interpolation_weights_Healpix(src_graph, dst_graph,
         Xarray Dataset with the interpolation weights.
 
     """
-    ### TODO REMOVE in future ! Used to choose correct CDO conservative scheme
     # Check arguments  
     check_interp_method(method)
     check_normalization(normalization)
@@ -1256,7 +1266,8 @@ def compute_interpolation_weights_Healpix(src_graph, dst_graph,
                    src_fpath = src_fpath,
                    weights_fpath = weights_fpath, 
                    normalization = normalization,
-                   n_threads = 1)
+                   n_threads = n_threads,
+                   verbose = verbose)
     ##------------------------------------------------------------------------.
     # Load the weights if required
     if (return_weights):
