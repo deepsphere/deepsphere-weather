@@ -9,7 +9,9 @@ import os
 import warnings
 import time
 import torch
+import pickle 
 import numpy as np
+import matplotlib.pyplot as plt
 from torch import nn, optim
 
 os.chdir("/home/ghiggi/Projects/weather_prediction/")
@@ -28,7 +30,7 @@ from modules.utils_config import pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
-
+from modules.utils_config import print_dim_info
 from modules.utils_io import get_AR_model_diminfo
 from modules.utils_io import check_AR_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
@@ -73,6 +75,8 @@ warnings.filterwarnings("ignore")
 
 # Torch precision 
 # --> Set torch.set_default_tensor_type() 
+
+## Code for measuring execution time as function of n. AR iterations 
 
 # - Example applications
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/config.example.yml
@@ -129,7 +133,11 @@ cfg['AR_settings']['AR_iterations'] = 3
 # cfg['AR_settings']['forecast_cycle'] = 6
 # cfg['AR_settings']['AR_iterations'] = 10
 
-cfg['training_settings']["scoring_interval"] = 1
+cfg['training_settings']["scoring_interval"] = 5
+cfg['training_settings']["training_batch_size"] = 16
+cfg['training_settings']["validation_batch_size"] = 16
+cfg['training_settings']["epochs"] = 5
+
 cfg['training_settings']['numeric_precision'] = "float32"
 
 cfg['dataloader_settings']["preload_data_in_CPU"] = True
@@ -243,7 +251,9 @@ dim_info = get_AR_model_diminfo(AR_settings=AR_settings,
                                 da_bc=da_training_bc)
 
 model_settings['dim_info'] = dim_info
-print_model_description(dim_info)
+
+print_dim_info(dim_info)
+ 
 
 ##------------------------------------------------------------------------.
 ### Define the model architecture   
@@ -299,7 +309,7 @@ write_config_file(cfg = cfg,
 
 ##------------------------------------------------------------------------.
 # Print model settings 
-# print_model_description(cfg)
+print_model_description(cfg)
 
 ##------------------------------------------------------------------------.
 ### - Define custom loss function 
@@ -382,70 +392,55 @@ training_info = AutoregressiveTraining(model = model,
                                        # GPU settings 
                                        device = device)
 
-#-------------------------------------------------------------------------.
-# Create plots related to training evolution  
-# --> Savefig option   
-
-import pickle 
-
-with open('/home/ghiggi/training_info.pickle', 'wb') as handle:
+# Save AR TrainingInfo
+with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
     pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-with open('/home/ghiggi/training_info.pickle', 'rb') as handle:
-    training_info1 = pickle.load(handle)
+# # Load AR TrainingInfo
+# with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
+#     training_info = pickle.load(handle)
+    
+##------------------------------------------------------------------------.
+### Create plots related to training evolution  
+## - Plot the loss at all AR iterations (in one figure)
+fig, ax = plt.subplots()
+for AR_iteration in range(training_info.AR_iterations+1):
+    ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+                                                  ax = ax,
+                                                  linestyle="solid",
+                                                  plot_validation = False, 
+                                                  plot_labels = True,
+                                                  plot_legend = False)
+ax.legend(labels=list(range(training_info.AR_iterations + 1)), title="AR iteration", loc='upper right')
+plt.gca().set_prop_cycle(None) # Reset color cycling 
+for AR_iteration in range(training_info.AR_iterations+1):
+    ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+                                                  ax = ax,
+                                                  linestyle="dashed",
+                                                  plot_training = False, 
+                                                  plot_labels = False,
+                                                  plot_legend = False)  
+# - Add vertical line when AR iteration is added
+iterations_of_AR_updates = training_info.iterations_of_AR_updates()
+if len(iterations_of_AR_updates) > 0: 
+    [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+# - Save figure
+fig.savefig(os.path.join(exp_dir, "figs/training_info/Loss_at_all_AR_iterations.png"))    
+##------------------------------------------------------------------------.   
+## - Plot the loss at each AR iteration (in separate figures)
+for AR_iteration in range(training_info.AR_iterations+1):
+    fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
+    training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+                                             title="Loss evolution at AR iteration {}".format(AR_iteration)).savefig(fname) 
 
+##------------------------------------------------------------------------.
+## - Plot total loss 
+training_info.plot_total_loss().savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
 
-training_info
-import matplotlib.pyplot as plt 
-
-AR_iterations = training_info.AR_iterations
-i = 0    # 
-
-### Plot loss per number of AR iterations (for all AR iteration)
-# - Add iteration on bottom x axis 
-# - Add epoch on top x axis 
-# - Add ylabels 
-# - Add title 
-# - Add legend (training/validation)
-
-# --> Plot only training (with all leadtimes) 
-# --> Plot only validation (with all leadtimes) 
-# --> Plot training/validation (for each leadtime) 
-
-training_iteration = training_info.training_loss_per_leadtime[i]['iteration'] 
-training_loss = training_info.training_loss_per_leadtime[i]['loss'] 
-validation_iteration = training_info.validation_loss_per_leadtime[i]['iteration'] 
-validation_loss = training_info.validation_loss_per_leadtime[i]['loss'] 
-plt.plot(training_iteration, training_loss)
-plt.plot(validation_iteration, validation_loss)
-
-### Plot total loss 
-# - Add iteration on bottom x axis 
-# - Add epoch on top x axis 
-# - Add ylabels 
-# - Add title 
-# - Add legend (training/validation)
-iteration_list = training_info.iteration_list
-training_total_loss = training_info.training_total_loss
-validation_total_loss = training_info.validation_total_loss
-plt.plot(iteration_list, training_total_loss)
-plt.plot(iteration_list, validation_total_loss)
-
-
-## TODO: Add self iteration_changing_epoch (plot vertical line)
-
-## Iterations at which AR weight took place 
-iter_AR_update = [training_info.training_loss_per_leadtime[i]['iteration'][0] for i in range(AR_iterations+1)]
-# iter_AR_update --> Remove 1 
-
-## TODO: Smooth loss by averaging over X values ... 
-
-## Plot AR weights     
-# --> Take from examples ...          
-AR_weights_per_leadtime[i]['iteration'] = []
-AR_weights_per_leadtime[i]['AR_absolute_weights'] = []
-AR_weights_per_leadtime[i]['AR_weights'] = []
-## Plot execution time x n. AR iterations 
+##------------------------------------------------------------------------.
+## - Plot AR weights  
+training_info.plot_AR_weights(normalized=True).savefig(os.path.join(exp_dir, "figs/training_info/AR_Normalized_Weights.png"))
+training_info.plot_AR_weights(normalized=False).savefig(os.path.join(exp_dir, "figs/training_info/AR_Absolute_Weights.png"))   
 
 #-------------------------------------------------------------------------.
 ### - Create predictions 
@@ -471,7 +466,7 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          output_k = AR_settings['output_k'], 
                                          forecast_cycle = AR_settings['forecast_cycle'],                         
                                          stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                         AR_iterations = 100, 
+                                         AR_iterations = 20, 
                                          # Save options 
                                          zarr_fpath = zarr_fpath,  # None --> do not write to disk
                                          rounding = 2,             # Default None. Accept also a dictionary 

@@ -60,26 +60,39 @@ validation_batch_size = training_settings['validation_batch_size']
 epochs = training_settings['epochs']
 scoring_interval = training_settings['scoring_interval']
 save_model_each_epoch = training_settings['save_model_each_epoch']
-
-preload_data_in_CPU = True
-random_shuffle = True
-num_workers = 0
-pin_memory = False
-asyncronous_GPU_transfer = True
-# Autoregressive settings  
-input_k = [-3,-2,-1]
-output_k = [0]
-forecast_cycle = 1                         
-AR_iterations = 2
-stack_most_recent_prediction = True
-# Training settings 
-learning_rate = 0.001 
-batch_size = 128
-epochs = 10
-training_info = None
-numeric_precision = "float32"
-# GPU settings 
-device = 'cpu'
-
-num_workers = 0
 shuffle = random_shuffle
+rounding = 2
+batch_size = 30
+timedelta_type='timedelta64[h]'
+
+da_dynamic = da_training_dynamic  
+da_bc = da_training_bc  
+da_static = da_static   
+    
+
+
+
+
+
+# preload_data_in_CPU = True
+# random_shuffle = True
+# num_workers = 0
+# pin_memory = False
+# asyncronous_GPU_transfer = True
+# # Autoregressive settings  
+# input_k = [-3,-2,-1]
+# output_k = [0]
+# forecast_cycle = 1                         
+# AR_iterations = 2
+# stack_most_recent_prediction = True
+# # Training settings 
+# learning_rate = 0.001 
+# batch_size = 128
+# epochs = 10
+# training_info = None
+# numeric_precision = "float32"
+# # GPU settings 
+# device = 'cpu'
+
+# num_workers = 0
+

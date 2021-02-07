@@ -209,7 +209,7 @@ def check_AR_iterations(AR_iterations):
     if AR_iterations < 0:
         raise ValueError("'AR_iterations' must be a positive integer value")       
     if (AR_iterations >= 1):
-        print(' - Autoregressive training with %d iterations --> Specified.'% AR_iterations)
+        print(' - Autoregressive training with %d AR iterations --> Specified.'% AR_iterations)
     return None 
 
 def check_forecast_cycle(forecast_cycle, AR_iterations):
