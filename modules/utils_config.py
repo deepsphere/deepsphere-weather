@@ -9,19 +9,11 @@ import os
 import sys
 import json
 import torch
-import random
 import shutil
-import importlib
-import importlib.util
 import numpy as np
 
 from modules.utils_torch import set_pytorch_deterministic
-from modules.utils_io import check_DataArray_dim_names
 #-----------------------------------------------------------------------------.
-# Keys values:
-# conv_type --> Graph  Capital (or DeepSphere)
-# pool_method --> Max  Capital   
-
 ########################
 ### Default settings ###
 ########################
@@ -34,8 +26,8 @@ def get_default_model_settings():
                       "model_name": None, 
                       "model_name_suffix": None, 
                       "knn": 20, 
-                      "conv_type": "graph",
-                      "pool_method": "max",
+                      "conv_type": "Graph",
+                      "pool_method": "Max",
                       "ratio": None,
                       "periodic": None,
                       "kernel_size": 3, 
@@ -359,7 +351,7 @@ def pytorch_settings(training_settings):
         if torch.cuda.is_available():
             device = torch.device(GPU_devices_ids[0])
         else:
-            print("GPU is not available. Switching to CPU.")
+            print("- GPU is not available. Switching to CPU !")
             device = torch.device('cpu')
     else:
         device = torch.device('cpu')   
@@ -433,7 +425,9 @@ def create_experiment_directories(model_dir, model_name, force=False):
     ##------------------------------------------------------------------------.
     # Define standard directories 
     model_weights_dir = os.path.join(exp_dir, "model_weights")
-    figures_dir = os.path.join(exp_dir, "figures")
+    figures_dir = os.path.join(exp_dir, "figs")
+    figs_skills_dir = os.path.join(figures_dir, "skills")
+    figs_training_info_dir = os.path.join(figures_dir, "training_info")
     model_predictions_dir = os.path.join(exp_dir, "model_predictions")
     spatial_chunks_dir = os.path.join(model_predictions_dir, "spatial_chunks")
     temporal_chunks_dir = os.path.join(model_predictions_dir, "temporal_chunks")
@@ -443,7 +437,8 @@ def create_experiment_directories(model_dir, model_name, force=False):
     ##------------------------------------------------------------------------.
     # Create directories     
     os.makedirs(model_weights_dir, exist_ok=False)
-    os.makedirs(figures_dir, exist_ok=False) 
+    os.makedirs(figs_skills_dir, exist_ok=False) 
+    os.makedirs(figs_training_info_dir, exist_ok=False) 
     os.makedirs(model_skills_dir, exist_ok=False) 
     os.makedirs(training_info_dir, exist_ok=False) 
     os.makedirs(spatial_chunks_dir, exist_ok=False) 
@@ -457,18 +452,35 @@ def create_experiment_directories(model_dir, model_name, force=False):
 #########################
 ### Print model info ####
 #########################
-def pretty_printing(d, indent=0):
+def pretty_printing(d, indent=0, indent_factor=2):
     """Pretty pritting of nested dictionaries."""
     for key, value in d.items():
-        print('\t' * indent + str(key))
+        print((' '*indent*indent_factor) + "- " + str(key) + ":", end="")
         if isinstance(value, dict):
-            pretty_printing(value, indent+1)
+            print(end="\n")
+            pretty_printing(value, indent=indent+1, indent_factor=indent_factor)
         else:
-            print('\t' * (indent+1) + str(value))
-         
+            print(' ' + str(value), end="\n")
+
+
+# def pretty_printing(d, indent=0):
+#     """Pretty pritting of nested dictionaries."""
+#     for key, value in d.items():
+#         print('\t' * indent + str(key))
+#         if isinstance(value, dict):
+#             pretty_printing(value, indent+1)
+#         else:
+#             print('\t' * (indent+1) + str(value))
+
+def print_dim_info(dim_info):
+    """Pretty printing of tensor dimension information."""
+    print("- Input-Output Tensors characteristics:")
+    pretty_printing(dim_info, indent=1, indent_factor=2)  
+    
 def print_model_description(cfg, dim_info=None):
-    """Pretty printing of model settings."""
+    """Pretty printing of experiment settings."""
+    print("- Experiment settings:")
     if dim_info is not None: 
         cfg['dim_info'] = dim_info 
-    pretty_printing(cfg)
+    pretty_printing(cfg, indent=1, indent_factor=2)
     
