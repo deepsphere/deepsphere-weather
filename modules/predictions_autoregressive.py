@@ -370,7 +370,7 @@ def AutoregressivePredictions(model,
             ##----------------------------------------------------------------.
             ### Create xarray Dataset of forecasts
             # - Retrieve coords 
-            leadtime_idx = np.arange(4)
+            leadtime_idx = np.arange(tensor_forecasts.shape[1])
             leadtime = leadtime_idx * t_res_timedelta   
             # - Create xarray DataArray 
             da=xr.DataArray(tensor_forecasts,           
