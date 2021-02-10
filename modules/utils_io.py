@@ -34,6 +34,32 @@ def check_no_missing_timesteps(timesteps, verbose=True):
         raise ValueError("The process has been interrupted") 
     return 
 
+def check_finite_Dataset(ds):
+    """Check Dataset does not contain NaN and Inf values."""
+    # Check is a Dataset
+    if not isinstance(ds, xr.Dataset):
+        raise TypeError("'ds' must be an xarray Dataset.")
+    # Check no NaN values
+    ds_isnan = xr.ufuncs.isnan(ds)  
+    list_vars_with_nan = []
+    flag_raise_error = False
+    for var in list(ds_isnan.data_vars.keys()):
+        if ds_isnan[var].sum().values != 0:
+            list_vars_with_nan.append(var)
+            flag_raise_error = True
+    if flag_raise_error is True: 
+        raise ValueError('The variables {} contain NaN values'.format(list_vars_with_nan))
+    # Check no Inf values
+    ds_isinf = xr.ufuncs.isinf(ds)  
+    list_vars_with_inf = []
+    flag_raise_error = False
+    for var in list(ds_isinf.data_vars.keys()):
+        if ds_isinf[var].sum().values != 0:
+            list_vars_with_inf.append(var)
+            flag_raise_error = True
+    if flag_raise_error is True: 
+        raise ValueError('The variables {} contain Inf values.'.format(list_vars_with_inf))
+        
 def check_dimnames_DataArray(da, required_dimnames, da_name):
     """Check dimnames are dimensions of the DataArray."""
     if not isinstance(da_name, str): 
@@ -119,18 +145,18 @@ def check_AR_DataArrays(da_training_dynamic,
             print("- Validation Data time period")
         check_no_missing_timesteps(da_validation_dynamic['time'].values, verbose=verbose)
     if da_training_bc is not None: 
-        check_no_missing_timesteps(da_training_bc['time'].values, verbose=verbose)
+        check_no_missing_timesteps(da_training_bc['time'].values, verbose=False)
     if da_validation_bc is not None: 
-        check_no_missing_timesteps(da_validation_bc['time'].values, verbose=verbose)
+        check_no_missing_timesteps(da_validation_bc['time'].values, verbose=False)
     ##------------------------------------------------------------------------.
     # Check time alignment of training and validation DataArray
     if da_training_bc is not None: 
-        same_timesteps = da_training_dynamic['time'].values == da_training_bc['time'].values
-        if not all(same_timesteps):
+        all_same_timesteps = np.all(da_training_dynamic['time'].values == da_training_bc['time'].values)
+        if not all_same_timesteps:
             raise ValueError("The training dynamic DataArray and the training boundary conditions DataArray does not have the same timesteps!")
     if ((da_validation_dynamic is not None) and (da_validation_bc is not None)): 
-        same_timesteps = da_validation_dynamic['time'].values == da_validation_bc['time'].values
-        if not all(same_timesteps):
+        all_same_timesteps = np.all(da_validation_dynamic['time'].values == da_validation_bc['time'].values)
+        if not all_same_timesteps:
             raise ValueError("The validation dynamic DataArray and the validation boundary conditions DataArray does not have the same timesteps!")
     ##------------------------------------------------------------------------.
     ## Check dimension order coincide
