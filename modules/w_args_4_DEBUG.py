@@ -107,10 +107,13 @@ save_model_each_epoch = training_settings['save_model_each_epoch']
 shuffle = random_shuffle
 rounding = 2
 batch_size = 30
-timedelta_type='timedelta64[h]'
+chunks = "auto" 
+compressor = "auto"
+timedelta_unit = 'hour'
 device = 'cpu'
 
-
+zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
+ 
 # preload_data_in_CPU = True
 # random_shuffle = True
 # num_workers = 0

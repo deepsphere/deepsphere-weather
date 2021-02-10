@@ -36,6 +36,8 @@ from modules.utils_io import get_AR_model_diminfo
 from modules.utils_io import check_AR_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
+from modules.predictions_autoregressive import rechunk_forecasts_for_verification
+from modules.predictions_autoregressive import reshape_forecasts_for_verification
 
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
@@ -489,7 +491,26 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          compressor = "auto",      # Accept also a dictionary per variable
                                          chunks = "auto",          
                                          timedelta_unit='hour')
-    
+##------------------------------------------------------------------------.
+### Reshape forecast Dataset for verification
+# - For efficient verification, data must be contiguous in time, but chunked over space (and leadtime) 
+
+## Reshape on the fly (might work with the current size of data)
+# --> To test ...  
+ds_verification = reshape_forecasts_for_verification(ds_forecasts)
+
+## Reshape from 'forecast_reference_time'-'leadtime' to 'time (aka) forecasted_time'-'leadtime'  
+# - Rechunk Dataset over space on disk and then reshape the for verification
+target_store = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
+ds_verification = rechunk_forecasts_for_verification(ds=ds_forecasts, 
+                                                     chunks="auto", 
+                                                     target_store=target_store,
+                                                     max_mem = '1GB')
+rechunk_forecasts_for_verification
+reshape_forecasts_for_verification
+##------------------------------------------------------------------------.
+
+
     ##------------------------------------------------------------------------.
     ### - Run deterministic verification 
     

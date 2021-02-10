@@ -6,11 +6,15 @@ Created on Sun Jan  3 19:49:16 2021
 @author: ghiggi
 """
 import os
+import shutil
 import time
 import torch
 import zarr
+import dask 
 import numpy as np
 import xarray as xr
+from rechunker import rechunk
+from dask.diagnostics import ProgressBar
 
 from modules.dataloader_autoregressive import get_AR_batch
 from modules.dataloader_autoregressive import remove_unused_Y
@@ -25,6 +29,7 @@ from modules.utils_torch import check_torch_device
 
 # conda install -c conda-forge zarr
 # conda install -c conda-forge cfgrib
+# conda install -c conda-forge rechunker
 
 ##----------------------------------------------------------------------------.
 ### Standard format for coordinates 
@@ -95,8 +100,8 @@ def check_compressor(compressor, variable_names, default_compressor = None):
         raise TypeError("'variable_names' must be a string or a list")
     if isinstance(variable_names, str):
         variable_names = [variable_names]
-    if not all([isinstance(s,str) for s in variable_names]):
-        raise ValueError("Specify all variable names as string within the 'variable_names' list")
+    if not all([isinstance(s, str) for s in variable_names]):
+        raise TypeError("Specify all variable names as string within the 'variable_names' list.")
     # Check compressor type 
     if not (isinstance(compressor, (str, dict, type(None))) or is_numcodecs(compressor)):
         raise TypeError("'compressor' must be a dictionary, numcodecs compressor, 'auto' string or None.")
@@ -108,7 +113,7 @@ def check_compressor(compressor, variable_names, default_compressor = None):
         if compressor == "auto" and default_compressor is not None:
             compressor = default_compressor
         else: 
-            raise ValueError("If 'compressor' is specified as string, must be 'auto'")    
+            raise ValueError("If 'compressor' is specified as string, must be 'auto'.")    
     ##------------------------------------------------------------------------.        
     # If a dictionary, check valid keys and valid compressor
     if isinstance(compressor, dict):
@@ -124,27 +129,58 @@ def check_compressor(compressor, variable_names, default_compressor = None):
     return compressor
 
 ##----------------------------------------------------------------------------.
-def check_chunks(chunks, default_chunks = None):
+def check_chunks(chunks, variable_names, default_chunks = None):
     """Check chunks validity.
     
     chunks = None --> No chunking --> Contiguous.
     chunks = "auto" --> Use default_chunks is specified, otherwise default xarray chunks .
     chunks = {..} --> If default_chunks is specified, check that keys are the same.
     """
+    # Check variable_names and chunks types
     if not isinstance(chunks, (str, dict, type(None))):
-        raise TypeError("'chunks' must be a dictionary, 'auto' or None")
+        raise TypeError("'chunks' must be a dictionary, 'auto' or None.")
+    if isinstance(variable_names, str):
+        variable_names = [variable_names]
+    if not all([isinstance(s, str) for s in variable_names]):
+        raise TypeError("Specify all variable names as string within the 'variable_names' list.")
+    ##------------------------------------------------------------------------.
+    # If a string --> Auto --> Apply default_chunks (if specified)  
     if isinstance(chunks, str): 
         if chunks == "auto" and default_chunks is not None:
             chunks = default_chunks
+        elif chunks == "auto" and default_chunks is None:
+            chunks = None
         else: 
-            raise ValueError("If 'chunks' is specified as string, must be 'auto'")
+            raise ValueError("If 'chunks' is specified as string, must be 'auto'.")
+    ##------------------------------------------------------------------------.
     # If a dictionary, check valid keys and values  
     if isinstance(chunks, dict):
-        if default_chunks is not None:
-            if not np.all(np.isin(list(chunks.keys()), list(default_chunks.keys()))):
-                raise ValueError("The 'chunks' dictionary must contain the keys {}".format(list(default_chunks.keys())))
-        if not all([isinstance(v, int) for v in chunks.values()]):
-            raise ValueError("The 'chunks' values of the dictionary must be integers.")
+        # If a chunk specific for each variable is specified (keys are variable_names)
+        if np.all(np.isin(list(chunks.keys()), variable_names)):
+            if not np.all(np.isin(variable_names, list(chunks.keys()))):
+                raise ValueError("If you specify specific chunks for each variable, please specify it for all variables.")
+            # - Check that the chunk for each dimension is specified
+            for key in chunks.keys():
+                if default_chunks is not None:
+                    if not np.all(np.isin(list(chunks[key].keys()), list(default_chunks.keys()))):
+                        raise ValueError("The 'chunks' dictionary of {} must contain the keys {}".format(key, list(default_chunks.keys())))
+                # - Check that the chunk value are integers
+                if not all([isinstance(v, int) for v in chunks[key].values()]):
+                    raise ValueError("The 'chunks' values of the {} dictionary must be integers.".format(key))
+        # If a common chunk is specified for all variable_names (chunks keys are not variable_names)
+        elif np.all(np.isin(list(chunks.keys()), variable_names, invert=True)):
+            # - Check that the chunk for each dimension is specified
+            if default_chunks is not None:
+                if not np.all(np.isin(list(chunks.keys()), list(default_chunks.keys()))):
+                    raise ValueError("The 'chunks' dictionary must contain the keys {}".format(list(default_chunks.keys())))
+            # - Check that the chunk value are integers
+            if not all([isinstance(v, int) for v in chunks.values()]):
+                raise ValueError("The 'chunks' values of the dictionary must be integers.")
+            # - Specify chunks for each variable
+            chunks = {var: chunks for var in variable_names}
+        else: 
+            raise ValueError("This chunks option has not been implemented.")
+    ##------------------------------------------------------------------------.    
     return chunks 
 
 def check_rounding(rounding, variable_names):
@@ -157,11 +193,11 @@ def check_rounding(rounding, variable_names):
     ##------------------------------------------------------------------------.
     # Check variable_names type 
     if not isinstance(variable_names, (list, str)):
-        raise TypeError("'variable_names' must be a string or a list")
+        raise TypeError("'variable_names' must be a string or a list.")
     if isinstance(variable_names, str):
         variable_names = [variable_names]
     if not all([isinstance(s,str) for s in variable_names]):
-        raise ValueError("Specify all variable names as string within the 'variable_names' list")
+        raise ValueError("Specify all variable names as string within the 'variable_names' list.")
     # Check rounding type 
     if not isinstance(rounding, (int, dict, type(None))):
         raise TypeError("'rounding' must be a dictionary, integer or None.")
@@ -169,7 +205,7 @@ def check_rounding(rounding, variable_names):
     # If a dictionary, check valid keys and valid compressor
     if isinstance(rounding, dict):
         if not np.all(np.isin(list(rounding.keys()), variable_names)):
-            raise ValueError("The 'rounding' dictionary must contain the keys {}".format(variable_names))
+            raise ValueError("The 'rounding' dictionary must contain the keys {}.".format(variable_names))
         if not all([isinstance(v, (int, type(None))) for v in rounding.values()]):
             raise ValueError("The rounding decimals specified in the 'rounding' dictionary must be integers (or None).")
         if any([v < 0 for v in rounding.values() if v is not None]):
@@ -178,17 +214,78 @@ def check_rounding(rounding, variable_names):
     # If a unique compressor, create a dictionary with the same compressor for all variables
     if isinstance(rounding, int):
         if rounding < 0: 
-            raise ValueError("'rounding' decimal value must be larger than 0")
+            raise ValueError("'rounding' decimal value must be larger than 0.")
     ##------------------------------------------------------------------------.    
     return rounding
 
-#----------------------------------------------------------------------------.
+#-----------------------------------------------------------------------------.
+def rechunk_Dataset(ds, chunks, target_store, temp_store, max_mem = '1GB'):
+    """
+    Rechunk on disk a xarray Dataset read lazily from a zarr store.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        A Dataset opened with open_zarr().
+    chunks : dict
+        Custom chunks of the new Dataset.
+        If not specified for each Dataset variable, implicitly assumed.
+    target_store : str
+        Filepath of the zarr store where to save the new Dataset.
+    temp_store : str
+        Filepath of a zarr store where to save temporary data.
+        This store is removed at the end of the rechunking operation. 
+    max_mem : str, optional
+        The amount of memory (in bytes) that workers are allowed to use.
+        The default is '1GB'.
+
+    Returns
+    -------
+    None.
+
+    """
+    ##------------------------------------------------------------------------.
+    # Retrieve variables
+    variable_names = list(ds.data_vars.keys())
+    # Check chunks 
+    target_chunks = check_chunks(chunks=chunks, default_chunks=None, variable_names=variable_names) 
+    ##------------------------------------------------------------------------.
+    # Change chunk value '-1' to length of the dimension 
+    # - rechunk and zarr do not currently support -1 specification used by dask and xarray 
+    dict_dims = dict(ds.dims)
+    for var in target_chunks.keys():
+        if target_chunks[var] is not None: 
+            for k, v in target_chunks[var].items():
+                if v == -1: 
+                    target_chunks[var][k] = dict_dims[k]   
+                    
+    ##------------------------------------------------------------------------.
+    # Plan rechunking                
+    r = rechunk(ds, 
+                target_chunks=target_chunks, 
+                max_mem=max_mem,
+                target_store=target_store, temp_store=temp_store)
+    
+    ##------------------------------------------------------------------------.
+    # Execute rechunking
+    with ProgressBar():
+        r.execute()
+        
+    ##------------------------------------------------------------------------.    
+    # Remove temporary store 
+    shutil.rmtree(temp_store)
+    ##------------------------------------------------------------------------.
+ 
+#-----------------------------------------------------------------------------.
 def AutoregressivePredictions(model, 
                               # Data
                               da_dynamic,
                               da_static = None,              
                               da_bc = None, 
+                              # Scaler options
                               scaler = None,
+                              scaler_transform = True,  # transform_input
+                              scaler_inverse = True,    # backtransform_predictions
                               # Dataloader options
                               batch_size = 64, 
                               num_workers = 0, 
@@ -247,32 +344,50 @@ def AutoregressivePredictions(model,
         if not os.path.exists(os.path.dirname(zarr_fpath)):
             os.makedirs(os.path.dirname(zarr_fpath))
     if zarr_fpath is not None: 
+        variable_names = da_dynamic['feature'].values.tolist()
         ##--------------------------------------------------------------------.
         # Check chunking 
         default_chunks = {'node': -1,
                           'forecast_reference_time': 1,
-                          'leadtime': -1}
-        chunks = check_chunks(chunks=chunks, default_chunks=default_chunks)       
+                          'leadtime': 1}
+        chunks = check_chunks(chunks=chunks, 
+                              default_chunks=default_chunks,
+                              variable_names=variable_names)       
         ##--------------------------------------------------------------------.
         # Check compressor (used as encoding for writing to zarr)
         default_compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
         compressor = check_compressor(compressor = compressor,  
                                       default_compressor = default_compressor,
-                                      variable_names = da_dynamic['feature'].values.tolist())
+                                      variable_names = variable_names)
 
         # Check rounding 
         rounding = check_rounding(rounding = rounding,
-                                  variable_names = da_dynamic['feature'].values.tolist())
+                                  variable_names = variable_names)
 
     ##------------------------------------------------------------------------.            
     ### Check timedelta_unit
     timedelta_unit = check_timedelta_unit(timedelta_unit=timedelta_unit)
 
     ##------------------------------------------------------------------------. 
+    ### Prepare scalers for transform and inverse 
+    if scaler is not None:
+        if scaler_transform is True:
+            scaler_transform = scaler
+        else: 
+            scaler_transform = None
+        if scaler_inverse is True:   
+            scaler_inverse = scaler 
+        else: 
+            scaler_inverse = None
+    else: 
+        scaler_transform = None 
+        scaler_inverse = None                   
+    ##------------------------------------------------------------------------.                            
     ### Create training Autoregressive Dataset and DataLoader    
     dataset = AutoregressiveDataset(da_dynamic = da_dynamic,  
                                     da_bc = da_bc,
                                     da_static = da_static,
+                                    scaler = scaler_transform, 
                                     # Autoregressive settings  
                                     input_k = input_k,
                                     output_k = output_k,
@@ -319,6 +434,7 @@ def AutoregressivePredictions(model,
         ##--------------------------------------------------------------------.     
         # Iterate along training batches       
         for batch_dict in dataloader: 
+            batch_dict = next(iter(batch_dict))
             print(".")
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
@@ -384,15 +500,18 @@ def AutoregressivePredictions(model,
             ds = da.to_dataset(dim='feature')
             
             ##-----------------------------------------------------------------.
-            # Retransform data to original dimensions
-            # TODO:
-            # - Currenly only GlobalScalers works 
-            # --> Scalers based on time ... with forecast ds time is not a dimension
-            # --> How to implement?  
-            
-            if scaler is not None: 
-                ds = scaler.inverse_transform(ds).compute()
-                
+            # Retransform data to original dimensions           
+            if scaler_inverse is not None: 
+                # - Apply scaler 
+                # --> scaler.inverse_transform(ds).compute() works only for GlobalScalers
+                # --> Need to create the time dimension to apply correctly TemporalScalers
+                ds['time'] = ds['leadtime'] + ds['forecast_reference_time']
+                ds = ds.set_coords('time')
+                l_rescaled_ds = []
+                for i in range(len(ds['forecast_reference_time'])):
+                    tmp_ds = ds.isel(forecast_reference_time=i).swap_dims({"leadtime": "time"})
+                    l_rescaled_ds.append(scaler_inverse.inverse_transform(tmp_ds).swap_dims({"time": "leadtime"}).drop('time'))
+                ds = xr.concat(l_rescaled_ds, dim='forecast_reference_time')
             ##-----------------------------------------------------------------.
             # Rounding (if required)
             if rounding is not None: 
@@ -412,14 +531,18 @@ def AutoregressivePredictions(model,
                 
             # Else, write forecast to zarr store  
             else:
-                # Specify chunking 
-                ds.chunk(chunks)  
+                # Chunk the dataset
+                for var, chunk in chunks.items():
+                    ds[var] = ds[var].chunk(chunk)  
+                # Specify compressor 
+                for var, comp in compressor.items(): 
+                    ds[var].encoding['compressor'] = comp
                 
                 # Write / Append data to zarr store 
                 if not os.path.exists(zarr_fpath):
-                    ds.to_zarr(zarr_fpath, encoding=compressor, mode='w')                             # Create
+                    ds.to_zarr(zarr_fpath, mode='w') # Create
                 else:                        
-                    ds.to_zarr(zarr_fpath, encoding=compressor, append_dim='forecast_reference_time') # Append
+                    ds.to_zarr(zarr_fpath, append_dim='forecast_reference_time') # Append
                                 
     ##-------------------------------------------------------------------------.
     if zarr_fpath is not None:
@@ -427,13 +550,87 @@ def AutoregressivePredictions(model,
     else: 
         ds_forecasts = xr.merge(list_ds)
         
-    ##-------------------------------------------------------------------------.    
+    ##------------------------------------------------------------------------.    
     print("- Forecast generation: {:.0f}s".format(time.time()-t_i))
-    ##-------------------------------------------------------------------------.    
+    ##------------------------------------------------------------------------.    
     return ds_forecasts  
  
-##----------------------------------------------------------------------------.
-# Conversion to 'time' as core dim
-# TODO
-# 'time' = 'forecast_reference_time' + 'leadtime'
-# time = ds.forecast_reference_time + ds.leadtime
+#----------------------------------------------------------------------------.
+def reshape_forecasts_for_verification(ds):
+    """Process a Dataset with forecasts in the format required for verification."""
+    l_reshaped_ds = []
+    for i in range(len(ds['leadtime'])):
+        tmp_ds = ds.isel(leadtime=i)
+        tmp_ds['forecast_reference_time'] = tmp_ds['forecast_reference_time'] + tmp_ds['leadtime']
+        tmp_ds = tmp_ds.rename({'forecast_reference_time': 'time'})    
+        l_reshaped_ds.append(tmp_ds)
+    ds = xr.concat(l_reshaped_ds, dim='leadtime', join='outer')
+    return ds
+
+def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem = '1GB'):
+    """
+    Rechunk forecast Dataset in the format required for verification.
+    
+    Make data contiguous over the time dimension, and chunked over space.
+    The forecasted time (referred as dimension 'time') is computed by 
+    summing the leadtime to the forecast_reference_time. 
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset with dimensions 'forecast_reference_time' and 'leadtime'.
+    target_store : TYPE
+        Filepath of the zarr store where to save the new Dataset.
+    chunks : str, optional
+        Option for custom chunks of the new Dataset. The default is "auto".
+        The default is chunked pixel-wise and per leadtime, contiguous over time.
+    max_mem : str, optional
+        The amount of memory (in bytes) that workers are allowed to use.
+        The default is '1GB'.
+
+    Returns
+    -------
+    ds_verification : xarray.Dataset
+        Dataset for verification (with 'time' and 'leadtime' dimensions.
+
+    """
+    # Define temp store for rechunking
+    temp_store = os.path.join(os.path.dirname(target_store), "tmp_store.zarr")
+    # Define intermediate store for rechunked data
+    intermediate_store = os.path.join(os.path.dirname(target_store), "rechunked_store.zarr")
+    ##------------------------------------------------------------------------.
+    # Default chunking
+    default_chunks = {'node': 1,
+                      'forecast_reference_time': -1,
+                      'leadtime': 1}
+    # Check chunking
+    variable_names = list(ds.data_vars.keys())
+    chunks = check_chunks(chunks=chunks, default_chunks=default_chunks, variable_names=variable_names) 
+    ##------------------------------------------------------------------------.
+    # Rechunk Dataset (on disk)
+    rechunk_Dataset(ds=ds, chunks=chunks, 
+                    target_store=intermediate_store, temp_store=temp_store, 
+                    max_mem = max_mem)
+    ##------------------------------------------------------------------------.
+    # Load rechunked dataset (contiguous over forecast referece time, chunked over space)
+    ds = xr.open_zarr(intermediate_store, chunks="auto")
+    ##------------------------------------------------------------------------.
+    # Reshape 
+    ds_verification = reshape_forecasts_for_verification(ds)
+    ##------------------------------------------------------------------------.
+    # Remove 'chunks' key in encoding (bug in xarray-dask-zarr)
+    for var in variable_names:
+        ds_verification[var].encoding.pop('chunks')
+    
+    ##------------------------------------------------------------------------.
+    # Write to disk 
+    ds_verification.to_zarr(target_store)
+    ##------------------------------------------------------------------------.
+    # Remove rechunked store 
+    shutil.rmtree(intermediate_store)
+    ##------------------------------------------------------------------------.
+    # Load the Dataset for verification
+    ds_verification = xr.open_zarr(target_store)
+    ##------------------------------------------------------------------------.
+    # Return the Dataset for verification
+    return ds_verification
