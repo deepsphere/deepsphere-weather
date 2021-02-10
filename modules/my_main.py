@@ -11,6 +11,7 @@ import time
 import torch
 import pickle 
 import numpy as np
+import xarray as xr
 import matplotlib.pyplot as plt
 from torch import nn, optim
 
@@ -76,7 +77,13 @@ warnings.filterwarnings("ignore")
 # Torch precision 
 # --> Set torch.set_default_tensor_type() 
 
+# dataloader_settings : remove preload in CPU 
+# Check input data start same timestep
+
 ## Code for measuring execution time as function of n. AR iterations 
+
+# import pdb
+# pdb.set_trace()
 
 # - Example applications
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/config.example.yml
@@ -86,27 +93,34 @@ warnings.filterwarnings("ignore")
 #######################
 # Pytorch Settings ####
 #######################
-data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/data/" # to change to scratch/... 
 # data_dir = "/data/weather_prediction/ToyData/Healpix_400km/data/"
+# data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/data/" # to change to scratch/... 
+# # - Dynamic data (i.e. pressure and surface levels variables)
+# ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
+# # - Boundary conditions data (i.e. TOA)
+# ds_bc = readDatasets(data_dir=data_dir, feature_type='bc')
+# # - Static features
+# ds_static = readDatasets(data_dir=data_dir, feature_type='static')
+
+# ds_dynamic = ds_dynamic.drop(["level","lat","lon"])
+# ds_bc = ds_bc.drop(["lat","lon"])
+# ds_static = ds_static.drop(["lat","lon"])
 
 #-----------------------------------------------------------------------------.
 ### Lazy Loading of Datasets 
+data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km"
 t_i = time.time()
 # - Dynamic data (i.e. pressure and surface levels variables)
-ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
+ds_dynamic = xr.open_zarr(os.path.join(data_dir,"Dataset","dynamic.zarr"))
 # - Boundary conditions data (i.e. TOA)
-ds_bc = readDatasets(data_dir=data_dir, feature_type='bc')
+ds_bc = xr.open_zarr(os.path.join(data_dir,"Dataset", "bc.zarr"))
 # - Static features
-ds_static = readDatasets(data_dir=data_dir, feature_type='static')
+ds_static = xr.open_zarr(os.path.join(data_dir,"Dataset", "static.zarr"))
 print('- Open the Zarr Store (Lazily): {:.2f}s'.format(time.time() - t_i))
 
-ds_dynamic = ds_dynamic.drop(["level","lat","lon"])
-ds_bc = ds_bc.drop(["lat","lon"])
-ds_static = ds_static.drop(["lat","lon"])
-
-ds_dynamic = ds_dynamic.isel(time=slice(7,None))  # because bc start at 1980-01-01T07:00:00.000000000
-# ds_dynamic = ds_dynamic.isel(time=slice(0, 50))
-# ds_bc = ds_bc.isel(time=slice(0, 50))
+# da_dynamic = xr.open_zarr(os.path.join(data_dir, "DataArray", "dynamic.zarr"))['Data']
+# da_bc = xr.open_zarr(os.path.join(data_dir,"DataArray", "bc.zarr"))['Data']
+# da_static = xr.open_zarr(os.path.join(data_dir,"DataArray","static.zarr"))['Data']
 
 # TO DEBUG
 ds_training_dynamic = ds_dynamic
@@ -215,6 +229,7 @@ check_AR_DataArrays(da_training_dynamic = da_training_dynamic,
                     da_validation_bc = da_validation_bc,
                     verbose=True)                         
 
+scaler = None
 #-----------------------------------------------------------------------------.
 
 ### GPU options 
@@ -367,7 +382,8 @@ training_info = AutoregressiveTraining(model = model,
                                        da_validation_dynamic = da_validation_dynamic,
                                        da_static = da_static,              
                                        da_training_bc = da_training_bc,         
-                                       da_validation_bc = da_validation_bc,       
+                                       da_validation_bc = da_validation_bc,  
+                                       scaler = scaler, 
                                        # Dataloader settings
                                        num_workers = dataloader_settings['num_workers'], 
                                        prefetch_factor = dataloader_settings['prefetch_factor'],  
@@ -454,7 +470,7 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          scaler = dynamic_scaler,
                                          # Dataloader options
                                          device = 'cpu',
-                                         batch_size = 100,  # number of forecasts per batch
+                                         batch_size = 20,  # number of forecasts per batch
                                          num_workers = 0, 
                                          prefetch_factor = 2, 
                                          prefetch_in_GPU = False,  
@@ -466,7 +482,7 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          output_k = AR_settings['output_k'], 
                                          forecast_cycle = AR_settings['forecast_cycle'],                         
                                          stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                         AR_iterations = 20, 
+                                         AR_iterations = 5,        # How many time to autoregressive iterate
                                          # Save options 
                                          zarr_fpath = zarr_fpath,  # None --> do not write to disk
                                          rounding = 2,             # Default None. Accept also a dictionary 

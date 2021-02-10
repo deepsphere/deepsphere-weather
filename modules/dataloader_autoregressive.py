@@ -65,6 +65,7 @@ class AutoregressiveDataset(Dataset):
                  # Facultative input data
                  da_bc = None, 
                  da_static = None,
+                 scaler = None, 
                  # GPU settings 
                  device = 'cpu',
                  # Precision settings
@@ -82,6 +83,9 @@ class AutoregressiveDataset(Dataset):
         da_static : DataArray, optional
             DataArray with static features.  
             The default is None.
+        scaler : xscaler 
+            xscaler object to transform the DataArrays.
+             The default is None.
         input_k : list
             Indices representing predictors past timesteps.
         output_k : list
@@ -91,7 +95,7 @@ class AutoregressiveDataset(Dataset):
         AR_iterations : int
             Number of AR iterations.
         max_AR_iterations : int 
-            Maximum number of AR iterations
+            Maximum number of AR iterations.
         stack_most_recent_prediction : bool
             Whether to use the most recent prediction when autoregressing.
         device : torch.device, optional
@@ -118,6 +122,8 @@ class AutoregressiveDataset(Dataset):
         self.max_AR_iterations = max_AR_iterations
         self.stack_most_recent_prediction = stack_most_recent_prediction
         ##--------------------------------------------------------------------.
+        ### Initialize scaler 
+        self.scaler = scaler 
         ### - Define dimension index 
         dims = da_dynamic.dims
         self.dims = dims 
@@ -139,8 +145,11 @@ class AutoregressiveDataset(Dataset):
         
         ##--------------------------------------------------------------------.
         ### Load static tensor into GPU (and expand over the time dimension) 
-        # - Expand by only creating a new view on the existing tensor (not allocating new memory)
         if da_static is not None:
+            # - Apply scaler 
+            if self.scaler is not None:
+                da_static = self.scaler.transform(da_static, variable_dim='feature').compute()
+            # - Expand by only creating a new view on the existing tensor (not allocating new memory) 
             dim_time = 0   # static has: [node, features]
             new_dim_size = [-1 for i in range(len(da_static.shape) + 1)]
             new_dim_size[dim_time] = len(input_k)
@@ -182,6 +191,9 @@ class AutoregressiveDataset(Dataset):
         xr_idx_dynamic_required = xr_idx_k_0 + self.rel_idx_dynamic_required  
         # - Subset the xarray Datarray (need for all autoregressive iterations)
         da_dynamic_subset = self.da_dynamic.isel(time=xr_idx_dynamic_required)
+        # - Apply the scaler if provided 
+        if self.scaler is not None:
+            da_dynamic_subset = self.scaler.transform(da_dynamic_subset, variable_dim='feature').compute()
         # - Assign relative indices (onto the "rel_idx" dimension)
         da_dynamic_subset = da_dynamic_subset.assign_coords(rel_idx=('time', self.rel_idx_dynamic_required)).swap_dims({'time': 'rel_idx'}) 
         # - If not preloaded in CPU, load the zarr chunks (with dask)  
@@ -218,6 +230,9 @@ class AutoregressiveDataset(Dataset):
             xr_idx_bc_required = xr_idx_k_0 + self.rel_idx_bc_required  
             # - Subset the xarray Datarray (need for all autoregressive iterations)
             da_bc_subset = self.da_bc.isel(time=xr_idx_bc_required)
+            # - Apply scaler 
+            if self.scaler is not None:
+                da_bc_subset = self.scaler.transform(da_bc_subset, variable_dim='feature').compute()
             # - Assign relative indices (onto the "rel_idx" dimension)
             da_bc_subset = da_bc_subset.assign_coords(rel_idx=('time', self.rel_idx_bc_required)).swap_dims({'time': 'rel_idx'}) 
             # - If not preloaded in CPU, read from disk the zarr chunks (with dask)  
@@ -249,7 +264,7 @@ class AutoregressiveDataset(Dataset):
         idx_end = get_last_valid_idx(output_k = output_k,
                                      forecast_cycle = forecast_cycle, 
                                      AR_iterations = AR_iterations)
-        self.idxs = np.arange(n_timesteps)[idx_start:-1*(idx_end+1)]
+        self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end -1)]
         self.idx_start = idx_start
         self.idx_end = idx_end
         self.n_samples = len(self.idxs)
@@ -406,7 +421,8 @@ def AutoregressiveDataLoader(dataset,
                              prefetch_in_GPU = False, 
                              prefetch_factor = 2, 
                              asyncronous_GPU_transfer = True, 
-                             device = 'cpu'):
+                             device = 'cpu',
+                             verbose = False):
     """
     Create the DataLoader required for autoregressive model training.
 
@@ -459,15 +475,24 @@ def AutoregressiveDataLoader(dataset,
     device = check_torch_device(device)
     if device.type == 'cpu':
         if pin_memory is True:
-            print("GPU is not available. 'pin_memory' set to False.")
             pin_memory = False
-        if prefetch_in_GPU is True: 
-            print("GPU is not available. 'prefetch_in_GPU' set to False.")
-            prefetch_in_GPU = False
-        if asyncronous_GPU_transfer is True: 
-            print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
-            asyncronous_GPU_transfer = False    
+            if verbose:
+                print("GPU is not available. 'pin_memory' set to False.")
             
+        if prefetch_in_GPU is True: 
+            prefetch_in_GPU = False
+            if verbose:
+                print("GPU is not available. 'prefetch_in_GPU' set to False.")
+            
+        if asyncronous_GPU_transfer is True: 
+            asyncronous_GPU_transfer = False    
+            if verbose:
+                print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
+            
+    if num_workers == 0 and prefetch_factor !=2:
+        prefetch_factor = 2 # bug in pytorch ... need to set to 2 
+        if verbose:
+            print("Since num_workers=0, no prefetching is done.")
     ##------------------------------------------------------------------------. 
     # Retrieve dimension info dictiorary from Dataset 
     # - Provide information of Torch Tensor dimensions.

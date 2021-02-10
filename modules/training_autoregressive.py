@@ -51,7 +51,8 @@ def AutoregressiveTraining(model,
                            da_validation_dynamic = None,
                            da_static = None,              
                            da_training_bc = None,         
-                           da_validation_bc = None,       
+                           da_validation_bc = None, 
+                           scaler = None,
                            # Dataloader options
                            prefetch_in_GPU = False,
                            prefetch_factor = 2,
@@ -133,6 +134,7 @@ def AutoregressiveTraining(model,
     trainingDataset = AutoregressiveDataset(da_dynamic = da_training_dynamic,  
                                             da_bc = da_training_bc,
                                             da_static = da_static,
+                                            scaler = scaler,
                                             # Autoregressive settings  
                                             input_k = input_k,
                                             output_k = output_k,
@@ -165,6 +167,7 @@ def AutoregressiveTraining(model,
         validationDataset = AutoregressiveDataset(da_dynamic = da_validation_dynamic,  
                                                   da_bc = da_validation_bc,
                                                   da_static = da_static,   
+                                                  scaler = scaler,
                                                   # Autoregressive settings  
                                                   input_k = input_k,
                                                   output_k = output_k,
@@ -187,6 +190,7 @@ def AutoregressiveTraining(model,
                                                         pin_memory = pin_memory,
                                                         asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                                         device = device)
+        validationDataLoader_iter = cylic_iterator(validationDataLoader)
         print('- Creation of Validation AutoregressiveDataLoader: {:.0f}s'.format(time.time() - t_i))
     else: 
         validationDataset = None
@@ -207,22 +211,21 @@ def AutoregressiveTraining(model,
 
     ##------------------------------------------------------------------------.
     # Zeros gradients     
-    optimizer.zero_grad() 
+    optimizer.zero_grad()       
     
     ##------------------------------------------------------------------------.
-    # Initialize infinite validationDataLoader iterator
-    validation_data_available = validationDataLoader is not None
-    if validation_data_available:
-        validationDataLoader_iter = cylic_iterator(validationDataLoader)
-        
-    ##------------------------------------------------------------------------.
     # Iterate along epochs
+    flag_stop_training = False
     for epoch in range(epochs):
         training_info.new_epoch()
         model.train() # Set model layers (i.e. batchnorm) in training mode 
         ##--------------------------------------------------------------------.
-        # Iterate along training batches       
-        for training_batch_dict in trainingDataLoader:  
+        # Iterate along training batches 
+        trainingDataLoader_iter = iter(trainingDataLoader)
+        for batch_count in range(len(trainingDataLoader_iter)):  
+            ##----------------------------------------------------------------.   
+            # Retrieve the training batch
+            training_batch_dict = next(trainingDataLoader_iter)
             print(".")
             ##----------------------------------------------------------------.      
             # Perform autoregressive training loop
@@ -293,7 +296,7 @@ def AutoregressiveTraining(model,
     
             ##----------------------------------------------------------------. 
             ### Run validation 
-            if validation_data_available:
+            if validationDataset is not None:
                 if training_info.score_interval == scoring_interval:
                     # Set model layers (i.e. batchnorm) in evaluation mode 
                     model.eval() 
@@ -380,25 +383,51 @@ def AutoregressiveTraining(model,
                                                                                                          training_info.iteration)
                         print("--> Updating training to {} AR iterations {}.".format(AR_scheduler.current_AR_iterations, current_training_info))
                         ##----------------------------------------------------.           
-                        # Update Datasets (to prefetch the correct amount of data)
-                        # - TODO: check that also if prefetch is on... it works 
+                        # Update Datasets and DataLoaders (to prefetch the correct amount of data)
+                        # - TODO: check that also if prefetch is on... it works
+                        del trainingDataLoader, trainingDataLoader_iter
                         trainingDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
+                        trainingDataLoader = AutoregressiveDataLoader(dataset = trainingDataset,                                                   
+                                                                      batch_size = training_batch_size,  
+                                                                      drop_last_batch = drop_last_batch,
+                                                                      random_shuffle = random_shuffle,
+                                                                      num_workers = num_workers,
+                                                                      prefetch_factor = prefetch_factor, 
+                                                                      prefetch_in_GPU = prefetch_in_GPU,  
+                                                                      pin_memory = pin_memory,
+                                                                      asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                                                      device = device)
+                        trainingDataLoader_iter = cylic_iterator(trainingDataLoader)
                         if validationDataset is not None: 
+                            del validationDataLoader, validationDataLoader_iter
                             validationDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
-                        ##----------------------------------------------------.
+                            validationDataLoader = AutoregressiveDataLoader(dataset = validationDataset, 
+                                                                        batch_size = validation_batch_size,  
+                                                                        drop_last_batch = drop_last_batch,
+                                                                        random_shuffle = random_shuffle,
+                                                                        num_workers = num_workers,
+                                                                        prefetch_in_GPU = prefetch_in_GPU,  
+                                                                        prefetch_factor = prefetch_factor, 
+                                                                        pin_memory = pin_memory,
+                                                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                                                        device = device)
+                            validationDataLoader_iter = cylic_iterator(validationDataLoader)
                     # - If current_AR_iterations = AR_iterations --> Stop training 
                     else: 
                         # Stop training 
+                        flag_stop_training = True
                         break
                     
             ##----------------------------------------------------------------.     
             # - Update iteration count 
-            training_info.step()               
-
+            training_info.step()   
+                        
         ##--------------------------------------------------------------------. 
         ### Print epoch training statistics  
         training_info.print_epoch_info()
         
+        if flag_stop_training is True:
+            break 
         ##--------------------------------------------------------------------. 
         # Option to save the model each epoch
         if save_model_each_epoch is True:

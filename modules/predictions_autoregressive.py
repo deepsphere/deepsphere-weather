@@ -318,7 +318,8 @@ def AutoregressivePredictions(model,
     with torch.set_grad_enabled(False):
         ##--------------------------------------------------------------------.     
         # Iterate along training batches       
-        for batch_dict in dataloader:            
+        for batch_dict in dataloader: 
+            print(".")
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
             dict_Y_predicted = {}
