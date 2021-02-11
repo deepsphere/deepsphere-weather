@@ -25,26 +25,18 @@ from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import get_torch_dtype
 from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
-### TODO Improvements
-# collate_fn
-# - Check if collate_fn is applied in parallel or out of the multiprocess loop 
-# - Code below can be parallelized per data type and per forecast iterations)
-
-##----------------------------------------------------------------------------.
-### Dask settings 
-# - Decide if: 
-#   - parallelize with pytorch.DataLoader (num_workers > 0)
-#   - parallelize loading xarray data with dask
-#   - both 
-
-# dask.config.set(schedular='threads', pool=ThreadPool(5)) 
-# - https://stackoverflow.com/questions/44193979/how-do-i-run-a-dask-distributed-cluster-in-a-single-thread
-# - https://docs.dask.org/en/latest/scheduling.html
-
+# TODO DataLoader Options    
+# - sampler                    # Provide this option? To generalize outside batch samples?  
+# - worker_init_fn             # To initialize dask scheduler? To set RNG?
 ##----------------------------------------------------------------------------.
 # TODO 
 # - Dim info passed along the way 
-# - Timestep info passed along the way 
+##----------------------------------------------------------------------------.
+### Possible speedups
+# collate_fn
+# - Check if collate_fn is applied not in parallel out of the multiprocess loop 
+# - Code in collate_fn can be parallelized per data type and per forecast iterations)
+
 #-----------------------------------------------------------------------------. 
 # ############################# 
 ### Autoregressive Dataset ####
@@ -125,21 +117,21 @@ class AutoregressiveDataset(Dataset):
         ### Initialize scaler 
         self.scaler = scaler 
         ### - Define dimension index 
-        dims = da_dynamic.dims
-        self.dims = dims 
+        # - Sample/batch dimension will be the first ! 
+        dims_dynamic = da_dynamic.dims
         dim_info = {}
         dim_info['sample'] = 0
-        dim_info['time'] = np.argwhere(np.array(dims) == 'time')[0][0] + 1
-        dim_info['node'] = np.argwhere(np.array(dims) == 'node')[0][0] + 1 
-        dim_info['feature'] = np.argwhere(np.array(dims) == 'feature')[0][0] + 1  
+        dim_info['time'] = np.argwhere(np.array(dims_dynamic) == 'time')[0][0] + 1
+        dim_info['node'] = np.argwhere(np.array(dims_dynamic) == 'node')[0][0] + 1 
+        dim_info['feature'] = np.argwhere(np.array(dims_dynamic) == 'feature')[0][0] + 1  
         self.dim_info = dim_info 
         ##--------------------------------------------------------------------.
-        #### - Define data precision
+        ### - Define data precision
         torch_dtype = get_torch_dtype(numeric_precision)
         self.torch_dtype = torch_dtype
         
         ##--------------------------------------------------------------------.
-        ### - Retrieve data
+        ### - Assign dynamic and bc data
         self.da_dynamic = da_dynamic 
         self.da_bc = da_bc 
         
@@ -149,11 +141,28 @@ class AutoregressiveDataset(Dataset):
             # - Apply scaler 
             if self.scaler is not None:
                 da_static = self.scaler.transform(da_static, variable_dim='feature').compute()
-            # - Expand by only creating a new view on the existing tensor (not allocating new memory) 
-            dim_time = 0   # static has: [node, features]
-            new_dim_size = [-1 for i in range(len(da_static.shape) + 1)]
-            new_dim_size[dim_time] = len(input_k)
-            self.torch_static = torch.tensor(da_static.values, dtype=torch_dtype, device=device).unsqueeze(dim_time).expand(new_dim_size).unsqueeze(0) 
+            ##----------------------------------------------------------------.
+            # - Reshape da_static to match ('node','feature') order of da_dynamic
+            required_static_order = np.array(da_dynamic.dims)[np.isin(da_dynamic.dims, da_static.dims)].tolist()
+            if not required_static_order == list(da_static.dims):
+                print("Reshaping static DataArray to have dimension order: {}".format(required_static_order))
+                da_static = da_static.transpose(*required_static_order)    
+            ##----------------------------------------------------------------.
+            # If da_static still lazy, load data 
+            da_static = da_static.compute()
+            ##----------------------------------------------------------------.
+            ## Add batch and time dimension and then expand along time dimension 
+            # - Define ways to unsqueeze the static tensor 
+            unsqueeze_time_dim = dim_info['time'] - 1 # (without batch dim ...)
+            unsqueeze_batch_dim = dim_info['sample']  
+            # - Define the dimensions of the expanded tensor 
+            dim_batch = dim_info['sample']  
+            dim_time = dim_info['time']  
+            new_dim_size = [-1 for i in range(len(da_static.dims) + 2)]
+            new_dim_size[dim_batch] = 1            # Batch dimension 
+            new_dim_size[dim_time] = len(input_k)  # The (predictor lag) 'time' dimension)
+            # - Use a view to expand (to not allocate new memory)
+            self.torch_static = torch.tensor(da_static.values, dtype=torch_dtype, device=device).unsqueeze(unsqueeze_time_dim).unsqueeze(unsqueeze_batch_dim).expand(new_dim_size)
         else: 
             self.torch_static = None
             
@@ -323,6 +332,9 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
     """Stack the list of samples into batch of data."""
     # list_samples is a list of what returned by __get_item__ of AutoregressiveDataset
     ##------------------------------------------------------------------------.
+    # Retrieve batch_dimension 
+    batch_dim = dim_info['sample'] 
+    
     # Retrieve the different data (and forecast time info)
     list_X_dynamic_samples = []
     list_X_bc_samples = []
@@ -351,20 +363,20 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
     for i in range(AR_iterations+1):
         if pin_memory is True:
             # Y
-            dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=0).pin_memory()  
+            dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim).pin_memory()  
             # X dynamic 
             list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
             if len(list_X_dynamic_tensors) > 0: 
-                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=0).pin_memory()
+                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=batch_dim).pin_memory()
             else: # when no X dynamic (after some AR iterations)
                 dict_X_dynamic_batched[i] = None
         else: 
             # Y
-            dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=0)    
+            dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim)    
             # X dynamic 
             list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
             if len(list_X_dynamic_tensors) > 0: 
-                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=0) 
+                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=batch_dim) 
             else: # when no X dynamic (after some AR iterations)
                 dict_X_dynamic_batched[i] = None
                 
@@ -373,9 +385,9 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
     for i in range(AR_iterations+1):
         if list_X_bc_samples[0][0] is not None: 
             if pin_memory is True:
-                dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=0).pin_memory()
+                dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim).pin_memory()
             else: 
-                dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=0) 
+                dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim) 
         else:
             dict_X_bc_batched[i] = None   
     ##------------------------------------------------------------------------. 
@@ -497,16 +509,16 @@ def AutoregressiveDataLoader(dataset,
     # Retrieve dimension info dictiorary from Dataset 
     # - Provide information of Torch Tensor dimensions.
     dim_info = dataset.dim_info 
-    
+    batch_dim = dim_info['sample']
     ##------------------------------------------------------------------------. 
     # Retrieve static feature tensor (preloaded in GPU) (if available)
     torch_static = dataset.torch_static  
      
     ##------------------------------------------------------------------------. 
-    # Expand static feature tensor (along first dimension) to match the batch size ! 
+    # Expand static feature tensor (along the batch dimension) 
     if torch_static is not None:
         new_dim_size = [-1 for i in range(torch_static.dim())]
-        new_dim_size[0] = batch_size
+        new_dim_size[batch_dim] = batch_size
         torch_static = torch_static.expand(new_dim_size)  
 
     ##------------------------------------------------------------------------.
@@ -526,6 +538,7 @@ def AutoregressiveDataLoader(dataset,
                             shuffle = random_shuffle,
                             drop_last = drop_last_batch, 
                             num_workers = num_workers,
+                            persistent_workers = False, 
                             prefetch_factor = prefetch_factor, 
                             pin_memory = False,  # pin after data have been stacked into the collate_fn
                             collate_fn = partial(autoregressive_collate_fn, 
@@ -556,7 +569,7 @@ def get_AR_batch(AR_iteration,
     # node_dim = batch_dict['dim_info']['node']  
     time_dim = batch_dict['dim_info']['time']  
     feature_dim = batch_dict['dim_info']['feature']  
-
+ 
     ##------------------------------------------------------------------------.
     ## Get dictionary with batched data for all forecast iterations 
     torch_static = batch_dict['X_static']
@@ -596,6 +609,7 @@ def get_AR_batch(AR_iteration,
     # --> Previous predictions to stack are already in the GPU
     # --> Data need to be already in the GPU (if device is not cpu)!
     if list_tuple_idx_to_stack is not None:
+        # TODO ! Generalize idx position based on time_dim position 
         list_Y_to_stack = [dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack]
         torch_X_to_stack = torch.stack(list_Y_to_stack, dim=time_dim)  
         if torch_X_dynamic is not None:
@@ -613,6 +627,7 @@ def get_AR_batch(AR_iteration,
     # --> In the batch dimension, match the number of samples of torch X
     if static_is_available: 
         batch_size = torch_X.shape[0]
+         # TODO ! Generalize 0:batch_size position based on batch_dim position 
         torch_X = torch.cat((torch_static[0:batch_size,...], torch_X), dim=feature_dim)
         
     ##------------------------------------------------------------------------.

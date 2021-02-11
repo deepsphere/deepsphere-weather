@@ -5,12 +5,8 @@ Created on Sun Jan  3 18:42:12 2021
 
 @author: ghiggi
 """
-import pdb
 import torch
 import time
-import numpy as np
-from torch import optim
-
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
 from modules.dataloader_autoregressive import get_AR_batch
@@ -24,16 +20,9 @@ from modules.utils_io import check_AR_DataArrays
 from modules.utils_training import AR_TrainingInfo
 from modules.utils_torch import check_torch_device
 ##----------------------------------------------------------------------------.
-# TODO DataLoader Options    
-# - sampler                    # Could be useful for bootstraping ? 
-# - worker_init_fn             # to initialize dask scheduler? to set RNG?
-# - persistent_workers = False # but True might be appropriate
-
-##----------------------------------------------------------------------------.
 # TODOs
 # - ONNX for saving model weights 
 # - Record the loss per variable 
-# - Loss --> Reshape data before applying loss
 
 ##----------------------------------------------------------------------------.               
 # #########################
@@ -77,6 +66,7 @@ def AutoregressiveTraining(model,
                            save_model_each_epoch = False,
                            # GPU settings 
                            device = 'cpu'):
+    """AutoregressiveTraining."""
     ##------------------------------------------------------------------------.
     ## Checks arguments 
     device = check_torch_device(device)
@@ -252,6 +242,7 @@ def AutoregressiveTraining(model,
                 # - The torch tensors are [sample, time, nodes, features]
                 # - The criterion expects [samples-time, nodes, features]
                 # - Collapse time dimension with sample dimension 
+                # TODO: Generalize this to dim_info (order)
                 Y_dims = torch_Y.shape
                 reshape_dims = (-1, Y_dims[2], Y_dims[3])
                 dict_training_loss_per_AR_iteration[i] = criterion(dict_training_Y_predicted[i].reshape(*reshape_dims), 
