@@ -353,11 +353,13 @@ AR_scheduler = AR_Scheduler(method = "LinearDecay",
 ### - Define Early Stopping 
 # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
 patience = 10
+minimum_iterations = 1000
 minimum_improvement = 0.01 # 0 to not stop 
 stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
 mode = "min" # MSE best when low  
 early_stopping = EarlyStopping(patience = patience,
                                minimum_improvement = minimum_improvement,
+                               minimum_iterations = minimum_iterations,
                                stopping_metric = stopping_metric,                                                         
                                mode = mode)  
 ##------------------------------------------------------------------------.
@@ -462,8 +464,7 @@ training_info.plot_AR_weights(normalized=False).savefig(os.path.join(exp_dir, "f
 
 #-------------------------------------------------------------------------.
 ### - Create predictions 
-zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
-# zarr_fpath = os.path.join(exp_dir, "/model_predictions/temporal_chunks/test_pred.zarr")
+forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
 ds_forecasts = AutoregressivePredictions(model = model, 
                                          # Data
                                          da_dynamic = da_test_dynamic,
@@ -486,7 +487,7 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
                                          AR_iterations = 5,        # How many time to autoregressive iterate
                                          # Save options 
-                                         zarr_fpath = zarr_fpath,  # None --> do not write to disk
+                                         zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                          rounding = 2,             # Default None. Accept also a dictionary 
                                          compressor = "auto",      # Accept also a dictionary per variable
                                          chunks = "auto",          
@@ -501,13 +502,12 @@ ds_verification = reshape_forecasts_for_verification(ds_forecasts)
 
 ## Reshape from 'forecast_reference_time'-'leadtime' to 'time (aka) forecasted_time'-'leadtime'  
 # - Rechunk Dataset over space on disk and then reshape the for verification
-target_store = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
+verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
 ds_verification = rechunk_forecasts_for_verification(ds=ds_forecasts, 
                                                      chunks="auto", 
-                                                     target_store=target_store,
+                                                     target_store=verification_zarr_fpath,
                                                      max_mem = '1GB')
-rechunk_forecasts_for_verification
-reshape_forecasts_for_verification
+ 
 ##------------------------------------------------------------------------.
 
 

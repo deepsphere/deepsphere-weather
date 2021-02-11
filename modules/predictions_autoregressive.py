@@ -46,11 +46,14 @@ from modules.utils_torch import check_torch_device
 # - lon                      float64
 # - time                     datetime64[ns]     # aka forecasted_time
 # -->  - leadtime_idx 
-         
+
 ##----------------------------------------------------------------------------.
 # ## Predictions with Dask cluster 
 # https://examples.dask.org/machine-learning/torch-prediction.html
 
+# Terminology to maybe change 
+# scaler_transform
+# scaler_inverse
 #----------------------------------------------------------------------------.
 ###############
 ### Checks ####
@@ -284,8 +287,8 @@ def AutoregressivePredictions(model,
                               da_bc = None, 
                               # Scaler options
                               scaler = None,
-                              scaler_transform = True,  # transform_input
-                              scaler_inverse = True,    # backtransform_predictions
+                              scaler_transform = True,  # transform_input ???
+                              scaler_inverse = True,    # backtransform_predictions ????
                               # Dataloader options
                               batch_size = 64, 
                               num_workers = 0, 
@@ -307,8 +310,9 @@ def AutoregressivePredictions(model,
                               compressor = "auto",
                               chunks = "auto",
                               timedelta_unit='hour'):
-    # Work only with GlobalScaler currently 
-    # Work only if output_k are not replicated and already time-ordered  !
+    """AutoregressivePredictions."""
+    ##------------------------------------------------------------------------.
+    # Work only if output_k are not replicated and are already time-ordered  !
     ##------------------------------------------------------------------------.
     ## Checks arguments 
     device = check_torch_device(device)
@@ -417,12 +421,8 @@ def AutoregressivePredictions(model,
     
     t_res_timedelta = np.diff(da_dynamic.time.values)[0]    
     t_res_timedelta.astype(get_timedelta_types()[timedelta_unit])    
-    ##------------------------------------------------------------------------.
-    ### 4 DEBUGGING
-    # d_iter = iter(dataloader)
-    # batch_dict = next(d_iter)
 
-    ##-------------------------------------------------------------------------,
+    ##------------------------------------------------------------------------.
     # Initialize 
     model.to(device)  
     model.eval()
@@ -434,7 +434,7 @@ def AutoregressivePredictions(model,
         ##--------------------------------------------------------------------.     
         # Iterate along training batches       
         for batch_dict in dataloader: 
-            batch_dict = next(iter(batch_dict))
+            # batch_dict = next(iter(batch_dict))
             print(".")
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
@@ -460,11 +460,11 @@ def AutoregressivePredictions(model,
             
             ##----------------------------------------------------------------.
             ### Select needed leadtime 
-            # TODO  
+            # TODO c 
             # - Args to choose which leadtime to select (when multiple are availables)
             # - Select Y to stack (along time dimension)
             # [forecast_time, leadtime, node, feature]
-            dict_forecast_leadtime_idx = forecast_time_info["dict_forecast_leadtime_idx"]
+            # dict_forecast_leadtime_idx = forecast_time_info["dict_forecast_leadtime_idx"]
             dict_Y_forecasted = dict_Y_predicted  # just keep required value in dim 1, already ordered
             
             ##----------------------------------------------------------------.
@@ -475,22 +475,21 @@ def AutoregressivePredictions(model,
             # Create numpy array 
             # .detach() should not be necessary if grad_disabled 
             if Y_forecasts.is_cuda is True: 
-                tensor_forecasts = Y_forecasts.cpu().numpy()
+                Y_forecasts = Y_forecasts.cpu().numpy()
             else:
-                tensor_forecasts = Y_forecasts.numpy()
+                Y_forecasts = Y_forecasts.numpy()
                 
             ##----------------------------------------------------------------.
             # Remove unused tensors 
             del dict_Y_predicted
-            del Y_forecasts
             
             ##----------------------------------------------------------------.
             ### Create xarray Dataset of forecasts
             # - Retrieve coords 
-            leadtime_idx = np.arange(tensor_forecasts.shape[1])
+            leadtime_idx = np.arange(Y_forecasts.shape[1])
             leadtime = leadtime_idx * t_res_timedelta   
             # - Create xarray DataArray 
-            da=xr.DataArray(tensor_forecasts,           
+            da=xr.DataArray(Y_forecasts,           
                             dims=['forecast_reference_time', 'leadtime', 'node', 'feature'],
                             coords={'leadtime': leadtime, 
                                     'forecast_reference_time': forecast_reference_time, 
@@ -499,7 +498,7 @@ def AutoregressivePredictions(model,
             # - Transform to dataset (to save to zarr)
             ds = da.to_dataset(dim='feature')
             
-            ##-----------------------------------------------------------------.
+            ##----------------------------------------------------------------.
             # Retransform data to original dimensions           
             if scaler_inverse is not None: 
                 # - Apply scaler 
@@ -512,7 +511,7 @@ def AutoregressivePredictions(model,
                     tmp_ds = ds.isel(forecast_reference_time=i).swap_dims({"leadtime": "time"})
                     l_rescaled_ds.append(scaler_inverse.inverse_transform(tmp_ds).swap_dims({"time": "leadtime"}).drop('time'))
                 ds = xr.concat(l_rescaled_ds, dim='forecast_reference_time')
-            ##-----------------------------------------------------------------.
+            ##----------------------------------------------------------------.
             # Rounding (if required)
             if rounding is not None: 
                 if isinstance(rounding, int):
@@ -522,7 +521,7 @@ def AutoregressivePredictions(model,
                         if decimal is not None: 
                             ds[var] = ds[var].round(decimal)                
                 else: 
-                    raise NotImplementedError("'rounding should be int, dict or None.")
+                    raise NotImplementedError("'rounding' should be int, dict or None.")
                 
             ##----------------------------------------------------------------.
             # If zarr_fpath not provided, keep predictions in memory 
@@ -531,13 +530,15 @@ def AutoregressivePredictions(model,
                 
             # Else, write forecast to zarr store  
             else:
+                ##--------------------------------------------.
                 # Chunk the dataset
                 for var, chunk in chunks.items():
                     ds[var] = ds[var].chunk(chunk)  
+                ##--------------------------------------------.
                 # Specify compressor 
                 for var, comp in compressor.items(): 
                     ds[var].encoding['compressor'] = comp
-                
+                ##--------------------------------------------. 
                 # Write / Append data to zarr store 
                 if not os.path.exists(zarr_fpath):
                     ds.to_zarr(zarr_fpath, mode='w') # Create

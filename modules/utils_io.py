@@ -159,7 +159,7 @@ def check_AR_DataArrays(da_training_dynamic,
         if not all_same_timesteps:
             raise ValueError("The validation dynamic DataArray and the validation boundary conditions DataArray does not have the same timesteps!")
     ##------------------------------------------------------------------------.
-    ## Check dimension order coincide
+    ## Check dimension order coincide between training and validation
     if da_validation_dynamic is not None:
         dim_info_training = get_AR_model_diminfo(da_dynamic = da_training_dynamic, 
                                                  da_bc = da_training_bc,
