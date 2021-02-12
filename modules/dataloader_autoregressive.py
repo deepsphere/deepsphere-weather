@@ -29,9 +29,6 @@ from modules.utils_torch import check_torch_device
 # - sampler                    # Provide this option? To generalize outside batch samples?  
 # - worker_init_fn             # To initialize dask scheduler? To set RNG?
 ##----------------------------------------------------------------------------.
-# TODO 
-# - Dim info passed along the way 
-##----------------------------------------------------------------------------.
 ### Possible speedups
 # collate_fn
 # - Check if collate_fn is applied not in parallel out of the multiprocess loop 
@@ -97,14 +94,18 @@ class AutoregressiveDataset(Dataset):
 
         """        
         ##--------------------------------------------------------------------.
-        # Checks device 
-        device = check_torch_device(device)
         if AR_iterations > max_AR_iterations:
             raise ValueError("'AR_iterations' can not exceed 'max_AR_iterations'")
-        # Check DataArrays   
+        # Check input_k and output_k type
+        input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
+        output_k = check_output_k(output_k=output_k)
+        # Check DataArrays  
         check_AR_DataArrays(da_training_dynamic = da_dynamic,
                             da_training_bc = da_bc,
-                            da_static = da_static)  
+                            da_static = da_static) 
+        # Checks device
+        device = check_torch_device(device)
+        self.device = device
         ## -------------------------------------------------------------------.
         ### - Initialize autoregressive configs   
         self.input_k = input_k 
@@ -116,11 +117,13 @@ class AutoregressiveDataset(Dataset):
         ##--------------------------------------------------------------------.
         ### Initialize scaler 
         self.scaler = scaler 
-        ### - Define dimension index 
-        # - Sample/batch dimension will be the first ! 
+        ##--------------------------------------------------------------------.
+        ### - Define dimension positions 
+        # - Sample/batch dimension is fixed to be the first ! 
+        # - The others can vary
         dims_dynamic = da_dynamic.dims
         dim_info = {}
-        dim_info['sample'] = 0
+        dim_info['sample'] = 0 # Here I force batch_dim to be the first dimension (for all code)! 
         dim_info['time'] = np.argwhere(np.array(dims_dynamic) == 'time')[0][0] + 1
         dim_info['node'] = np.argwhere(np.array(dims_dynamic) == 'node')[0][0] + 1 
         dim_info['feature'] = np.argwhere(np.array(dims_dynamic) == 'feature')[0][0] + 1  
@@ -182,12 +185,9 @@ class AutoregressiveDataset(Dataset):
     def __getitem__(self, idx):
         """Return sample and label corresponding to an index as torch.Tensor objects."""
         # rel_idx correspond to input_k and output_k (aka leadtime_idx)
-        # TODO:
-        # - Wrap already into torch ? 
-        # - Check if dask cause problems 
-        # - The return tensor shapes are [ ]  ????  
-        # - Use dask.delayed ? to load the data on the workers, rather than loading 
-        #    it on the client and sending it to the worker
+        # TODO c
+        # - Use dask.delayed ??  Data are loaded on the workers, or loaded 
+        #   on the client and sended to the worker after???
         # https://examples.dask.org/machine-learning/torch-prediction.html
         # https://towardsdatascience.com/computer-vision-at-scale-with-dask-and-pytorch-a18e17fc5bad
         ## -------------------------------------------------------------------.
@@ -257,7 +257,12 @@ class AutoregressiveDataset(Dataset):
         
         ## -------------------------------------------------------------------.
         # Return the sample dictionary  
-        return {'X_dynamic': dict_X_dynamic_data, 'X_bc': dict_X_bc_data, 'Y': dict_Y_data, 'forecast_time_info': forecast_time_info}
+        return {'X_dynamic': dict_X_dynamic_data, 'X_bc': dict_X_bc_data, 
+                'Y': dict_Y_data, 
+                'dict_Y_to_stack': self.dict_Y_to_stack,
+                'dict_Y_to_remove': self.dict_Y_to_remove,
+                'dim_info': self.dim_info,
+                'forecast_time_info': forecast_time_info}
     
     def update_indexing(self):
         """Update indices."""
@@ -265,8 +270,17 @@ class AutoregressiveDataset(Dataset):
         output_k = self.output_k
         forecast_cycle = self.forecast_cycle
         AR_iterations = self.AR_iterations
+        stack_most_recent_prediction = self.stack_most_recent_prediction
         n_timesteps = self.n_timesteps
-        
+        ##--------------------------------------------------------------------.
+        ## Update dictionary Y to stack and remove 
+        dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(AR_iterations = AR_iterations, 
+                                                                forecast_cycle = forecast_cycle, 
+                                                                input_k = input_k, 
+                                                                output_k = output_k, 
+                                                                stack_most_recent_prediction = stack_most_recent_prediction)
+        self.dict_Y_to_stack = dict_Y_to_stack
+        self.dict_Y_to_remove = dict_Y_to_remove
         ##--------------------------------------------------------------------.
         # - Update valid data range indexing 
         idx_start = get_first_valid_idx(input_k)
@@ -323,7 +337,7 @@ class AutoregressiveDataset(Dataset):
             self.update_indexing()
                 
 ##----------------------------------------------------------------------------.    
-def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info, 
+def autoregressive_collate_fn(list_samples,  
                               torch_static=None, 
                               pin_memory = False,
                               prefetch_in_GPU = False,
@@ -332,9 +346,12 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
     """Stack the list of samples into batch of data."""
     # list_samples is a list of what returned by __get_item__ of AutoregressiveDataset
     ##------------------------------------------------------------------------.
-    # Retrieve batch_dimension 
+    # Retrieve other infos
+    dict_Y_to_stack = list_samples[0]['dict_Y_to_stack']
+    dict_Y_to_remove = list_samples[0]['dict_Y_to_remove']
+    dim_info = list_samples[0]['dim_info']
     batch_dim = dim_info['sample'] 
-    
+    ##------------------------------------------------------------------------.
     # Retrieve the different data (and forecast time info)
     list_X_dynamic_samples = []
     list_X_bc_samples = []
@@ -415,6 +432,7 @@ def autoregressive_collate_fn(list_samples, dict_Y_to_stack, dim_info,
                   'Y': dict_Y_batched, 
                   'dim_info': dim_info, 
                   'forecast_time_info': forecast_time_info,
+                  'dict_Y_to_remove': dict_Y_to_remove,
                   'dict_Y_to_stack': dict_Y_to_stack,
                   'prefetched_in_GPU': prefetch_in_GPU}
     
@@ -522,17 +540,8 @@ def AutoregressiveDataLoader(dataset,
         torch_static = torch_static.expand(new_dim_size)  
 
     ##------------------------------------------------------------------------.
-    # Retrieve information for autoregress/stack the predicted data 
-    dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(AR_iterations = dataset.max_AR_iterations, 
-                                                            forecast_cycle = dataset.forecast_cycle, 
-                                                            input_k = dataset.input_k, 
-                                                            output_k = dataset.output_k, 
-                                                            stack_most_recent_prediction = dataset.stack_most_recent_prediction)
-    
-    ##------------------------------------------------------------------------.
     # Create pytorch Dataloader 
-    # - Pass torch tensor for static data and dict_Y_to_stack into collate_fn 
-    # --> This allow to have all required information (within batch_dict) to stack the data during AR training 
+    # - Pass torch tensor of static data (to not reload every time)
     dataloader = DataLoader(dataset = dataset, 
                             batch_size = batch_size,  
                             shuffle = random_shuffle,
@@ -542,8 +551,6 @@ def AutoregressiveDataLoader(dataset,
                             prefetch_factor = prefetch_factor, 
                             pin_memory = False,  # pin after data have been stacked into the collate_fn
                             collate_fn = partial(autoregressive_collate_fn, 
-                                                 dim_info = dim_info, 
-                                                 dict_Y_to_stack = dict_Y_to_stack, 
                                                  torch_static = torch_static,
                                                  pin_memory = pin_memory,
                                                  prefetch_in_GPU = prefetch_in_GPU,
@@ -627,7 +634,7 @@ def get_AR_batch(AR_iteration,
     # --> In the batch dimension, match the number of samples of torch X
     if static_is_available: 
         batch_size = torch_X.shape[0]
-         # TODO ! Generalize 0:batch_size position based on batch_dim position 
+        # TODO ! Generalize 0:batch_size position based on batch_dim position 
         torch_X = torch.cat((torch_static[0:batch_size,...], torch_X), dim=feature_dim)
         
     ##------------------------------------------------------------------------.
