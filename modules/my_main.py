@@ -161,7 +161,7 @@ cfg['dataloader_settings']["prefetch_in_GPU"] = False
 cfg['dataloader_settings']["prefetch_factor"] = 2
 cfg['dataloader_settings']["pin_memory"] = True
 cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-cfg['dataloader_settings']["num_workers"] = 0  
+cfg['dataloader_settings']["num_workers"] = 0    # os.cpu_count()  
 cfg['dataloader_settings']["drop_last_batch"] = False  
         
  
@@ -237,7 +237,7 @@ scaler = None
 ### GPU options 
 # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
-
+# os.environ["CUDA_LAUNCH_BLOCKING"] = 1
 ##############  
 #### Main ####
 ############## 
@@ -389,7 +389,8 @@ training_info = AutoregressiveTraining(model = model,
                                        da_validation_bc = da_validation_bc,  
                                        scaler = scaler, 
                                        # Dataloader settings
-                                       num_workers = dataloader_settings['num_workers'], 
+                                       num_workers = 4,  # dataloader_settings['num_workers'], 
+                                       autotune_num_workers = True, 
                                        prefetch_factor = dataloader_settings['prefetch_factor'],  
                                        prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 
                                        drop_last_batch = dataloader_settings['drop_last_batch'],     
@@ -475,6 +476,7 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          device = 'cpu',
                                          batch_size = 20,  # number of forecasts per batch
                                          num_workers = 0, 
+                                         tune_num_workers = False, 
                                          prefetch_factor = 2, 
                                          prefetch_in_GPU = False,  
                                          pin_memory = True,

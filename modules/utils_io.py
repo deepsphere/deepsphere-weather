@@ -299,7 +299,7 @@ def get_AR_model_diminfo(da_dynamic, da_static=None, da_bc=None, AR_settings=Non
     output_node_dim = len(da_dynamic['node'])
     ##------------------------------------------------------------------------. 
     # Define dimension order
-    dim_order = ['sample'] + list(da_dynamic.dims) 
+    dim_order = ['sample'] + list(da_dynamic.dims) # Here I force batch_dim to be the first dimension (for all code)! 
     ##------------------------------------------------------------------------. 
     # Define time dimension 
     if AR_settings is not None:

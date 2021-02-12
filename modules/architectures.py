@@ -347,7 +347,6 @@ class UNetSpherical(UNet, torch.nn.Module):
         # Desired shape: ['sample', 'node', 'time-feature']
         ##--------------------------------------------------------------------.
         # TODO? 
-        # - Using view() to avoid copy?  
         # - Provide tensor with sample [sample, node, time, feature]?
         # - Contiguous inputs can be reshaped without copying
         ##--------------------------------------------------------------------.
@@ -405,7 +404,7 @@ class UNetSpherical(UNet, torch.nn.Module):
         return x
 
     ##------------------------------------------------------------------------.
-    ## TODO: The code below cannot be hidden in (or a superclass) of UNet ??? 
+    ## TODO: The code below cannot be hidden in UNet ??? 
     @staticmethod
     def get_laplacian_kernels(graphs: List["pygsp.graphs"]):
         """Retrieve laplacian."""
