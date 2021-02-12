@@ -447,26 +447,26 @@ def AutoregressiveTraining(model,
     print('- Creation of AutoregressiveDatasets: {:.0f}s'.format(time.time() - t_i))
     ##------------------------------------------------------------------------.
     ## Tune the number of num_workers for best performance
-    # - TODO: 
+    # TODO  c
     # --> For validation too 
     # --> Option to disable gradients ... 
     # --> Add something related to torch.cuda.memory_summary() 
     if (autotune_num_workers is True) and (num_workers > 0): 
         num_workers_list = list(range(0, num_workers))
-        training_num_workers = tune_num_workers(dataset = trainingDataset,
-                                                model = model, 
-                                                optimizer = optimizer, 
-                                                criterion = criterion, 
-                                                num_workers_list = num_workers_list, 
-                                                # DataLoader options
-                                                batch_size = 32, 
-                                                prefetch_in_GPU = False,
-                                                prefetch_factor = 2,
-                                                pin_memory = False,
-                                                asyncronous_GPU_transfer = True,
-                                                # Timing options
-                                                n_repetitions = 10,
-                                                verbose = True)
+        training_num_workers, t = tune_num_workers(dataset = trainingDataset,
+                                                   model = model, 
+                                                   optimizer = optimizer, 
+                                                   criterion = criterion, 
+                                                   num_workers_list = num_workers_list, 
+                                                   # DataLoader options
+                                                   batch_size = 32, 
+                                                   prefetch_in_GPU = False,
+                                                   prefetch_factor = 2,
+                                                   pin_memory = False,
+                                                   asyncronous_GPU_transfer = True,
+                                                   # Timing options
+                                                   n_repetitions = 10,
+                                                   verbose = True)
     else: 
         training_num_workers = num_workers    
    
