@@ -270,6 +270,8 @@ for batch_count in range(len(trainingDataLoader_iter)):
 
 ##----------------------------------------------------------------------------.
 ### Choose dask config for faster lazy loading of xarray  
+# https://docs.dask.org/en/latest/scheduling.html 
+# https://stackoverflow.com/questions/44193979/how-do-i-run-a-dask-distributed-cluster-in-a-single-thread 
 from multiprocessing.pool import ThreadPool
 import dask
  

@@ -136,7 +136,7 @@ cfg['model_settings']['architecture_name'] = "UNetSpherical"
 cfg['model_settings']['architecture_fpath'] = "/home/ghiggi/Projects/DeepSphere/modules/architectures.py"
 cfg['model_settings']['sampling'] = "Healpix"
 cfg['model_settings']['resolution'] = 16
-cfg['model_settings']['model_dir'] = "/home/ghiggi/Projects/DeepSphere/models"
+cfg['model_settings']['exp_dir'] = "/home/ghiggi/Projects/DeepSphere/models"
 
 # Current experiment (6h deltat)
 cfg['AR_settings']['input_k'] = [-3, -2, -1]
@@ -166,18 +166,25 @@ cfg['dataloader_settings']["drop_last_batch"] = False
         
  
 #-----------------------------------------------------------------------------.
-### Scale data with xscaler 
-dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
-dynamic_scaler.fit()
+# ### Scale data with xscaler 
+# dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
+# dynamic_scaler.fit()
+# # dynamic_scaler.save("/home/ghiggi/dynamic_scaler.nc")
 
 # bc_scaler = GlobalStandardScaler(data=ds_bc)
 # bc_scaler.fit()
+# # bc_scaler.save("/home/ghiggi/bc_scaler.nc")
 
 # static_scaler = GlobalStandardScaler(data=ds_static)
 # static_scaler.fit()
+# # static_scaler.save("/home/ghiggi/static_scaler.nc")
 
-# dynamic_scaler.save("/home/ghiggi/dynamic_scaler.nc")
-# dynamic_scaler = LoadScaler("/home/ghiggi/dynamic_scaler.nc")
+# ## Load scaler 
+# # dynamic_scaler = LoadScaler("/home/ghiggi/dynamic_scaler.nc")
+# # bc_scaler = LoadScaler("/home/ghiggi/bc_scaler.nc")
+# # static_scaler = LoadScaler("/home/ghiggi/static_scaler.nc")
+
+# scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
 
 # ds_dynamic_std = dynamic_scaler.transform(ds_dynamic) # delayed computation
 # ds_bc_std = bc_scaler.transform(ds_bc)           # delayed computation
@@ -257,7 +264,7 @@ training_settings = get_training_settings(cfg)
 dataloader_settings = get_dataloader_settings(cfg) 
 
 ##------------------------------------------------------------------------.
-### Define pyTorch settings 
+### Define pyTorch settings and get pytorch device 
 device = pytorch_settings(training_settings)
 
 ##------------------------------------------------------------------------.
@@ -310,7 +317,7 @@ else:
     model_name = get_model_name(cfg)
     model_settings['model_name'] = model_name
 
-exp_dir = create_experiment_directories(model_dir = model_settings['model_dir'],      
+exp_dir = create_experiment_directories(exp_dir = model_settings['exp_dir'],      
                                         model_name = model_name,
                                         force=True) 
 

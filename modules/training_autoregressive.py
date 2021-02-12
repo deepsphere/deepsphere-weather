@@ -583,13 +583,13 @@ def AutoregressiveTraining(model,
             ### Backprogate the gradients and update the network weights 
             # Backward pass 
             training_total_loss.backward()          
- 
-            # Zeros all the gradients
-            # - By default gradients are accumulated in buffers (and not overwritten)
-            optimizer.zero_grad()   
             
             # - Update the network weights 
             optimizer.step() 
+            
+            # Zeros all the gradients
+            # - By default gradients are accumulated in buffers (and not overwritten)
+            optimizer.zero_grad()   
             
             ##----------------------------------------------------------------. 
             # - Update training statistics

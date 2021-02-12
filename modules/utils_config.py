@@ -67,12 +67,12 @@ def get_default_dataloader_settings():
     """Return some default settings for the DataLoader."""
     dataloader_settings = {"random_shuffle": True,
                            "drop_last_batch": True, 
-                           "preload_data_in_CPU": False, 
                            "prefetch_in_GPU": False, 
                            "prefetch_factor": 2,
                            "pin_memory": False,  
                            "asyncronous_GPU_transfer": True, 
                            "num_workers": 0,
+                           "autotune_num_workers": False, 
                            }  
     return dataloader_settings
 
@@ -114,7 +114,7 @@ def get_model_settings(cfg):
     model_settings = {}
     default_model_settings = get_default_model_settings()
     
-    mandatory_keys = ['model_dir', 'architecture_name', 'architecture_fpath', 'sampling', 'resolution']
+    mandatory_keys = ['exp_dir', 'architecture_name', 'architecture_fpath', 'sampling', 'resolution', "sampling_name"]
     optional_keys = list(default_model_settings.keys())
     available_keys = mandatory_keys + optional_keys
   
@@ -127,12 +127,13 @@ def get_model_settings(cfg):
         raise ValueError('Specify only correct model setting keys in the config file!')        
     
     # Retrieve mandatory model settings  
-    model_settings["model_dir"] = cfg['model_settings'].get("model_dir", None)
+    model_settings["exp_dir"] = cfg['model_settings'].get("exp_dir", None)
     model_settings["architecture_name"] = cfg['model_settings'].get("architecture_name", None)
     model_settings["architecture_fpath"] = cfg['model_settings'].get("architecture_fpath", None)
     model_settings["sampling"] = cfg['model_settings'].get("sampling", None)
     model_settings["resolution"] = cfg['model_settings'].get("resolution", None)
-  
+    model_settings["sampling_name"] = cfg['model_settings'].get("sampling", None)
+   
     # Stop if some mandatory keys are missing 
     flag_error = False 
     for key in mandatory_keys: 
@@ -309,10 +310,8 @@ def get_pytorch_model(model_settings):
 
 def load_pretrained_model(model, model_settings):
     """Load a pre-trained pytorch model."""
-    # TODO: add pretrained_model_weights_fpath key ? 
-    # --> or change pretrained_model_name to pretrained_model_weights_fpath ? 
-    model_fname = model_settings['pretrained_model_name'] + '.h5'
-    model_fpath = os.path.join(model_settings['model_dir'], 'models_weights', model_fname)
+    model_fname = model_settings['pretrained_model_name']  
+    model_fpath = os.path.join(model_settings['exp_dir'], model_fname, 'models_weights', "model.h5")
     state = torch.load(model_fpath)
     model.load_state_dict(state, strict=False)
 
@@ -408,10 +407,10 @@ def get_model_name(cfg):
     return model_name 
  
 
-def create_experiment_directories(model_dir, model_name, force=False): 
+def create_experiment_directories(exp_dir, model_name, force=False): 
     """Create the required directory for a specific DeepSphere model."""
     # Check if the experiment directory already exists 
-    exp_dir = os.path.join(model_dir, model_name)
+    exp_dir = os.path.join(exp_dir, model_name)
     if os.path.exists(exp_dir):
         if force is True: 
             shutil.rmtree(exp_dir)

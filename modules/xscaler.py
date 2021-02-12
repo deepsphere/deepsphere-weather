@@ -205,7 +205,9 @@ class GlobalStandardScaler():
             raise ValueError("Please fit() the scaler before saving it!")
         # Check basepath exists 
         if not os.path.exists(os.path.dirname(fpath)):
-            raise ValueError("The directory {} do not exist!".format(os.path.dirname(fpath)))
+            # If not exist, create directory 
+            os.makedirs(os.path.dirname(fpath))
+            print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
         # Check end with .nc 
         if fpath[-3:] != ".nc":
             fpath = fpath + ".nc"
@@ -748,7 +750,9 @@ class TemporalStandardScaler():
             raise ValueError("Please fit() the scaler before saving it!")
         # Check basepath exists 
         if not os.path.exists(os.path.dirname(fpath)):
-            raise ValueError("The directory {} do not exist!".format(os.path.dirname(fpath)))
+            # If not exist, create directory 
+            os.makedirs(os.path.dirname(fpath))
+            print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
         # Check end with .nc 
         if fpath[-3:] != ".nc":
             fpath = fpath + ".nc"

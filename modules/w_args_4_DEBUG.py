@@ -112,7 +112,8 @@ compressor = "auto"
 timedelta_unit = 'hour'
 device = 'cpu'
 
-zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
+
+# zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
  
 # preload_data_in_CPU = True
 # random_shuffle = True
