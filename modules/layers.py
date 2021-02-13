@@ -77,8 +77,8 @@ class Conv2dEquiangular(torch.nn.Module):
 
         self.kernel_size = kernel_size
         self.pad_width = int((self.kernel_size - 1) / 2)
-
-        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size)
+        # TODO: Pass also ** kwargs ? Or just add self.bias?  
+        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size)  # TODO
 
         torch.nn.init.xavier_uniform_(self.conv.weight)
         torch.nn.init.zeros_(self.conv.bias)

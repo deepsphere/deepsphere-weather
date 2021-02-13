@@ -617,6 +617,9 @@ def get_AR_batch(AR_iteration,
     # --> Data need to be already in the GPU (if device is not cpu)!
     if list_tuple_idx_to_stack is not None:
         # TODO ! Generalize idx position based on time_dim position 
+        # (:, idx, 0:dim) * 
+        # shape = (None, None, None, None)
+        # shape[dim] = idx
         list_Y_to_stack = [dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack]
         torch_X_to_stack = torch.stack(list_Y_to_stack, dim=time_dim)  
         if torch_X_dynamic is not None:
