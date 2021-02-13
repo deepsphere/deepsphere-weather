@@ -50,7 +50,7 @@ cfg['model_settings']['architecture_name'] = "UNetSpherical"
 cfg['model_settings']['architecture_fpath'] = "/home/ghiggi/Projects/DeepSphere/modules/architectures.py"
 cfg['model_settings']['sampling'] = "Healpix"
 cfg['model_settings']['resolution'] = 16
-cfg['model_settings']['model_dir'] = "/home/ghiggi/Projects/DeepSphere/models"
+cfg['model_settings']['exp_dir'] = "/home/ghiggi/Projects/DeepSphere/models"
 
 # Current experiment (6h deltat)
 cfg['AR_settings']['input_k'] = [-3, -2, -1]
@@ -70,7 +70,6 @@ cfg['training_settings']["epochs"] = 5
 
 cfg['training_settings']['numeric_precision'] = "float32"
 
-cfg['dataloader_settings']["preload_data_in_CPU"] = True
 cfg['dataloader_settings']["prefetch_in_GPU"] = False
 cfg['dataloader_settings']["prefetch_factor"] = 2
 cfg['dataloader_settings']["pin_memory"] = True
@@ -104,6 +103,8 @@ validation_batch_size = training_settings['validation_batch_size']
 epochs = training_settings['epochs']
 scoring_interval = training_settings['scoring_interval']
 save_model_each_epoch = training_settings['save_model_each_epoch']
+
+autotune_num_workers = True, 
 shuffle = random_shuffle
 rounding = 2
 batch_size = 30
@@ -111,6 +112,9 @@ chunks = "auto"
 compressor = "auto"
 timedelta_unit = 'hour'
 device = 'cpu'
+num_workers = 1 
+training_num_workers = 2
+validation_num_workers = 2
 
 
 # zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")

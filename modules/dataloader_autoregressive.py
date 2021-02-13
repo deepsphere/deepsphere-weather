@@ -49,7 +49,6 @@ class AutoregressiveDataset(Dataset):
                  output_k,
                  forecast_cycle,                           
                  AR_iterations, 
-                 max_AR_iterations, 
                  stack_most_recent_prediction, 
                  # Facultative input data
                  da_bc = None, 
@@ -83,8 +82,6 @@ class AutoregressiveDataset(Dataset):
             Indicates the lag between forecasts.
         AR_iterations : int
             Number of AR iterations.
-        max_AR_iterations : int 
-            Maximum number of AR iterations.
         stack_most_recent_prediction : bool
             Whether to use the most recent prediction when autoregressing.
         device : torch.device, optional
@@ -94,8 +91,6 @@ class AutoregressiveDataset(Dataset):
 
         """        
         ##--------------------------------------------------------------------.
-        if AR_iterations > max_AR_iterations:
-            raise ValueError("'AR_iterations' can not exceed 'max_AR_iterations'")
         # Check input_k and output_k type
         input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
         output_k = check_output_k(output_k=output_k)
@@ -112,7 +107,6 @@ class AutoregressiveDataset(Dataset):
         self.output_k = output_k
         self.forecast_cycle = forecast_cycle
         self.AR_iterations = AR_iterations
-        self.max_AR_iterations = max_AR_iterations
         self.stack_most_recent_prediction = stack_most_recent_prediction
         ##--------------------------------------------------------------------.
         ### Initialize scaler 
@@ -291,6 +285,9 @@ class AutoregressiveDataset(Dataset):
         self.idx_start = idx_start
         self.idx_end = idx_end
         self.n_samples = len(self.idxs)
+        
+        if self.n_samples == 0: 
+            raise ValueError("No samples available. Maybe reduce number of AR iterations.")
         ##--------------------------------------------------------------------.
         ### - Update dictionary with indexing information for autoregressive training
         self.dict_rel_idx_Y = get_dict_Y(AR_iterations = AR_iterations,
@@ -325,11 +322,7 @@ class AutoregressiveDataset(Dataset):
         the relative indices in order to retrieve only the needed amount of data 
         The changes to the Dataset implicitly affect the next DataLoader call!
         """
-        if self.AR_iterations != new_AR_iterations:
-            # Check do not exceed max_AR_iterations
-            if new_AR_iterations > self.max_AR_iterations:
-                raise ValueError("'AR_iterations' can not exceed 'max_AR_iterations'.")
-                
+        if self.AR_iterations != new_AR_iterations:                
             # Update AR iterations
             self.AR_iterations = new_AR_iterations
             
@@ -473,7 +466,7 @@ def AutoregressiveDataLoader(dataset,
         A high enough number of workers usually assures that CPU computations 
         are efficiently managed. However, increasing num_workers increase the 
         CPU memory consumption.
-        The Dataloader prefetch into the CPU 2*num_workers batches.
+        The Dataloader prefetch into the CPU prefetch_factor*num_workers batches.
         The default is 0.
     prefetch_factor: int, optional 
         Number of sample loaded in advance by each worker.
@@ -616,11 +609,16 @@ def get_AR_batch(AR_iteration,
     # --> Previous predictions to stack are already in the GPU
     # --> Data need to be already in the GPU (if device is not cpu)!
     if list_tuple_idx_to_stack is not None:
-        # TODO ! Generalize idx position based on time_dim position 
-        # (:, idx, 0:dim) * 
-        # shape = (None, None, None, None)
-        # shape[dim] = idx
-        list_Y_to_stack = [dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack]
+        # The loop below allow to generalize the stacking to whatever time_dim position  
+        # list_Y_to_stack = [dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack]
+        # --> Maybe one day: torch.isel({dim_name: idx}) à la xarray
+        general_index = [slice(None) for i in range(len(torch_Y.shape))]
+        list_Y_to_stack = []
+        for ldt, idx in list_tuple_idx_to_stack:
+            custom_idx = general_index.copy()
+            custom_idx[time_dim] = idx
+            list_Y_to_stack.append(dict_Y_predicted[ldt][custom_idx])  
+            
         torch_X_to_stack = torch.stack(list_Y_to_stack, dim=time_dim)  
         if torch_X_dynamic is not None:
             torch_X_dynamic = torch.cat((torch_X_dynamic, torch_X_to_stack), dim=time_dim)
@@ -637,7 +635,6 @@ def get_AR_batch(AR_iteration,
     # --> In the batch dimension, match the number of samples of torch X
     if static_is_available: 
         batch_size = torch_X.shape[0]
-        # TODO ! Generalize 0:batch_size position based on batch_dim position 
         torch_X = torch.cat((torch_static[0:batch_size,...], torch_X), dim=feature_dim)
         
     ##------------------------------------------------------------------------.

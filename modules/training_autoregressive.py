@@ -26,16 +26,18 @@ from modules.utils_torch import check_torch_device
 # TODOs
 # - ONNX for saving model weights 
 # - Record the loss per variable 
-
+# - Add something related to memory consumption --> torch.cuda.memory_summary() 
 ##----------------------------------------------------------------------------. 
 # ####################
 #### Timing utils ####
 # ####################
 def get_synchronized_cuda_time():
+    """Get time after CUDA synchronization.""" 
     torch.cuda.synchronize()
     return time.time()
 
 def get_time_function(device):
+    """General function returing a time() function.""" 
     if isinstance(device, str): 
         device = torch.device(device)
     if device.type == "cpu":
@@ -58,14 +60,70 @@ def timing_AR_Training(dataset,
                        prefetch_factor = 2,
                        pin_memory = False,
                        asyncronous_GPU_transfer = True,
-                       # Timing options    
+                       # Timing options 
+                       training_mode = True,
                        n_repetitions = 10,
                        verbose = True):
+    """
+    Time AR training. 
+
+    Parameters
+    ----------
+    dataset : AutoregressiveDataLoader
+        AutoregressiveDataLoader
+    model : pytorch model
+        pytorch model.
+    optimizer : pytorch optimizer
+        pytorch optimizer.
+    criterion : pytorch criterion
+        pytorch criterion
+    num_workers : 0, optional
+        Number of processes that generate batches in parallel.
+        0 means ONLY the main process will load batches (that can be a bottleneck).
+        1 means ONLY one worker (just not the main process) will load data 
+        A high enough number of workers usually assures that CPU computations 
+        are efficiently managed. However, increasing num_workers increase the 
+        CPU memory consumption.
+        The Dataloader prefetch into the CPU prefetch_factor*num_workers batches.
+        The default is 0.        
+    batch_size : int, optional
+        Number of samples within a batch. The default is 32.
+    prefetch_factor: int, optional 
+        Number of sample loaded in advance by each worker.
+        The default is 2.
+    prefetch_in_GPU: bool, optional 
+        Whether to prefetch 'prefetch_factor'*'num_workers' batches of data into GPU instead of CPU.
+        By default it prech 'prefetch_factor'*'num_workers' batches of data into CPU (when False)
+        The default is False.
+    pin_memory : bool, optional
+        When True, it prefetch the batch data into the pinned memory.  
+        pin_memory=True enables (asynchronous) fast data transfer to CUDA-enabled GPUs.
+        Useful only if training on GPU.
+        The default is False.
+    asyncronous_GPU_transfer: bool, optional 
+        Only used if 'prefetch_in_GPU' = True. 
+        Indicates whether to transfer data into GPU asynchronously 
+    training_mode : bool, optional 
+        Whether to compute the gradients or time the "validation mode".
+        The default is True.
+    n_repetitions : int, optional
+        Number of runs to time. The default is 10.
+    verbose : bool, optional
+        Wheter to print the timing summary. The default is True.
+
+    Returns
+    -------
+    timing_info : dict
+        Dictionary with timing information of AR training.
+
+    """
     ##------------------------------------------------------------------------.
     if not isinstance(num_workers, int):
         raise TypeError("'num_workers' must be a integer larger than 0.")
     if num_workers < 0: 
         raise ValueError("'num_workers' must be a integer larger than 0.")
+    if not isinstance(training_mode, bool):
+        raise TypeError("'training_mode' must be either True or False.")
     ##------------------------------------------------------------------------.    
     # Retrieve informations 
     AR_iterations = dataset.AR_iterations
@@ -74,8 +132,17 @@ def timing_AR_Training(dataset,
     # Retrieve function to get time 
     get_time = get_time_function(device)
     ##------------------------------------------------------------------------.
+    # Get dimension infos
+    dim_info = dataset.dim_info
+    dim_names = tuple(dim_info.keys())
+    ##------------------------------------------------------------------------.
     # Initialize model 
-    model.train()
+    if training_mode:
+        model.train()
+        torch.set_grad_enabled(True)
+    else: 
+        model.eval()  
+        torch.set_grad_enabled(False)
     ##------------------------------------------------------------------------.
     # Initialize list 
     Dataloader_timing = []  
@@ -130,12 +197,17 @@ def timing_AR_Training(dataset,
             tmp_AR_forward_timing = tmp_AR_forward_timing + (get_time() - t_i) 
             ##------------------------------------------------------------.
             # Compute loss for current forecast iteration 
-            # TODO: Generalize this to dim_info (order)
-            t_i = get_time()
-            Y_dims = torch_Y.shape
-            reshape_dims = (-1, Y_dims[2], Y_dims[3])
-            dict_training_loss_per_AR_iteration[i] = criterion(dict_training_Y_predicted[i].reshape(*reshape_dims), 
-                                                               torch_Y.reshape(*reshape_dims))  
+            # - The criterion expects [data_points, nodes, features]
+            # - Collapse all other dimensions to a 'data_points' dimension  
+            t_i = get_time()              
+            vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
+            Y_pred = dict_training_Y_predicted[i]
+            Y_pred.names = dim_names
+            Y_pred = Y_pred.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+            Y_obs = torch_Y
+            Y_obs.names = dim_names
+            Y_obs = Y_obs.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+            dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
             tmp_AR_loss_timing = tmp_AR_loss_timing + (get_time() - t_i)
             ##------------------------------------------------------------.
             # Remove unnecessary stored Y predictions 
@@ -166,16 +238,19 @@ def timing_AR_Training(dataset,
         
         ##--------------------------------------------------------------------.       
         ### Backprogate the gradients and update the network weights 
-        t_i = get_time()
-        # Backward pass 
-        training_total_loss.backward()          
-        # Zeros all the gradients
-        # - By default gradients are accumulated in buffers (and not overwritten)
-        optimizer.zero_grad()   
-        # - Update the network weights 
-        optimizer.step()
-        # - Time backward pass 
-        Backprop_timing.append(get_time() - t_i)
+        if training_mode: 
+            t_i = get_time()
+            # Backward pass 
+            training_total_loss.backward()          
+            # - Update the network weights 
+            optimizer.step()
+            # Zeros all the gradients
+            # - By default gradients are accumulated in buffers (and not overwritten)
+            optimizer.zero_grad()   
+            # - Time backward pass 
+            Backprop_timing.append(get_time() - t_i)
+        else: 
+            Backprop_timing.append(0)
         ##--------------------------------------------------------------------.
         # - Total time elapsed
         Total_timing.append(get_time() - t_start)
@@ -206,7 +281,10 @@ def timing_AR_Training(dataset,
                          round(Backprop_timing[count], 4)
                           ])
         print(tabulate(table, headers=headers))   
-
+    
+    ##------------------------------------------------------------------------.    
+    # Reactivate gradient computations 
+    torch.set_grad_enabled(True)
     ##------------------------------------------------------------------------.               
     return timing_info   
 
@@ -222,6 +300,7 @@ def tune_num_workers(dataset,
                      pin_memory = False,
                      asyncronous_GPU_transfer = True,
                      # Timing options
+                     training_mode = True, 
                      n_repetitions = 10,
                      verbose = True):
     """
@@ -256,6 +335,9 @@ def tune_num_workers(dataset,
     asyncronous_GPU_transfer: bool, optional 
         Only used if 'prefetch_in_GPU' = True. 
         Indicates whether to transfer data into GPU asynchronously 
+    training_mode : bool, optional 
+        Whether to compute the gradients or time the "validation mode".
+        The default is True.
     n_repetitions : int, optional
         Number of runs to time. The default is 10.
     verbose : bool, optional
@@ -263,11 +345,8 @@ def tune_num_workers(dataset,
 
     Returns
     -------
-    best_num_workers : TYPE
-        DESCRIPTION.
-    table : TYPE
-        DESCRIPTION.
-
+    optimal_num_workers : int
+        Optimal num_workers to use for efficient data loading.
     """
     ##------------------------------------------------------------------------.
     # Checks arguments 
@@ -284,7 +363,6 @@ def tune_num_workers(dataset,
     Total_timing = {i: [] for i in num_workers_list }
     ##------------------------------------------------------------------------.
     # Time AR training for specified num_workers in num_workers_list
-    print("- Tunining 'num_workers': ")
     for num_workers in num_workers_list:  
         timing_info = timing_AR_Training(dataset = dataset, 
                                          model = model, 
@@ -297,7 +375,8 @@ def tune_num_workers(dataset,
                                          prefetch_factor = prefetch_factor,
                                          pin_memory = pin_memory,
                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                                         # Timing options  
+                                         # Timing options 
+                                         training_mode = training_mode, 
                                          n_repetitions = n_repetitions,
                                          verbose = False) 
         Dataloader_timing[num_workers] = timing_info['Dataloader']
@@ -310,7 +389,7 @@ def tune_num_workers(dataset,
 
     ##------------------------------------------------------------------------. 
     ### Summarize timing results      
-    headers = ['Workers', 'Total', 'Dataloader','AR Batch', 'Delete', 'Forward', 'Loss', 'Backward']
+    headers = ['N. workers', 'Total', 'Dataloader','AR Batch', 'Delete', 'Forward', 'Loss', 'Backward']
     table = []
     dtloader = []
     for num_workers in num_workers_list:
@@ -330,10 +409,9 @@ def tune_num_workers(dataset,
         print(tabulate(table, headers=headers)) 
     ##------------------------------------------------------------------------.
     # Select best num_workers
-    best_num_workers = num_workers_list[np.argmin(dtloader)]
-    print('Selecting num_workers={} for best performance.'.format(best_num_workers))
+    optimal_num_workers = num_workers_list[np.argmin(dtloader)]
     ##------------------------------------------------------------------------.
-    return best_num_workers, table
+    return optimal_num_workers
         
 #----------------------------------------------------------------------------.              
 # #########################
@@ -410,6 +488,17 @@ def AutoregressiveTraining(model,
                         da_training_bc = da_training_bc,
                         da_validation_bc = da_validation_bc, 
                         da_static = da_static)
+    
+    ##------------------------------------------------------------------------.
+    ## Decide wheter to tune num_workers    
+    if (autotune_num_workers is True) and (num_workers > 0): 
+        num_workers_list = list(range(0, num_workers))
+    else: 
+        num_workers_list = [num_workers]
+        
+    ##------------------------------------------------------------------------.
+    # Zeros gradients     
+    optimizer.zero_grad()    
     ##------------------------------------------------------------------------.
     ### Create Datasets 
     t_i = time.time()
@@ -422,7 +511,6 @@ def AutoregressiveTraining(model,
                                             output_k = output_k,
                                             forecast_cycle = forecast_cycle,  
                                             AR_iterations = AR_scheduler.current_AR_iterations,
-                                            max_AR_iterations = AR_iterations,
                                             stack_most_recent_prediction = stack_most_recent_prediction, 
                                             # GPU settings 
                                             device = device,
@@ -438,38 +526,56 @@ def AutoregressiveTraining(model,
                                                   output_k = output_k,
                                                   forecast_cycle = forecast_cycle,                           
                                                   AR_iterations = AR_scheduler.current_AR_iterations,
-                                                  max_AR_iterations = AR_iterations,
                                                   stack_most_recent_prediction = stack_most_recent_prediction, 
                                                   # GPU settings 
                                                   device = device,
                                                   # Precision settings
                                                   numeric_precision = numeric_precision)
+    else: 
+        validationDataset = None
     print('- Creation of AutoregressiveDatasets: {:.0f}s'.format(time.time() - t_i))
     ##------------------------------------------------------------------------.
-    ## Tune the number of num_workers for best performance
-    # TODO  c
-    # --> For validation too 
-    # --> Option to disable gradients ... 
-    # --> Add something related to torch.cuda.memory_summary() 
-    if (autotune_num_workers is True) and (num_workers > 0): 
-        num_workers_list = list(range(0, num_workers))
-        training_num_workers, t = tune_num_workers(dataset = trainingDataset,
-                                                   model = model, 
-                                                   optimizer = optimizer, 
-                                                   criterion = criterion, 
-                                                   num_workers_list = num_workers_list, 
-                                                   # DataLoader options
-                                                   batch_size = 32, 
-                                                   prefetch_in_GPU = False,
-                                                   prefetch_factor = 2,
-                                                   pin_memory = False,
-                                                   asyncronous_GPU_transfer = True,
-                                                   # Timing options
-                                                   n_repetitions = 10,
-                                                   verbose = True)
-    else: 
-        training_num_workers = num_workers    
-   
+    ### Time execution         
+    # - Time AR training    
+    print("- Timing AR training with {} AR iterations:".format(trainingDataset.AR_iterations))
+    training_num_workers = tune_num_workers(dataset = trainingDataset,
+                                            model = model, 
+                                            optimizer = optimizer, 
+                                            criterion = criterion, 
+                                            num_workers_list = num_workers_list, 
+                                            # DataLoader options
+                                            batch_size = training_batch_size, 
+                                            prefetch_in_GPU = prefetch_in_GPU,
+                                            prefetch_factor = prefetch_factor,
+                                            pin_memory = pin_memory,
+                                            asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                            # Timing options
+                                            training_mode = True, 
+                                            n_repetitions = 5,
+                                            verbose = True)
+    print('  --> Selecting num_workers={} for TrainingDataLoader.'.format(training_num_workers))
+    
+    # - Time AR validation 
+    if validationDataset is not None: 
+        print()
+        print("- Timing AR validation with {} AR iterations:".format(validationDataset.AR_iterations))
+        validation_num_workers = tune_num_workers(dataset = validationDataset,
+                                                  model = model, 
+                                                  optimizer = optimizer, 
+                                                  criterion = criterion, 
+                                                  num_workers_list = num_workers_list, 
+                                                  # DataLoader options
+                                                  batch_size = validation_batch_size, 
+                                                  prefetch_in_GPU = prefetch_in_GPU,
+                                                  prefetch_factor = prefetch_factor,
+                                                  pin_memory = pin_memory,
+                                                  asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                                  # Timing options
+                                                  training_mode = False, 
+                                                  n_repetitions = 5,
+                                                  verbose = True)
+        print('  --> Selecting num_workers={} for ValidationDataLoader.'.format(validation_num_workers))
+
     ##------------------------------------------------------------------------.
     ## Create DataLoaders
     # - Prefetch (prefetch_factor*num_workers) batches parallelly into CPU
@@ -494,7 +600,7 @@ def AutoregressiveTraining(model,
                                                         batch_size = validation_batch_size,  
                                                         drop_last_batch = drop_last_batch,
                                                         random_shuffle = random_shuffle,
-                                                        num_workers = training_num_workers,
+                                                        num_workers = validation_num_workers,
                                                         prefetch_in_GPU = prefetch_in_GPU,  
                                                         prefetch_factor = prefetch_factor, 
                                                         pin_memory = pin_memory,
@@ -509,12 +615,12 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     # Initialize AR TrainingInfo object 
     training_info = AR_TrainingInfo(AR_iterations=AR_iterations,
-                                    epochs = epochs)
-
-    ##------------------------------------------------------------------------.
-    # Zeros gradients     
-    optimizer.zero_grad()       
+                                    epochs = epochs)  
     
+    ##------------------------------------------------------------------------.
+    # Get dimension infos
+    dim_info = trainingDataset.dim_info
+    dim_names = tuple(dim_info.keys())
     ##------------------------------------------------------------------------.
     # Iterate along epochs
     flag_stop_training = False
@@ -551,18 +657,17 @@ def AutoregressiveTraining(model,
                 
                 ##------------------------------------------------------------.
                 # Compute loss for current forecast iteration 
-                # - The torch tensors are [sample, time, nodes, features]
-                # - The criterion expects [samples-time, nodes, features]
-                # - Collapse time dimension with sample dimension 
-                # TODO: Generalize this to dim_info (order)
-                # --> Permute to [sample, time, nodes, features]
-                # --> Reshape to [sample-time, nodes, features]                
-                Y_dims = torch_Y.shape
-                reshape_dims = (-1, Y_dims[2], Y_dims[3])
-                dict_training_loss_per_AR_iteration[i] = criterion(dict_training_Y_predicted[i].reshape(*reshape_dims), 
-                                                                   torch_Y.reshape(*reshape_dims))  
-                # dict_training_loss_per_AR_iteration[i] = criterion(dict_training_Y_predicted[i], torch_Y) 
-
+                # - The criterion expects [data_points, nodes, features]
+                # - Collapse all other dimensions to a 'data_points' dimension   
+                vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
+                Y_pred = dict_training_Y_predicted[i]
+                Y_pred.names = dim_names
+                Y_pred = Y_pred.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+                Y_obs = torch_Y
+                Y_obs.names = dim_names
+                Y_obs = Y_obs.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+                dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
+                                                                    
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
                 remove_unused_Y(AR_iteration = i, 
@@ -631,11 +736,15 @@ def AutoregressiveTraining(model,
                 
                             ##------------------------------------------------.
                             # Compute loss for current forecast iteration 
-                            # - The criterion expects [samples, nodes, features]
-                            Y_dims = torch_Y.shape
-                            reshape_dims = (-1, Y_dims[2], Y_dims[3])
-                            dict_validation_loss_per_AR_iteration[i] = criterion(dict_validation_Y_predicted[i].reshape(*reshape_dims), 
-                                                                             torch_Y.reshape(*reshape_dims))  
+                            # - The criterion expects [data_points, nodes, features]
+                            vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
+                            Y_pred = dict_validation_Y_predicted[i]
+                            Y_pred.names = dim_names
+                            Y_pred = Y_pred.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+                            Y_obs = torch_Y
+                            Y_obs.names = dim_names
+                            Y_obs = Y_obs.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+                            dict_validation_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
                             
                             ##------------------------------------------------.
                             # Remove unnecessary stored Y predictions 
@@ -688,15 +797,61 @@ def AutoregressiveTraining(model,
                                                                                                          training_info.iteration)
                         print("--> Updating training to {} AR iterations {}.".format(AR_scheduler.current_AR_iterations, current_training_info))
                         ##----------------------------------------------------.           
-                        # Update Datasets and DataLoaders (to prefetch the correct amount of data)
-                        # - TODO: check that also if prefetch is on... it works
+                        # Update Datasets (to prefetch the correct amount of data)
+                        # - Training
                         del trainingDataLoader, trainingDataLoader_iter
                         trainingDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
+                        # - Validation
+                        if validationDataset is not None: 
+                            del validationDataLoader, validationDataLoader_iter
+                            validationDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
+                        ##----------------------------------------------------.                              
+                        ## Time execution         
+                        # - Time AR training    
+                        print("- Timing AR training with {} AR iterations:".format(trainingDataset.AR_iterations))
+                        training_num_workers = tune_num_workers(dataset = trainingDataset,
+                                                                model = model, 
+                                                                optimizer = optimizer, 
+                                                                criterion = criterion, 
+                                                                num_workers_list = num_workers_list, 
+                                                                # DataLoader options
+                                                                batch_size = training_batch_size, 
+                                                                prefetch_in_GPU = prefetch_in_GPU,
+                                                                prefetch_factor = prefetch_factor,
+                                                                pin_memory = pin_memory,
+                                                                asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                                                # Timing options
+                                                                training_mode = True, 
+                                                                n_repetitions = 5,
+                                                                verbose = True)
+                        print('  --> Selecting num_workers={} for TrainingDataLoader.'.format(training_num_workers))
+                        # - Time AR validation 
+                        if validationDataset is not None: 
+                            print()
+                            print("- Timing AR validation with {} AR iterations:".format(validationDataset.AR_iterations))
+                            validation_num_workers = tune_num_workers(dataset = validationDataset,
+                                                                      model = model, 
+                                                                      optimizer = optimizer, 
+                                                                      criterion = criterion, 
+                                                                      num_workers_list = num_workers_list, 
+                                                                      # DataLoader options
+                                                                      batch_size = validation_batch_size, 
+                                                                      prefetch_in_GPU = prefetch_in_GPU,
+                                                                      prefetch_factor = prefetch_factor,
+                                                                      pin_memory = pin_memory,
+                                                                      asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                                                      # Timing options
+                                                                      training_mode = False, 
+                                                                      n_repetitions = 5,
+                                                                      verbose = True)
+                            print('  --> Selecting num_workers={} for ValidationDataLoader.'.format(validation_num_workers))
+                        ##----------------------------------------------------------------.
+                        # Update DataLoaders (to prefetch the correct amount of data)
                         trainingDataLoader = AutoregressiveDataLoader(dataset = trainingDataset,                                                   
                                                                       batch_size = training_batch_size,  
                                                                       drop_last_batch = drop_last_batch,
                                                                       random_shuffle = random_shuffle,
-                                                                      num_workers = num_workers,
+                                                                      num_workers = training_num_workers,
                                                                       prefetch_factor = prefetch_factor, 
                                                                       prefetch_in_GPU = prefetch_in_GPU,  
                                                                       pin_memory = pin_memory,
@@ -710,13 +865,15 @@ def AutoregressiveTraining(model,
                                                                         batch_size = validation_batch_size,  
                                                                         drop_last_batch = drop_last_batch,
                                                                         random_shuffle = random_shuffle,
-                                                                        num_workers = num_workers,
+                                                                        num_workers = validation_num_workers,
                                                                         prefetch_in_GPU = prefetch_in_GPU,  
                                                                         prefetch_factor = prefetch_factor, 
                                                                         pin_memory = pin_memory,
                                                                         asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                                                         device = device)
                             validationDataLoader_iter = cylic_iterator(validationDataLoader)
+                            
+                    ##--------------------------------------------------------.     
                     # - If current_AR_iterations = AR_iterations --> Stop training 
                     else: 
                         # Stop training 

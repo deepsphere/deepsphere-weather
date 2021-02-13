@@ -70,13 +70,14 @@ dict_samplings = {'Healpix_400km': {'sampling': 'healpix',
                                   'resolution': 24}
                   }
 
+# Do we want to keep that ? This is just for demonstrating DeepSphere ... 
+cfg['model_settings']['ratio'] = None
+cfg['model_settings']['periodic'] = None
+ 
 # - Architecture options 
 kernel_size_pooling = 4
 kernel_size = 3 # ???
 
-# "ratio": None ?     classical conv ?
-# "periodic": None ?  classical conv ?
-                  
 architecture_names = ["UNetSpherical"]
 knn_list = [20]
 pool_methods = ['Max', 'Avg', 'MaxArea', 'Interp', 'Learn']

@@ -156,12 +156,11 @@ cfg['training_settings']["epochs"] = 5
 
 cfg['training_settings']['numeric_precision'] = "float32"
 
-cfg['dataloader_settings']["preload_data_in_CPU"] = True
 cfg['dataloader_settings']["prefetch_in_GPU"] = False
 cfg['dataloader_settings']["prefetch_factor"] = 2
 cfg['dataloader_settings']["pin_memory"] = True
 cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-cfg['dataloader_settings']["num_workers"] = 0    # os.cpu_count()  
+cfg['dataloader_settings']["num_workers"] = 1    # os.cpu_count()  
 cfg['dataloader_settings']["drop_last_batch"] = False  
         
  
