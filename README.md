@@ -26,8 +26,14 @@ For a local installation, follow the below instructions.
 2. Install the dependencies.
    ```sh
    conda env create -f environment.yml
-   ``
    pip install git+https://github.com/epfl-lts2/pygsp@sphere-graphs
+   ```
+   
+3. If you don't have a GPU and you plan to work on CPU, please install the follow: 
+   ```sh
+   conda install pytorch torchvision torchaudio cpuonly -c pytorch
+   pip install torch-scatter torch-sparse -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html
+   ```
    
 ## Contributors
 - [Gionata Ghiggi][gg]
