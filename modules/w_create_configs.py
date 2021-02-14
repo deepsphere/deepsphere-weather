@@ -15,10 +15,6 @@ from modules.utils_config import write_config_file
 # Get default settings 
 cfg = get_default_settings()
 
-# General Model settings 
-cfg['model_settings']['exp_dir'] = "/data/weather_prediction/experiments"
-cfg['model_settings']['architecture_fpath'] = "/home/ghiggi/Projects/weather_prediction/modules/architectures.py"
-
 # Current experiment (6h deltat)
 cfg['AR_settings']['input_k'] = [-18, -12, -6]
 cfg['AR_settings']['output_k'] = [0]
@@ -69,15 +65,11 @@ dict_samplings = {'Healpix_400km': {'sampling': 'healpix',
                   'Cubed_400km': {'sampling': 'cubed', 
                                   'resolution': 24}
                   }
-
-# Do we want to keep that ? This is just for demonstrating DeepSphere ... 
-cfg['model_settings']['ratio'] = None
-cfg['model_settings']['periodic'] = None
  
 # - Architecture options 
+kernel_size_conv = 3
 kernel_size_pooling = 4
-kernel_size = 3 # ???
-
+ 
 architecture_names = ["UNetSpherical"]
 knn_list = [20]
 pool_methods = ['Max', 'Avg', 'MaxArea', 'Interp', 'Learn']
@@ -95,15 +87,11 @@ for architecture_name in architecture_names:
                 custom_cfg['model_settings']['sampling'] = dict_samplings[sampling_name]['sampling']  
                 custom_cfg['model_settings']['resolution'] = dict_samplings[sampling_name]['resolution']
                 custom_cfg['model_settings']['architecture_name'] = architecture_name
-                custom_cfg['model_settings']['conv_types'] = 'Graph'
                 custom_cfg['model_settings']['pool_method'] = pool_method
                 custom_cfg['model_settings']['kernel_size_pooling'] = kernel_size_pooling
-                custom_cfg['model_settings']['kernel_size_pooling'] = kernel_size
+                custom_cfg['model_settings']['kernel_size_conv'] = kernel_size_conv
                 if pool_method.lower() in ['max','avg']:
-                    if sampling in ['healpix','equiangular']:
-                        if sampling == 'equiangular':
-                            custom_cfg['model_settings']['ratio'] = 2 # why ???  
-                    else: 
+                    if sampling not in ['healpix','equiangular']:
                         continue  # do not save config 
                 # Create config directory
                 tmp_dir = os.path.join(config_path, architecture_name, sampling_name)
@@ -113,7 +101,3 @@ for architecture_name in architecture_names:
                 tmp_config_name = "-".join([pool_method + "Pool",
                                             "k" + str(knn)]) + ".json"
                 write_config_file(custom_cfg, fpath=os.path.join(tmp_dir, tmp_config_name))
-                           
-
- 
- 

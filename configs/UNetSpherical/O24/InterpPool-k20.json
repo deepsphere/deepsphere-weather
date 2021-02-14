@@ -5,19 +5,13 @@
         "model_name": null,
         "model_name_suffix": null,
         "knn": 20,
-        "conv_type": "Graph",
         "pool_method": "Interp",
-        "ratio": 2,
-        "periodic": null,
-        "kernel_size": 3,
-        "kernel_size_pooling": 3,
-        "exp_dir": "/data/weather_prediction/experiments",
-        "architecture_fpath": "/home/ghiggi/Projects/weather_prediction/modules/architectures.py",
+        "kernel_size_conv": 3,
+        "kernel_size_pooling": 4,
         "sampling_name": "O24",
         "sampling": "gauss",
         "resolution": 48,
-        "architecture_name": "UNetSpherical",
-        "conv_types": "Graph"
+        "architecture_name": "UNetSpherical"
     },
     "dataloader_settings": {
         "random_shuffle": true,

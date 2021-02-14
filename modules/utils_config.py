@@ -21,16 +21,12 @@ from modules.utils_torch import set_pytorch_deterministic
 def get_default_model_settings():
     """Return some default settings for a DeepSphere model."""
     model_settings = {"pretrained_model_name": None,
-                      #pretrained_model_weights_fpath: ??? 
                       "model_name_prefix": None, 
                       "model_name": None, 
                       "model_name_suffix": None, 
                       "knn": 20, 
-                      "conv_type": "Graph",
                       "pool_method": "Max",
-                      "ratio": None,
-                      "periodic": None,
-                      "kernel_size": 3, 
+                      "kernel_size_conv": 3, 
                       "kernel_size_pooling": 4,
                       }
     return model_settings
@@ -114,7 +110,7 @@ def get_model_settings(cfg):
     model_settings = {}
     default_model_settings = get_default_model_settings()
     
-    mandatory_keys = ['exp_dir', 'architecture_name', 'architecture_fpath', 'sampling', 'resolution', "sampling_name"]
+    mandatory_keys = ['architecture_name', 'sampling', 'resolution', "sampling_name"]
     optional_keys = list(default_model_settings.keys())
     available_keys = mandatory_keys + optional_keys
   
@@ -127,9 +123,7 @@ def get_model_settings(cfg):
         raise ValueError('Specify only correct model setting keys in the config file!')        
     
     # Retrieve mandatory model settings  
-    model_settings["exp_dir"] = cfg['model_settings'].get("exp_dir", None)
     model_settings["architecture_name"] = cfg['model_settings'].get("architecture_name", None)
-    model_settings["architecture_fpath"] = cfg['model_settings'].get("architecture_fpath", None)
     model_settings["sampling"] = cfg['model_settings'].get("sampling", None)
     model_settings["resolution"] = cfg['model_settings'].get("resolution", None)
     model_settings["sampling_name"] = cfg['model_settings'].get("sampling", None)
@@ -248,70 +242,68 @@ def check_numeric_precision(numeric_precision):
 ########################
 ### Model definition ###
 ########################
-def get_pytorch_model(model_settings):
-    """Define a DeepSphere model based on general architecture structure.
+# def get_pytorch_model(model_settings):
+#     """Define a DeepSphere model based on general architecture structure.
        
-    The architecture structure must be define in a custom python file.
+#     The architecture structure must be define in a custom python file.
     
-    Model settings dictionary must contain two mandatory keys:
-    'architecture_fpath' and 'architecture_name'.
+#     Model settings dictionary must contain two mandatory keys:
+#     'architecture_fpath' and 'architecture_name'.
     
-    The mandatory key 'architecture_fpath' must indicate the filepath of 
-    the python file where the architecture is defined.
-    The mandatory key 'architecture_name' represent the class name of
-    the DeepSphere architecture to use.
+#     The mandatory key 'architecture_fpath' must indicate the filepath of 
+#     the python file where the architecture is defined.
+#     The mandatory key 'architecture_name' represent the class name of
+#     the DeepSphere architecture to use.
     
-    """
-    # Retrieve main model info 
-    sampling = model_settings['sampling']
-    architecture_name = model_settings['architecture_name']
-    architecture_fpath = model_settings['architecture_fpath']  
-    print('- Defining model {} for {} sampling.'.format(architecture_name, sampling))
+#     """
+#     # Retrieve main model info 
+#     sampling = model_settings['sampling']
+#     architecture_name = model_settings['architecture_name']
+#     print('- Defining model {} for {} sampling.'.format(architecture_name, sampling))
     
-    ##------------------------------------------------------------------------.
-    # Retrieve file paths
-    MODULE_PATH = os.path.dirname(architecture_fpath)
-    # MODULE_INIT_PATH = os.path.join(MODULE_PATH, "__init__.py")
-    MODULE_NAME = os.path.basename(architecture_fpath).split(".")[0]
+#     ##------------------------------------------------------------------------.
+#     # Retrieve file paths
+#     MODULE_PATH = os.path.dirname(architecture_fpath)
+#     # MODULE_INIT_PATH = os.path.join(MODULE_PATH, "__init__.py")
+#     MODULE_NAME = os.path.basename(architecture_fpath).split(".")[0]
     
-    # MODULE_PATH = "/home/ghiggi/Projects/DeepSphere/modules/"
-    # MODULE_INIT_PATH = "/home/ghiggi/Projects/DeepSphere/modules/__init__.py" 
-    # MODULE_NAME = "architectures"   
+#     # MODULE_PATH = "/home/ghiggi/Projects/DeepSphere/modules/"
+#     # MODULE_INIT_PATH = "/home/ghiggi/Projects/DeepSphere/modules/__init__.py" 
+#     # MODULE_NAME = "architectures"   
     
-    ##------------------------------------------------------------------------.
-    # Import custom architecture.py
-    sys.path.append(MODULE_PATH)
-    module = __import__(MODULE_NAME)
-    DeepSphereModelClass = getattr(module, architecture_name)
+#     ##------------------------------------------------------------------------.
+#     # Import custom architecture.py
+#     sys.path.append(MODULE_PATH)
+#     module = __import__(MODULE_NAME)
+#     DeepSphereModelClass = getattr(module, architecture_name)
     
-    ##------------------------------------------------------------------------.
-    # Import custom architecture.py  
-    # spec = importlib.util.spec_from_file_location(MODULE_NAME, MODULE_INIT_PATH)
-    # module = importlib.util.module_from_spec(spec)
-    # sys.modules[spec.name] = module  # bind relative imports 
-    # spec.loader.exec_module(module)
-    # getattr(module, "UNetSpherical")
+#     ##------------------------------------------------------------------------.
+#     # Import custom architecture.py  
+#     # spec = importlib.util.spec_from_file_location(MODULE_NAME, MODULE_INIT_PATH)
+#     # module = importlib.util.module_from_spec(spec)
+#     # sys.modules[spec.name] = module  # bind relative imports 
+#     # spec.loader.exec_module(module)
+#     # getattr(module, "UNetSpherical")
     
-    # Import custom architecture.py  
-    # import modules.architectures as module
+#     # Import custom architecture.py  
+#     # import modules.architectures as module
     
-    ##------------------------------------------------------------------------.
-    # Retrieve required model arguments
-    model_keys = ['dim_info','resolution', 'conv_type', 'kernel_size', 'sampling',
-                  'knn', 'pool_method', 'kernel_size_pooling', 'periodic', 'ratio']
-    model_args = {k: model_settings[k] for k in model_keys}
+#     ##------------------------------------------------------------------------.
+#     # Retrieve required model arguments
+#     model_keys = ['dim_info','resolution', 'kernel_size_conv', 'sampling',
+#                   'knn', 'pool_method', 'kernel_size_pooling']
+#     model_args = {k: model_settings[k] for k in model_keys}
     
-    ##------------------------------------------------------------------------.
-    # Define DeepSphere model 
-    model = DeepSphereModelClass(**model_args)  
+#     ##------------------------------------------------------------------------.
+#     # Define DeepSphere model 
+#     model = DeepSphereModelClass(**model_args)  
     
-    ##------------------------------------------------------------------------.
-    return model 
+#     ##------------------------------------------------------------------------.
+#     return model 
 
-def load_pretrained_model(model, model_settings):
+def load_pretrained_model(model, exp_dir, model_name):
     """Load a pre-trained pytorch model."""
-    model_fname = model_settings['pretrained_model_name']  
-    model_fpath = os.path.join(model_settings['exp_dir'], model_fname, 'models_weights', "model.h5")
+    model_fpath = os.path.join(exp_dir, model_name, 'models_weights', "model.h5")
     state = torch.load(model_fpath)
     model.load_state_dict(state, strict=False)
 
@@ -376,7 +368,6 @@ def get_model_name(cfg):
         sampling = cfg['model_settings']["sampling"]
         resolution = cfg['model_settings']["resolution"]
         knn = cfg['model_settings']["knn"]
-        conv_type = cfg['model_settings']["conv_type"]
         pool_method = cfg['model_settings']["pool_method"]
         numeric_precision = cfg['training_settings']["numeric_precision"]
         AR_iterations = cfg['AR_settings']["AR_iterations"]
@@ -385,7 +376,6 @@ def get_model_name(cfg):
                                sampling,
                                str(resolution),
                                "k" + str(knn),
-                               "Conv" + conv_type, 
                                pool_method + "Pooling",
                                numeric_precision,
                                "AR" + str(AR_iterations),

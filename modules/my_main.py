@@ -251,6 +251,9 @@ scaler = None
 # """General function for training DeepSphere4Earth models."""
 # TODO: add missing input arguments    
 
+exp_dir = "/data/weather_prediction/experiments"
+architecture_fpath = "/home/ghiggi/Projects/weather_prediction/modules/architectures.py"
+
 ##------------------------------------------------------------------------.
 ### Read experiment configuration settings 
 # cfg = read_config_file(fpath=cfg_path)
@@ -284,17 +287,17 @@ print_dim_info(dim_info)
 # model = get_pytorch_model(model_settings = model_settings)
 DeepSphereModelClass = getattr(my_architectures, model_settings['architecture_name'])
 # - Retrieve required model arguments
-model_keys = ['dim_info','resolution', 'conv_type', 'kernel_size', 'sampling',
-              'knn', 'pool_method', 'kernel_size_pooling', 'periodic', 'ratio']
+model_keys = ['dim_info', 'sampling', 'resolution',
+              'knn', 'kernel_size_conv',
+              'pool_method', 'kernel_size_pooling']
 model_args = {k: model_settings[k] for k in model_keys}
 # - Define DeepSphere model 
 model = DeepSphereModelClass(**model_args)              
  
 ###-----------------------------------------------------------------------.
 ## If requested, load a pre-trained model for fine-tuning
-# TODO: To better define required settings (exp_dir, and weights_fpath?)
 if model_settings['pretrained_model_name'] is not None:
-    load_pretrained_model(model = model, model_settings = model_settings)
+    load_pretrained_model(model = model, exp_dir=exp_dir, model_name = model_settings['pretrained_model_name'])
     
 ###-----------------------------------------------------------------------.
 ### Transfer model to GPU 
@@ -316,7 +319,7 @@ else:
     model_name = get_model_name(cfg)
     model_settings['model_name'] = model_name
 
-exp_dir = create_experiment_directories(exp_dir = model_settings['exp_dir'],      
+exp_dir = create_experiment_directories(exp_dir = exp_dir,      
                                         model_name = model_name,
                                         force=True) 
 

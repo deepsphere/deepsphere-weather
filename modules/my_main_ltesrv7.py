@@ -87,9 +87,11 @@ warnings.filterwarnings("ignore")
 # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
 # os.environ["CUDA_LAUNCH_BLOCKING"] = 1
- 
+data_dir = "/data/weather_prediction/data"
+exp_dir = "/data/weather_prediction/experiments"
+
 #-----------------------------------------------------------------------------.
-def main(cfg_path):
+def main(cfg_path, exp_dir, data_dir):
     """General function for training DeepSphere4Earth models."""
     ##------------------------------------------------------------------------.
     ### Read experiment configuration settings 
@@ -110,14 +112,14 @@ def main(cfg_path):
     
     ##------------------------------------------------------------------------.
     #### Load netCDF4 Datasets
-    data_dir = os.path.join("/data/weather_prediction/data", cfg['model_settings']["sampling_name"])
+    data_sampling_dir = os.path.join("/data/weather_prediction/data", cfg['model_settings']["sampling_name"])
 
     # - Dynamic data (i.e. pressure and surface levels variables)
-    ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
+    ds_dynamic = readDatasets(data_dir=data_sampling_dir, feature_type='dynamic')
     # - Boundary conditions data (i.e. TOA)
-    ds_bc = readDatasets(data_dir=data_dir, feature_type='bc')
+    ds_bc = readDatasets(data_dir=data_sampling_dir, feature_type='bc')
     # - Static features
-    ds_static = readDatasets(data_dir=data_dir, feature_type='static')
+    ds_static = readDatasets(data_dir=data_sampling_dir, feature_type='static')
     
     ds_dynamic = ds_dynamic.drop(["level","lat","lon"])
     ds_bc = ds_bc.drop(["lat","lon"])
@@ -126,9 +128,9 @@ def main(cfg_path):
     ##-----------------------------------------------------------------------------.
     #### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
-    dynamic_scaler = LoadScaler(os.path.join(data_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
-    bc_scaler = LoadScaler(os.path.join(data_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
-    static_scaler = LoadScaler(os.path.join(data_dir, "Scalers", "GlobalStandardScaler_static.nc"))
+    dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
+    bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
+    static_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
     # - Create single scaler 
     scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
     
@@ -202,20 +204,21 @@ def main(cfg_path):
     ##------------------------------------------------------------------------.
     ### Define the model architecture   
     # TODO (@Wentao ... )  
-    # model = get_pytorch_model(model_settings = model_settings)
+    # - wrap below in a function --> utils_config ? 
+    # - model = get_pytorch_model(module, model_settings = model_settings) 
     DeepSphereModelClass = getattr(my_architectures, model_settings['architecture_name'])
     # - Retrieve required model arguments
-    model_keys = ['dim_info','resolution', 'conv_type', 'kernel_size', 'sampling',
-                  'knn', 'pool_method', 'kernel_size_pooling', 'periodic', 'ratio']
+    model_keys = ['dim_info', 'sampling', 'resolution',
+                  'knn', 'kernel_size_conv',
+                  'pool_method', 'kernel_size_pooling']
     model_args = {k: model_settings[k] for k in model_keys}
     # - Define DeepSphere model 
     model = DeepSphereModelClass(**model_args)              
      
     ###-----------------------------------------------------------------------.
     ## If requested, load a pre-trained model for fine-tuning
-    # TODO: To better define required settings (exp_dir, and weights_fpath?)
     if model_settings['pretrained_model_name'] is not None:
-        load_pretrained_model(model = model, model_settings = model_settings)
+        load_pretrained_model(model = model, exp_dir=exp_dir, model_name = model_settings['pretrained_model_name'])
         
     ###-----------------------------------------------------------------------.
     ### Transfer model to GPU 
@@ -237,7 +240,7 @@ def main(cfg_path):
         model_name = get_model_name(cfg)
         model_settings['model_name'] = model_name
     
-    exp_dir = create_experiment_directories(exp_dir = model_settings['exp_dir'],      
+    exp_dir = create_experiment_directories(exp_dir = exp_dir,      
                                             model_name = model_name,
                                             force=True) 
     
@@ -451,3 +454,7 @@ def main(cfg_path):
     ### - Create animations 
     
     ##-------------------------------------------------------------------------.
+
+
+
+ 

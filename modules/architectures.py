@@ -179,14 +179,11 @@ class UNetSpherical(UNet, torch.nn.Module):
     def __init__(self,
                  dim_info: Dict[str, int],
                  resolution: Union[int, List[int]],    
-                 conv_type: str = 'graph', 
-                 kernel_size: int = 3,
+                 kernel_size_conv: int = 3,
                  sampling: str = 'healpix',
                  knn: int = 10, 
                  pool_method: str = 'max', 
-                 kernel_size_pooling: int = 4, 
-                 periodic: Union[int, bool, None] = None, 
-                 ratio: Union[int, float, bool, None] = None):
+                 kernel_size_pooling: int = 4):
         ##--------------------------------------------------------------------.
         super().__init__()
         ##--------------------------------------------------------------------.
@@ -205,20 +202,20 @@ class UNetSpherical(UNet, torch.nn.Module):
    
         ##--------------------------------------------------------------------.
         # Check arguments 
-        conv_type = conv_type.lower()
         sampling = sampling.lower()
         pool_method = pool_method.lower()
-        assert conv_type != 'image' or periodic is not None
-        periodic = bool(periodic)
-
         if not isinstance(resolution, Iterable):
             resolution = [resolution]
         resolution = np.array(resolution) 
-        
+        ##--------------------------------------------------------------------.
+        # TODO: Here change when running experiment for equiangular        
+        conv_type = "graph" # image
+        ratio = None        # 2
+        periodic = None     # ? 
         ##--------------------------------------------------------------------. 
         # Initialize graphs and laplacians
         # TODO function: 
-        # init_graph_and_laplacians(self, resolution, sampling, knn, kernel_size_pooling, conv_type)
+        # init_graph_and_laplacians(self, resolution, sampling, knn, kernel_size_pooling)
         self.sphere_graph = UNetSpherical.build_graph([resolution], sampling, knn)[0]
         coarsening = int(np.sqrt(kernel_size_pooling))
         resolutions = [resolution, resolution // coarsening, resolution // coarsening // coarsening]
@@ -255,14 +252,14 @@ class UNetSpherical(UNet, torch.nn.Module):
         ### Encoding blocks 
         # Encoding block 1
         self.conv11 = ConvBlock(self.input_channels, 32 * 2,  
-                                kernel_size=kernel_size, 
+                                kernel_size=kernel_size_conv, 
                                 conv_type=conv_type,
                                 batch_norm=True, relu_activation=True,
                                 laplacian=self.laplacians[0], 
                                 periodic=periodic, ratio=ratio)
         
         self.conv13 = ConvBlock(32 * 2, 64 * 2,  
-                                kernel_size=kernel_size,
+                                kernel_size=kernel_size_conv,
                                 conv_type=conv_type,
                                 batch_norm=True, relu_activation=True, 
                                 laplacian=self.laplacians[0],
@@ -272,14 +269,14 @@ class UNetSpherical(UNet, torch.nn.Module):
 
         # Encoding block 2
         self.conv21 = ConvBlock(64 * 2, 96 * 2, 
-                                kernel_size=kernel_size, 
+                                kernel_size=kernel_size_conv, 
                                 conv_type=conv_type,
                                 batch_norm=True, relu_activation=True, 
                                 laplacian=self.laplacians[1], 
                                 periodic=periodic, ratio=ratio)
         
         self.conv23 = ConvBlock(96 * 2, 128 * 2,  
-                                kernel_size=kernel_size, 
+                                kernel_size=kernel_size_conv, 
                                 conv_type=conv_type, 
                                 batch_norm=True, relu_activation=True, 
                                 laplacian=self.laplacians[1], 
@@ -289,14 +286,14 @@ class UNetSpherical(UNet, torch.nn.Module):
 
         # Encoding block 3
         self.conv31 = ConvBlock(128 * 2, 256 * 2, 
-                                kernel_size=kernel_size,
+                                kernel_size=kernel_size_conv,
                                 conv_type=conv_type,
                                 batch_norm=True, relu_activation=True, 
                                 laplacian=self.laplacians[2], 
                                 periodic=periodic, ratio=ratio)
         
         self.conv33 = ConvBlock(256 * 2, 128 * 2,  
-                                kernel_size=kernel_size, 
+                                kernel_size=kernel_size_conv, 
                                 conv_type=conv_type, 
                                 batch_norm=True, relu_activation=True, 
                                 laplacian=self.laplacians[2],
@@ -308,13 +305,13 @@ class UNetSpherical(UNet, torch.nn.Module):
         ### Decoding blocks 
         # Decoding block 2
         self.uconv21 = ConvBlock(256 * 2, 128 * 2, 
-                                 kernel_size=kernel_size,
+                                 kernel_size=kernel_size_conv,
                                  conv_type=conv_type, 
                                  batch_norm=True, relu_activation=True,
                                  laplacian=self.laplacians[1], 
                                  periodic=periodic, ratio=ratio)
         self.uconv22 = ConvBlock(128 * 2, 64 * 2,  
-                                 kernel_size=kernel_size, 
+                                 kernel_size=kernel_size_conv, 
                                  conv_type=conv_type, 
                                  batch_norm=True, relu_activation=True, 
                                  laplacian=self.laplacians[1], 
@@ -322,18 +319,19 @@ class UNetSpherical(UNet, torch.nn.Module):
 
         # Decoding block 1
         self.uconv11 = ConvBlock(128 * 2, 64 * 2,
-                                 kernel_size=kernel_size, 
+                                 kernel_size=kernel_size_conv, 
                                  conv_type=conv_type, 
                                  batch_norm=True, relu_activation=True, 
                                  laplacian=self.laplacians[0],
                                  periodic=periodic, ratio=ratio)
-        self.uconv12 = ConvBlock(64 * 2, 32 * 2, kernel_size=kernel_size,
+        self.uconv12 = ConvBlock(64 * 2, 32 * 2, 
+                                 kernel_size=kernel_size_conv,
                                  conv_type=conv_type, 
                                  batch_norm=True, relu_activation=True, 
                                  laplacian=self.laplacians[0], 
                                  periodic=periodic, ratio=ratio)
         self.uconv13 = ConvBlock(32 * 2 * 2, self.output_channels, 
-                                 kernel_size=kernel_size, 
+                                 kernel_size=kernel_size_conv, 
                                  conv_type=conv_type, 
                                  batch_norm=False, relu_activation=False, 
                                  laplacian=self.laplacians[0], 
