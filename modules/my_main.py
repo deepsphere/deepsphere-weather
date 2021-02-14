@@ -48,7 +48,7 @@ from modules.xscaler import LoadScaler
  
 from modules.my_io import readDatasets   
 from modules.my_io import reformat_Datasets
-import modules.architectures as my_architectures
+import modules.models as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
 ## Disable warnings
@@ -133,7 +133,7 @@ device = 'cpu'
 
 cfg = get_default_settings()
 cfg['model_settings']['architecture_name'] = "UNetSpherical"
-cfg['model_settings']['architecture_fpath'] = "/home/ghiggi/Projects/DeepSphere/modules/architectures.py"
+cfg['model_settings']['architecture_fpath'] = "/home/ghiggi/Projects/DeepSphere/modules/models.py"
 cfg['model_settings']['sampling'] = "Healpix"
 cfg['model_settings']['resolution'] = 16
 cfg['model_settings']['exp_dir'] = "/home/ghiggi/Projects/DeepSphere/models"
@@ -252,7 +252,7 @@ scaler = None
 # TODO: add missing input arguments    
 
 exp_dir = "/data/weather_prediction/experiments"
-architecture_fpath = "/home/ghiggi/Projects/weather_prediction/modules/architectures.py"
+architecture_fpath = "/home/ghiggi/Projects/weather_prediction/modules/models.py"
 
 ##------------------------------------------------------------------------.
 ### Read experiment configuration settings 

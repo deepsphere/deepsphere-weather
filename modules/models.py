@@ -310,4 +310,3 @@ class UNetSpherical(UNet, torch.nn.Module):
         x = x.reshape(batch_size, self.output_node_dim, self.output_time_dim, self.output_feature_dim)   # ==> ['sample', 'node', 'time', 'feature']
         x = x.permute(0, 2, 1, 3) # ==> ['sample', 'time', 'node', 'feature']
         return x
-

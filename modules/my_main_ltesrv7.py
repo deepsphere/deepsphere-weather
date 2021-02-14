@@ -48,7 +48,7 @@ from modules.xscaler import SequentialScaler
  
 from modules.my_io import readDatasets   
 from modules.my_io import reformat_Datasets
-import modules.architectures as my_architectures
+import modules.models as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
 ## Disable warnings
