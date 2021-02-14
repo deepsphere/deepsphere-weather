@@ -5,7 +5,7 @@ import numpy as np
 from scipy import sparse
 import torch
 from torch.nn import functional as F
-from torch.nn import Conv1d
+from torch.nn import Conv1d, BatchNorm1d
 from modules import remap
 from sparselinear import SparseLinear
 
@@ -850,3 +850,113 @@ class GeneralMaxValUnpool(RemapBlock):
         x_unpooled =  torch.index_put(x_unpooled, (row, col), x)
         x_unpooled = x_unpooled.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
         return x_unpooled
+
+
+HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
+                'avg': (PoolAvgHealpix, UnpoolAvgHealpix)}
+
+EQUIANGULAR_POOl = {'max': (PoolMaxEquiangular, UnpoolMaxEquiangular), 
+                    'avg': (PoolAvgEquiangular, UnpoolAvgEquiangular)}
+
+ALL_POOL = {'healpix': HEALPIX_POOL,
+            'equiangular': EQUIANGULAR_POOl}
+
+ALL_CONV = {'image': Conv2dEquiangular,
+            'graph': ConvCheb}
+
+
+class ConvBlock(torch.nn.Module):
+    """Spherical graph convolution block.
+
+    Parameters
+    ----------
+    in_channels : int
+        Number of channels in the input graph.
+    out_channels : int
+        Number of channels in the output graph.
+    kernel_size : int
+        Chebychev polynomial degree
+    laplacian : torch.sparse_coo_tensor
+        Graph laplacian
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 conv_type = 'graph', 
+                 batch_norm=True, relu_activation=True, **kwargs):
+        super().__init__()
+        # TODO a 
+        # - add bias=False to getConvLayer() if batch_norm=True
+        # - add option BN_before_act_fun = False --> Add BN before or after act_fun  
+        # - replace relu activation with activation_function='relu'
+        #   --> self.act = getattr(torch.nn, activation_function)
+        
+        self.conv = ConvBlock.getConvLayer(in_channels, out_channels,
+                                           kernel_size=kernel_size, 
+                                           conv_type=conv_type, **kwargs)
+        self.bn = BatchNorm1d(out_channels)
+        self.norm = batch_norm
+        self.act = relu_activation
+        
+    def forward(self, x):
+        """Define forward pass of a ConvBlock."""
+        x = self.conv(x)
+        if self.norm:   # [batch, node, time-feature]
+            x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
+        if self.act:
+            x = F.relu(x)
+        return x
+    
+    @staticmethod
+    def getConvLayer(in_channels: int,
+                     out_channels: int,
+                     kernel_size: int,
+                     conv_type: str = 'graph', **kwargs):
+        """Retrieve the required ConvLayer."""
+        conv_type = conv_type.lower()
+        conv = None
+        if conv_type == 'graph':
+            assert 'laplacian' in kwargs
+            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
+        elif conv_type == 'image':
+            assert 'ratio' in kwargs
+            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
+        else:
+            raise ValueError('{} convolution is not supported'.format(conv_type))
+        return conv
+
+
+class PoolUnpoolBlock(torch.nn.Module):
+    """Define Pooling and Unpooling Layers."""
+    
+    @staticmethod
+    def getPoolUnpoolLayer(sampling: str, pool_method: str, **kwargs):
+        """Retrieve ad-hoc pooling and unpooling layers for healpix and equiangular."""
+        sampling = sampling.lower()
+        pool_method = pool_method.lower()
+        assert sampling in ('healpix', 'equiangular')
+        assert pool_method in ('max', 'avg')
+
+        pooling, unpool = ALL_POOL[sampling][pool_method]
+        return pooling(**kwargs), unpool(**kwargs)
+    
+    @staticmethod
+    def getGeneralPoolUnpoolLayer(src_graph, dst_graph, pool_method: str):
+        """Retrieve general pooling and unpooling layers."""
+        if src_graph.n_vertices < dst_graph.n_vertices:
+            src_graph, dst_graph = dst_graph, src_graph
+        
+        pool_mat, unpool_mat = build_pooling_matrices(src_graph, dst_graph)
+        if pool_method == 'interp':
+            pool = GeneralAvgPool(pool_mat)
+            unpool = GeneralAvgUnpool(unpool_mat)
+            return pool, unpool
+        elif pool_method == 'maxarea':
+            pool = GeneralMaxAreaPool(pool_mat)
+            unpool = GeneralMaxAreaUnpool(pool_mat.T)
+            return pool, unpool
+        elif pool_method == 'learn':
+            pool = GeneralLearnablePool(pool_mat)
+            unpool = GeneralLearnableUnpool(unpool_mat)
+            return pool, unpool
+        else:
+            raise ValueError(f'{pool_method} is not supoorted.')

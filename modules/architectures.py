@@ -1,34 +1,13 @@
 import torch
 import pygsp
 import numpy as np
-from torch.nn import functional as F
-from torch.nn import BatchNorm1d, Linear
+from torch.nn import Linear
 from typing import List, Union, Dict
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 
 from modules.layers import prepare_laplacian
-from modules.layers import build_pooling_matrices
-from modules.layers import Conv2dEquiangular, ConvCheb
-from modules.layers import PoolMaxHealpix, UnpoolMaxHealpix
-from modules.layers import PoolAvgHealpix, UnpoolAvgHealpix
-from modules.layers import PoolMaxEquiangular, UnpoolMaxEquiangular
-from modules.layers import PoolAvgEquiangular, UnpoolAvgEquiangular
-from modules.layers import GeneralAvgPool, GeneralAvgUnpool
-from modules.layers import GeneralMaxAreaUnpool, GeneralMaxAreaPool
-from modules.layers import GeneralLearnablePool, GeneralLearnableUnpool
-
-HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
-                'avg': (PoolAvgHealpix, UnpoolAvgHealpix)}
-
-EQUIANGULAR_POOl = {'max': (PoolMaxEquiangular, UnpoolMaxEquiangular), 
-                    'avg': (PoolAvgEquiangular, UnpoolAvgEquiangular)}
-
-ALL_POOL = {'healpix': HEALPIX_POOL,
-            'equiangular': EQUIANGULAR_POOl}
-
-ALL_CONV = {'image': Conv2dEquiangular,
-            'graph': ConvCheb}
+from modules.layers import ConvBlock, PoolUnpoolBlock
 
 ALL_GRAPH = {'healpix': pygsp.graphs.SphereHealpix,
              'equiangular': pygsp.graphs.SphereEquiangular,
@@ -43,108 +22,11 @@ ALL_GRAPH_PARAMS = {'healpix': {'nest': True},
                     'gauss': {'nlon': 'ecmwf-octahedral'}}
 
 ##----------------------------------------------------------------------------.
-## TODO: Move this to layers? 
+## Move this to layers? Keep this function here
 def _compute_laplacian(graph, laplacian_type="normalized"):
     graph.compute_laplacian(laplacian_type)
     laplacian = prepare_laplacian(graph.L.astype(np.float32))
     return laplacian
-
-##----------------------------------------------------------------------------.
-class ConvBlock(torch.nn.Module):
-    """Spherical graph convolution block.
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of channels in the input graph.
-    out_channels : int
-        Number of channels in the output graph.
-    kernel_size : int
-        Chebychev polynomial degree
-    laplacian : torch.sparse_coo_tensor
-        Graph laplacian
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size,
-                 conv_type = 'graph', 
-                 batch_norm=True, relu_activation=True, **kwargs):
-        super().__init__()
-        # TODO a 
-        # - add bias=False to getConvLayer() if batch_norm=True
-        # - add option BN_before_act_fun = False --> Add BN before or after act_fun  
-        # - replace relu activation with activation_function='relu'
-        #   --> self.act = getattr(torch.nn, activation_function)
-        
-        self.conv = ConvBlock.getConvLayer(in_channels, out_channels,
-                                           kernel_size=kernel_size, 
-                                           conv_type=conv_type, **kwargs)
-        self.bn = BatchNorm1d(out_channels)
-        self.norm = batch_norm
-        self.act = relu_activation
-        
-    def forward(self, x):
-        """Define forward pass of a ConvBlock."""
-        x = self.conv(x)
-        if self.norm:   # [batch, node, time-feature]
-            x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
-        if self.act:
-            x = F.relu(x)
-        return x
-    
-    @staticmethod
-    def getConvLayer(in_channels: int,
-                     out_channels: int,
-                     kernel_size: int,
-                     conv_type: str = 'graph', **kwargs):
-        """Retrieve the required ConvLayer."""
-        conv_type = conv_type.lower()
-        conv = None
-        if conv_type == 'graph':
-            assert 'laplacian' in kwargs
-            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
-        elif conv_type == 'image':
-            assert 'ratio' in kwargs
-            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
-        else:
-            raise ValueError('{} convolution is not supported'.format(conv_type))
-        return conv
-
-##----------------------------------------------------------------------------.
-class PoolUnpoolBlock(torch.nn.Module):
-    """Define Pooling and Unpooling Layers."""
-    
-    @staticmethod
-    def getPoolUnpoolLayer(sampling: str, pool_method: str, **kwargs):
-        """Retrieve ad-hoc pooling and unpooling layers for healpix and equiangular."""
-        sampling = sampling.lower()
-        pool_method = pool_method.lower()
-        assert sampling in ('healpix', 'equiangular')
-        assert pool_method in ('max', 'avg')
-
-        pooling, unpool = ALL_POOL[sampling][pool_method]
-        return pooling(**kwargs), unpool(**kwargs)
-    
-    @staticmethod
-    def getGeneralPoolUnpoolLayer(src_graph, dst_graph, pool_method: str):
-        """Retrieve general pooling and unpooling layers."""
-        if src_graph.n_vertices < dst_graph.n_vertices:
-            src_graph, dst_graph = dst_graph, src_graph
-        
-        pool_mat, unpool_mat = build_pooling_matrices(src_graph, dst_graph)
-        if pool_method == 'interp':
-            pool = GeneralAvgPool(pool_mat)
-            unpool = GeneralAvgUnpool(unpool_mat)
-            return pool, unpool
-        elif pool_method == 'maxarea':
-            pool = GeneralMaxAreaPool(pool_mat)
-            unpool = GeneralMaxAreaUnpool(pool_mat.T)
-            return pool, unpool
-        elif pool_method == 'learn':
-            pool = GeneralLearnablePool(pool_mat)
-            unpool = GeneralLearnableUnpool(unpool_mat)
-            return pool, unpool
-        else:
-            raise ValueError(f'{pool_method} is not supoorted.')
 
 ##----------------------------------------------------------------------------.
 class UNet(ABC):
@@ -171,6 +53,34 @@ class UNet(ABC):
         x_encoded = self.encode(x)
         output = self.decode(*x_encoded)
         return output
+    
+    @staticmethod
+    def get_laplacian_kernels(graphs: List["pygsp.graphs"]):
+        """Retrieve laplacian."""
+        container = []
+        for _, G in enumerate(graphs):
+            laplacian = _compute_laplacian(G)
+            container.append(laplacian)
+        return container
+    
+    @staticmethod
+    def build_graph(resolutions: List[List[int]], 
+                    sampling = 'healpix', 
+                    k: int = 10) -> List["pygsp.graphs"]:
+        """Build the graph."""
+        sampling = sampling.lower()
+        try:
+            graph_initializer = ALL_GRAPH[sampling]
+            params = ALL_GRAPH_PARAMS[sampling]
+        except:  # TODO? Error specification? 
+            raise ValueError(f'{sampling} is not supported')
+
+        container = []
+        params['k'] = k
+        for _, res in enumerate(resolutions):
+            G = graph_initializer(*res, **params)
+            container.append(G)
+        return container
 
 
 class UNetSpherical(UNet, torch.nn.Module):
@@ -211,18 +121,18 @@ class UNetSpherical(UNet, torch.nn.Module):
         # TODO: Here change when running experiment for equiangular        
         conv_type = "graph" # image
         ratio = None        # 2
-        periodic = None     # ? 
+        periodic = None     # True
         ##--------------------------------------------------------------------. 
         # Initialize graphs and laplacians
         # TODO function: 
         # init_graph_and_laplacians(self, resolution, sampling, knn, kernel_size_pooling)
-        self.sphere_graph = UNetSpherical.build_graph([resolution], sampling, knn)[0]
+        self.sphere_graph = UNet.build_graph([resolution], sampling, knn)[0]
         coarsening = int(np.sqrt(kernel_size_pooling))
         resolutions = [resolution, resolution // coarsening, resolution // coarsening // coarsening]
         self.graphs = []
         if conv_type == 'graph':
-            self.graphs = UNetSpherical.build_graph(resolutions, sampling, knn)
-            self.laplacians = UNetSpherical.get_laplacian_kernels(self.graphs)
+            self.graphs = UNet.build_graph(resolutions, sampling, knn)
+            self.laplacians = UNet.get_laplacian_kernels(self.graphs)
         elif conv_type == 'image':
             self.laplacians = [None] * 20
         else:
@@ -401,32 +311,3 @@ class UNetSpherical(UNet, torch.nn.Module):
         x = x.permute(0, 2, 1, 3) # ==> ['sample', 'time', 'node', 'feature']
         return x
 
-    ##------------------------------------------------------------------------.
-    ## TODO: The code below cannot be hidden in UNet ??? 
-    @staticmethod
-    def get_laplacian_kernels(graphs: List["pygsp.graphs"]):
-        """Retrieve laplacian."""
-        container = []
-        for _, G in enumerate(graphs):
-            laplacian = _compute_laplacian(G)
-            container.append(laplacian)
-        return container
-    
-    @staticmethod
-    def build_graph(resolutions: List[List[int]], 
-                    sampling = 'healpix', 
-                    k: int = 10) -> List["pygsp.graphs"]:
-        """Build the graph."""
-        sampling = sampling.lower()
-        try:
-            graph_initializer = ALL_GRAPH[sampling]
-            params = ALL_GRAPH_PARAMS[sampling]
-        except:  # TODO? Error specification? 
-            raise ValueError(f'{sampling} is not supported')
-
-        container = []
-        params['k'] = k
-        for _, res in enumerate(resolutions):
-            G = graph_initializer(*res, **params)
-            container.append(G)
-        return container
