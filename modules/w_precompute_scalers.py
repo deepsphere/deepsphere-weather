@@ -1,12 +1,11 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 12 21:44:06 2021
 
 @author: ghiggi
 """
 import os
-os.chdir("/home/ghiggi/Projects/weather_prediction/")
+import sys
+sys.path.append('../')
 
 from modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
 from modules.my_io import readDatasets   
@@ -16,12 +15,12 @@ from modules.my_io import readDatasets
 # ##############################
 base_data_dir = "/data/weather_prediction/data"
 
-sampling_name_list = ['Healpix_400km','Equiangular_400km','Equiangular_400_km_tropics',
+sampling_name_list = ['Healpix_400km','Equiangular_400km','Equiangular_400km_tropics',
                       'Icosahedral_400km','O24','Cubed_400km']
 
 for sampling_name in sampling_name_list:
     data_dir = os.path.join(base_data_dir, sampling_name)
-    
+    print(data_dir)
     # - Dynamic data (i.e. pressure and surface levels variables)
     ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
     # - Boundary conditions data (i.e. TOA)

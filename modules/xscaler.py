@@ -186,7 +186,7 @@ class GlobalStandardScaler():
         """Fit the GlobalStandardScaler."""
         #---------------------------------------------------------------------.
         # Checks
-        if self.fitted is True: 
+        if self.fitted: 
             raise ValueError("The scaler has been already fitted!")
         #---------------------------------------------------------------------.
         # Fit the scaler 
@@ -201,7 +201,7 @@ class GlobalStandardScaler():
         """Save the scaler object to disk in netCDF format."""
         ##--------------------------------------------------------------------.
         # Checks
-        if self.fitted is False:
+        if not self.fitted:
             raise ValueError("Please fit() the scaler before saving it!")
         # Check basepath exists 
         if not os.path.exists(os.path.dirname(fpath)):

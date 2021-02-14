@@ -461,13 +461,13 @@ def AutoregressiveTraining(model,
     ## Checks arguments 
     device = check_torch_device(device)
     if device.type == 'cpu':
-        if pin_memory is True:
+        if pin_memory:
             print("- GPU is not available. 'pin_memory' set to False.")
             pin_memory = False
-        if prefetch_in_GPU is True: 
+        if prefetch_in_GPU: 
             print("- GPU is not available. 'prefetch_in_GPU' set to False.")
             prefetch_in_GPU = False
-        if asyncronous_GPU_transfer is True: 
+        if asyncronous_GPU_transfer: 
             print("- GPU is not available. 'asyncronous_GPU_transfer' set to False.")
             asyncronous_GPU_transfer = False
     ##------------------------------------------------------------------------.   
