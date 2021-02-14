@@ -102,7 +102,7 @@ def read_config_file(fpath):
 def write_config_file(cfg, fpath):
     """Write a json config file from the python dictionary config file."""
     with open(fpath, "w") as output_file:  
-        json.dump(cfg, output_file) 
+        json.dump(cfg, output_file, indent=4) 
 
 #-----------------------------------------------------------------------------.
 #############################
