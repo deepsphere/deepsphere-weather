@@ -97,10 +97,10 @@ def main(cfg_path, exp_dir, data_dir):
     # Some special stuff you might want to adjust 
     cfg['dataloader_settings']["prefetch_in_GPU"] = False # True? To test 
     cfg['dataloader_settings']["prefetch_factor"] = 2     # Maybe increase if only prefetch on CPU? 
-    cfg['dataloader_settings']["num_workers"] = 0
+    # cfg['dataloader_settings']["num_workers"] = 4
     cfg['dataloader_settings']["autotune_num_workers"] = False
-    cfg['dataloader_settings']["pin_memory"] = True
-    cfg['dataloader_settings']["asyncronous_GPU_transfer"] = False
+    # cfg['dataloader_settings']["pin_memory"] = True
+    # cfg['dataloader_settings']["asyncronous_GPU_transfer"] = False
     
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
