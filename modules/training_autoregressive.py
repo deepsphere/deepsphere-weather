@@ -491,7 +491,7 @@ def AutoregressiveTraining(model,
     
     ##------------------------------------------------------------------------.
     ## Decide wheter to tune num_workers    
-    if (autotune_num_workers is True) and (num_workers > 0): 
+    if autotune_num_workers and (num_workers > 0): 
         num_workers_list = list(range(0, num_workers))
     else: 
         num_workers_list = [num_workers]

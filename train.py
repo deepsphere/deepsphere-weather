@@ -97,8 +97,10 @@ def main(cfg_path, exp_dir, data_dir):
     # Some special stuff you might want to adjust 
     cfg['dataloader_settings']["prefetch_in_GPU"] = False # True? To test 
     cfg['dataloader_settings']["prefetch_factor"] = 2     # Maybe increase if only prefetch on CPU? 
-    cfg['dataloader_settings']["num_workers"] = 8 
-    cfg['dataloader_settings']["autotune_num_workers"] = True 
+    cfg['dataloader_settings']["num_workers"] = 0
+    cfg['dataloader_settings']["autotune_num_workers"] = False
+    cfg['dataloader_settings']["pin_memory"] = True
+    cfg['dataloader_settings']["asyncronous_GPU_transfer"] = False
     
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
@@ -109,7 +111,7 @@ def main(cfg_path, exp_dir, data_dir):
     
     ##------------------------------------------------------------------------.
     #### Load netCDF4 Datasets
-    data_sampling_dir = os.path.join("/data/weather_prediction/data", cfg['model_settings']["sampling_name"])
+    data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
 
     # - Dynamic data (i.e. pressure and surface levels variables)
     ds_dynamic = readDatasets(data_dir=data_sampling_dir, feature_type='dynamic')
@@ -316,8 +318,8 @@ def main(cfg_path, exp_dir, data_dir):
                                            da_validation_bc = da_validation_bc,  
                                            scaler = scaler, 
                                            # Dataloader settings
-                                           num_workers = 4,  # dataloader_settings['num_workers'], 
-                                           autotune_num_workers = True, 
+                                           num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
+                                           autotune_num_workers = dataloader_settings['autotune_num_workers'], 
                                            prefetch_factor = dataloader_settings['prefetch_factor'],  
                                            prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 
                                            drop_last_batch = dataloader_settings['drop_last_batch'],     
@@ -463,4 +465,4 @@ if __name__ == '__main__':
 
     data_dir = "/data/weather_prediction/data"
     exp_dir = "/data/weather_prediction/experiments"
-    main(args.config_file, data_dir, exp_dir)
+    main(args.config_file, exp_dir, data_dir)

@@ -371,7 +371,7 @@ def autoregressive_collate_fn(list_samples,
     dict_X_dynamic_batched = {}
     dict_Y_batched = {}
     for i in range(AR_iterations+1):
-        if pin_memory is True:
+        if pin_memory:
             # Y
             dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim).pin_memory()  
             # X dynamic 
@@ -497,17 +497,17 @@ def AutoregressiveDataLoader(dataset,
     ## Checks 
     device = check_torch_device(device)
     if device.type == 'cpu':
-        if pin_memory is True:
+        if pin_memory:
             pin_memory = False
             if verbose:
                 print("GPU is not available. 'pin_memory' set to False.")
             
-        if prefetch_in_GPU is True: 
+        if prefetch_in_GPU: 
             prefetch_in_GPU = False
             if verbose:
                 print("GPU is not available. 'prefetch_in_GPU' set to False.")
             
-        if asyncronous_GPU_transfer is True: 
+        if asyncronous_GPU_transfer: 
             asyncronous_GPU_transfer = False    
             if verbose:
                 print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
