@@ -7,11 +7,13 @@ Created on Mon Dec 14 13:25:46 2020
 import xarray as xr
 import numpy as np
 import os
+
 # import xscaler
 # xscaler.GlobalScaler.MinMaxScaler
 # xscaler.GlobalScaler.StandardScaler  
 # xscaler.GlobalScaler.TrendScaler
 
+##----------------------------------------------------------------------------.
 ### TemporalScalers 
 # --> When new_data contain new time_groupby indices values, insert NaN values
 #     in mean_, std_  for the missing time_groupby values
@@ -27,7 +29,6 @@ import os
 # gs = GlobalStandardScaler(data=da, variable_dim="feature")
 # gs.fit()
 # mean_ = gs.mean_ 
-
 # da.loc[dict(feature='z500')] = da.loc[dict(feature='z500')] - mean_.loc[dict(feature='z500')]   
 
 ##----------------------------------------------------------------------------.
@@ -107,11 +108,14 @@ def get_xarray_variables(data, variable_dim = None):
 ### Global Scalers ###
 ######################
 # - Statistics over all space, at each timestep: groupby_dims = "time"
+# - Statistics over all timestep, at each pixel: groupby_dims = "node"
 
 class GlobalStandardScaler():
     """Aggregate over all dimensions (except variable_dim and groupby_dims)."""
     
-    def __init__(self, data, variable_dim=None, groupby_dims=None, 
+    def __init__(self,
+                 data,
+                 variable_dim=None, groupby_dims=None, 
                  center=True, standardize=True, eps=0.0001, ds_scaler=None):
         # ds_scaler must not be specified. Use load_scaler(fpath) if you want to load an existing scaler from disk.
         ##--------------------------------------------------------------------.
@@ -178,6 +182,8 @@ class GlobalStandardScaler():
             self.eps = eps 
             self.center = center
             self.standardize = standardize
+            self.mean_ = None
+            self.std_ = None
             # Save variable_dim if data is DataArray and using fit_transform()
             self.variable_dim = variable_dim
 
@@ -637,7 +643,9 @@ def get_time_groupby_idx(data, time_dim, time_groups, dict_factors=None):
 class TemporalStandardScaler():
     """Aggregate over all dimensions (except variable_dim and groupby_dims)."""
     
-    def __init__(self, data, time_dim, time_groups=None,
+    def __init__(self, 
+                 data,
+                 time_dim, time_groups=None,
                  variable_dim=None, groupby_dims=None, 
                  center=True, standardize=True, eps=0.0001, ds_scaler = None):
         # ds_scaler must not be specified. Use load_scaler(fpath) if you want to load an existing scaler from disk.
@@ -726,6 +734,8 @@ class TemporalStandardScaler():
             self.eps = eps 
             self.center = center
             self.standardize = standardize
+            self.mean_ = None
+            self.std_ = None
             # Save variable_dim if data is DataArray and using fit_transform()
             self.variable_dim = variable_dim  
         
@@ -1067,24 +1077,38 @@ class SequentialScaler():
 ### Climatology ####
 ####################
 class Climatology():
-    def __init__(self, data, time_dim, time_groups=None,
-                 variable_dim=None, groupby_dims = None, ds_climatology=None):
-        # Init 
-        if ds_climatology is None: 
+    def __init__(self,
+                 data, 
+                 time_dim, time_groups=None, 
+                 variable_dim=None, groupby_dims = None, 
+                 mean = True, variability=True, 
+                 ds_climatology=None):
+        ##--------------------------------------------------------------------.
+        # Create a climatology object if ds_climatology is a xr.Dataset 
+        if isinstance(ds_climatology, xr.Dataset):            
+            self.fitted = True
+            self.mean = ds_climatology['mean'].to_dataset(dim='variable')
+            self.variability = ds_climatology['std'].to_dataset(dim='variable')
+        ##--------------------------------------------------------------------.
+        # Initialize climatology object
+        else:
             self.scaler = TemporalStandardScaler(data=data, 
-                                                time_dim = time_dim, 
-                                                time_groups = time_groups,
-                                                variable_dim = variable_dim, 
-                                                groupby_dims = groupby_dims,
-                                                center=True, standardize = False)
-            self.fitted = False
-            
+                                                 time_dim = time_dim, 
+                                                 time_groups = time_groups,
+                                                 variable_dim = variable_dim, 
+                                                 groupby_dims = groupby_dims,
+                                                 center=mean, standardize = variability)
+            self.fitted = False          
+             
     def compute(self):
-        self.data = self.scaler.fit().mean_ # TODO: return dataarray if if data is dataarray
+        self.scaler.fit()
         self.fitted = True 
-    
-    # # - Option to add time group dimensions to mean_, std_
-    
+        self.mean = self.scaler.mean_  
+        self.variability = self.scaler.std_
+        # Add time group dimensions 
+  
+        # Return DataArray if input data is dataarray 
+        
     # groupby ... and then multiply by 1 
         
     # def forecast(datetime64_arr):
@@ -1093,30 +1117,3 @@ class Climatology():
          # return ds_forecast
 
 #-----------------------------------------------------------------------------.
-####################
-### Variability ####
-####################
-class Variability():
-    def __init__(self, data, time_dim, time_groups=None,
-                 variable_dim=None, groupby_dims = None, ds_variability=None):
-        # Init 
-        if ds_variability is None: 
-            self.scaler = TemporalStandardScaler(data=data, 
-                                                time_dim = time_dim, 
-                                                time_groups = time_groups,
-                                                variable_dim = variable_dim, 
-                                                groupby_dims = groupby_dims,
-                                                center=True, standardize = False)
-            self.fitted = False
-            
-    def compute(self):
-        self.data = self.scaler.fit().mean_ # TODO: return dataarray if if data is dataarray
-        self.fitted = True 
-        
-    # def forecast(datetime64_arr):
-         # Retrieve the values for each timestep based on ds_clim 
-         # ds_forecast = None # TODO
-         # return ds_forecast
-
-
-##----------------------------------------------------------------------------.

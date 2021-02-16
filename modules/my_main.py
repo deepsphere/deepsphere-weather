@@ -133,10 +133,9 @@ device = 'cpu'
 
 cfg = get_default_settings()
 cfg['model_settings']['architecture_name'] = "UNetSpherical"
-cfg['model_settings']['architecture_fpath'] = "/home/ghiggi/Projects/DeepSphere/modules/architectures.py"
 cfg['model_settings']['sampling'] = "Healpix"
 cfg['model_settings']['resolution'] = 16
-cfg['model_settings']['exp_dir'] = "/home/ghiggi/Projects/DeepSphere/models"
+
 
 # Current experiment (6h deltat)
 cfg['AR_settings']['input_k'] = [-3, -2, -1]
@@ -251,7 +250,7 @@ scaler = None
 # """General function for training DeepSphere4Earth models."""
 # TODO: add missing input arguments    
 
-exp_dir = "/data/weather_prediction/experiments"
+exp_dir = "/home/ghiggi/Project/DeepSphere/models"
 architecture_fpath = "/home/ghiggi/Projects/weather_prediction/modules/architectures.py"
 
 ##------------------------------------------------------------------------.
