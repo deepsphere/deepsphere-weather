@@ -16,7 +16,6 @@ import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
 from torch import nn, optim
-from multiprocessing.pool import ThreadPool
 
 ## DeepSphere-Earth
 from modules.utils_config import get_default_settings
@@ -101,7 +100,7 @@ def main(cfg_path, exp_dir, data_dir):
     # cfg['dataloader_settings']["num_workers"] = 4
     cfg['dataloader_settings']["autotune_num_workers"] = False
     # cfg['dataloader_settings']["pin_memory"] = True
-    # cfg['dataloader_settings']["asyncronous_GPU_transfer"] = False
+    cfg['dataloader_settings']["asyncronous_GPU_transfer"] = False
     
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
@@ -315,7 +314,7 @@ def main(cfg_path, exp_dir, data_dir):
                                            # Data
                                            da_training_dynamic = da_training_dynamic,
                                            da_validation_dynamic = da_validation_dynamic,
-                                           da_static = da_static,              
+                                           da_static = None,              
                                            da_training_bc = da_training_bc,         
                                            da_validation_bc = da_validation_bc,  
                                            scaler = scaler, 

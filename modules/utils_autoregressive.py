@@ -122,7 +122,7 @@ def get_dict_stack_info(AR_iterations, forecast_cycle, input_k, output_k, stack_
             dict_X_future[i] = idxs_future_data 
     ##------------------------------------------------------------------------.
     # - Define an index to choose which of the previous available prediction to take  
-    if stack_most_recent_predictio: 
+    if stack_most_recent_prediction: 
         idx_to_select = -1 # take the last  available prediction performed 
     else: 
         idx_to_select = 0  # take the first available prediction performed
