@@ -8,6 +8,7 @@ Created on Fri Feb 12 20:04:40 2021
 import os
 import warnings
 import time
+import dask
 import argparse
 import torch
 import pickle
@@ -15,7 +16,7 @@ import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
 from torch import nn, optim
-
+from multiprocessing.pool import ThreadPool
 
 ## DeepSphere-Earth
 from modules.utils_config import get_default_settings
@@ -302,6 +303,7 @@ def main(cfg_path, exp_dir, data_dir):
     LR_scheduler = None
     ##------------------------------------------------------------------------.
     ### - Train the model 
+    dask.config.set(scheduler='synchronous')
     training_info = AutoregressiveTraining(model = model,
                                            model_fpath = model_fpath,  
                                            # Loss settings 
@@ -396,6 +398,7 @@ def main(cfg_path, exp_dir, data_dir):
     ##-------------------------------------------------------------------------.
     ### - Create predictions 
     forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
+    dask.config.set(scheduler='synchronous')
     ds_forecasts = AutoregressivePredictions(model = model, 
                                              # Data
                                              da_dynamic = da_test_dynamic,
@@ -427,7 +430,8 @@ def main(cfg_path, exp_dir, data_dir):
     ##------------------------------------------------------------------------.
     ### Reshape forecast Dataset for verification
     # - For efficient verification, data must be contiguous in time, but chunked over space (and leadtime) 
-    
+    # dask.config.set(pool=ThreadPool(4))
+    dask.config.set(scheduler='processes')
     ## Reshape on the fly (might work with the current size of data)
     # --> To test ...  
     ds_verification = reshape_forecasts_for_verification(ds_forecasts)
@@ -442,9 +446,11 @@ def main(cfg_path, exp_dir, data_dir):
      
     ##------------------------------------------------------------------------.
     ### - Run deterministic verification 
+    dask.config.set(scheduler='processes')
+    
     print(ds_verification)
     ##------------------------------------------------------------------------.
-    ### - Create verification summaries 
+    ### - Create verification summary plot
     
     ##------------------------------------------------------------------------.
     ### - Create verification maps 
