@@ -15,8 +15,6 @@ import os
 
 ##----------------------------------------------------------------------------.
 ## TODO 
-# - OneHotEncoder: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.OneHotEncoder.html#sklearn.preprocessing.OneHotEncoder
-#   https://towardsdatascience.com/categorical-encoding-using-label-encoding-and-one-hot-encoder-911ef77fb5bd
 # - Robust standardization (IQR, MEDIAN) (https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.RobustScaler.html#sklearn.preprocessing.RobustScaler)
 # - feature_min, feature_max as dictionary per variable for MinMaxScaler ... 
 # - PowerTransformer (https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html#sklearn.preprocessing.PowerTransformer)
@@ -30,6 +28,7 @@ import os
 # --> In TemporalScalers, when new_data contain new time_groupby indices values, insert NaN values
 #     in mean_, std_  for the missing time_groupby values
 
+# xr.ALL_DIMS # ...  
 ##----------------------------------------------------------------------------.
 # # Loop over each variable (for Datasets)
 # gs = GlobalStandardScaler(data=ds)
@@ -335,7 +334,7 @@ def get_time_groupby_idx(data, time_dim, time_groups, time_groupby_factors=None)
         time_groupby_idx[:] = 0
         time_groupby_idx.name = "Long-term mean"
         time_groupby_dims = None
-    #-------------------------------------------------------------------------.
+    ##------------------------------------------------------------------------.
     # Create time_groupby info dictionary
     time_groupby_info = {}
     time_groupby_info['time_groupby_idx'] = time_groupby_idx
@@ -343,7 +342,32 @@ def get_time_groupby_idx(data, time_dim, time_groups, time_groupby_factors=None)
     time_groupby_info['time_groupby_factors'] = time_groupby_factors
     time_groupby_info['time_groupby_dims'] = time_groupby_dims
     return time_groupby_info 
-  
+
+##----------------------------------------------------------------------------.
+def check_reference_period(reference_period):
+    """Check reference_period validity."""
+    # Check type 
+    if reference_period is None: 
+        return None
+    if not isinstance(reference_period, (list,tuple, np.ndarray)):
+        raise TypeError("'reference period' must be either a list, tuple or numpy array with start and end time period.")
+    if len(reference_period) != 2: 
+        raise ValueError("'reference period' require 2 elements: start time and end time.")
+    ##------------------------------------------------------------------------.
+    # If np.array with np.datetime64
+    if isinstance(reference_period, np.ndarray):
+        if not np.issubdtype(reference_period.dtype, np.datetime64):
+            raise ValueError('If a numpy array, must have np.datetime64 dtype.')
+        else:
+            return reference_period
+    ##------------------------------------------------------------------------.
+    if isinstance(reference_period, (list,tuple)):
+        try:
+            reference_period = np.array(reference_period, dtype='M8')
+        except ValueError:
+            raise ValueError("The values of reference_period can not be converted to datetime64.")      
+    return reference_period
+
 #-----------------------------------------------------------------------------.
 # #####################
 #### Global Scalers ###
@@ -674,9 +698,9 @@ class GlobalMinMaxScaler():
         ### Create the scaler object 
         else:
             # Check feature_min, feature_max
-            if not isinstance(feature_min, (int,float)):
+            if not isinstance(feature_min, (int, float)):
                 raise TypeError("'feature_min' must be a single number.'")
-            if not isinstance(feature_max, bool):
+            if not isinstance(feature_max, (int, float)):
                 raise TypeError("'feature_max' must be a single number.'")
             ##--------------------------------------------------------------------.   
             # Check data is an xarray Dataset or DataArray  
@@ -735,7 +759,7 @@ class GlobalMinMaxScaler():
         # Fit the scaler 
         self.min_ = self.data.min(self.aggregating_dims).compute()
         self.max_ = self.data.max(self.aggregating_dims).compute()
-        self.range_ = self.data_max_ - self.data_min_  
+        self.range_ = self.max_ - self.min_  
         self.fitted = True
         # del self.data
     
@@ -926,6 +950,7 @@ class TemporalStandardScaler():
                  data,
                  time_dim, time_groups=None,
                  variable_dim=None, groupby_dims=None, 
+                 reference_period=None,
                  center=True, standardize=True, eps=0.0001, ds_scaler = None):
         # ds_scaler must not be specified. Use load_scaler(fpath) if you want to load an existing scaler from disk.
         ##--------------------------------------------------------------------.
@@ -957,17 +982,18 @@ class TemporalStandardScaler():
                 raise TypeError("'standardize' must be True or False'")
             if not center and not standardize:
                 raise ValueError("At least one between 'center' and 'standardize' must be 'true'.")
-            ##--------------------------------------------------------------------.   
+            ##----------------------------------------------------------------.   
             # Check data is an xarray Dataset or DataArray  
             if not (isinstance(data, xr.Dataset) or isinstance(data, xr.DataArray)):
                 raise TypeError("'data' must be an xarray Dataset or xarray DataArray")
-            ##--------------------------------------------------------------------.                        
+            ##----------------------------------------------------------------.                        
             ## Checks for Dataset 
             if isinstance(data, xr.Dataset):
                 # Check variable_dim is not specified ! 
                 if variable_dim is not None: 
                     raise ValueError("'variable_dim' must not be specified for Dataset objects. Use groupby_dims instead.")
-            ##--------------------------------------------------------------------.  
+                    
+            ##----------------------------------------------------------------.  
             # Checks for DataArray (and convert to Dataset)
             if isinstance(data, xr.DataArray):
                 # Check variable_dim
@@ -977,22 +1003,32 @@ class TemporalStandardScaler():
                 else: 
                     variable_dim = check_variable_dim(variable_dim = variable_dim, data = data)
                     data = data.to_dataset(dim=variable_dim) 
-            ##--------------------------------------------------------------------.
+                    
+            ##----------------------------------------------------------------.
             # Check time_dim  
             time_dim = check_time_dim(time_dim=time_dim, data=data)
             self.time_dim = time_dim 
-            ##---------------------------------------------------------------------.
+            
+            ##----------------------------------------------------------------.
+            # Select data within the reference period 
+            reference_period = check_reference_period(reference_period)
+            if reference_period is not None:
+                data = data.sel({time_dim: slice(reference_period[0], reference_period[-1])})
+                
+            ##----------------------------------------------------------------.
             # Define groupby dimensions (over which to groupby)
             if groupby_dims is not None:
                 groupby_dims = check_groupby_dims(groupby_dims=groupby_dims, data = data) 
                 if time_dim in groupby_dims:
                     raise ValueError("TemporalScalers does not allow 'time_dim' to be included in 'groupby_dims'.")
             self.groupby_dims = groupby_dims
-            ##--------------------------------------------------------------------.
+            
+            ##----------------------------------------------------------------.
             # Check time_groups 
             time_groups = check_time_groups(time_groups=time_groups)
             self.time_groups = time_groups
-            ##--------------------------------------------------------------------.
+            
+            ##----------------------------------------------------------------.
             # Retrieve indexing for temporal groupby   
             time_groupby_info = get_time_groupby_idx(data=data,
                                                      time_dim=time_dim, 
@@ -1001,6 +1037,7 @@ class TemporalStandardScaler():
             self.time_groupby_name = time_groupby_info['time_groupby_idx_name']
             self.time_groupby_factors = time_groupby_info['time_groupby_factors'] 
             self.time_groupby_dims = time_groupby_info['time_groupby_dims']
+            
             ##--------------------------------------------------------------------.    
             # Retrieve dimensions over which to aggregate 
             # - If DataArray, exclude variable_dims 
@@ -1010,6 +1047,7 @@ class TemporalStandardScaler():
                 self.aggregating_dims = dims.tolist()  
             else:
                 self.aggregating_dims = dims[np.isin(dims, groupby_dims, invert=True)].tolist()
+                
             ##--------------------------------------------------------------------. 
             # Initialize 
             self.scaler_class = 'TemporalStandardScaler'
@@ -1288,7 +1326,8 @@ class TemporalMinMaxScaler():
                  data,
                  time_dim, time_groups=None,
                  variable_dim=None, groupby_dims=None, 
-                 feature_min=True, feature_max=True, 
+                 feature_min=0, feature_max=1, 
+                 reference_period = None,
                  ds_scaler = None):
         # ds_scaler must not be specified. Use load_scaler(fpath) if you want to load an existing scaler from disk.
         ##--------------------------------------------------------------------.
@@ -1315,19 +1354,20 @@ class TemporalMinMaxScaler():
             # Check feature_min, feature_max
             if not isinstance(feature_min, (int,float)):
                 raise TypeError("'feature_min' must be a single number.'")
-            if not isinstance(feature_max, bool):
+            if not isinstance(feature_max, (int, float)):
                 raise TypeError("'feature_max' must be a single number.'")
-            ##--------------------------------------------------------------------.   
+            ##----------------------------------------------------------------.   
             # Check data is an xarray Dataset or DataArray  
             if not (isinstance(data, xr.Dataset) or isinstance(data, xr.DataArray)):
                 raise TypeError("'data' must be an xarray Dataset or xarray DataArray")
-            ##--------------------------------------------------------------------.                        
+            ##----------------------------------------------------------------.                        
             ## Checks for Dataset 
             if isinstance(data, xr.Dataset):
                 # Check variable_dim is not specified ! 
                 if variable_dim is not None: 
                     raise ValueError("'variable_dim' must not be specified for Dataset objects. Use groupby_dims instead.")
-            ##--------------------------------------------------------------------.  
+                    
+            ##----------------------------------------------------------------.  
             # Checks for DataArray (and convert to Dataset)
             if isinstance(data, xr.DataArray):
                 # Check variable_dim
@@ -1337,22 +1377,32 @@ class TemporalMinMaxScaler():
                 else: 
                     variable_dim = check_variable_dim(variable_dim = variable_dim, data = data)
                     data = data.to_dataset(dim=variable_dim) 
-            ##--------------------------------------------------------------------.
+                    
+            ##----------------------------------------------------------------.
             # Check time_dim  
             time_dim = check_time_dim(time_dim=time_dim, data=data)
             self.time_dim = time_dim 
-            ##---------------------------------------------------------------------.
+            
+            ##----------------------------------------------------------------.
+            # Select data within the reference period 
+            reference_period = check_reference_period(reference_period)
+            if reference_period is not None:
+                data = data.sel({time_dim: slice(reference_period[0], reference_period[-1])})
+                
+            ##----------------------------------------------------------------.
             # Define groupby dimensions (over which to groupby)
             if groupby_dims is not None:
                 groupby_dims = check_groupby_dims(groupby_dims=groupby_dims, data = data) 
                 if time_dim in groupby_dims:
                     raise ValueError("TemporalScalers does not allow 'time_dim' to be included in 'groupby_dims'.")
             self.groupby_dims = groupby_dims
-            ##--------------------------------------------------------------------.
+            
+            ##----------------------------------------------------------------.
             # Check time_groups 
             time_groups = check_time_groups(time_groups=time_groups)
             self.time_groups = time_groups
-            ##--------------------------------------------------------------------.
+            
+            ##----------------------------------------------------------------.
             # Retrieve indexing for temporal groupby   
             time_groupby_info = get_time_groupby_idx(data=data,
                                                      time_dim=time_dim, 
@@ -1361,7 +1411,7 @@ class TemporalMinMaxScaler():
             self.time_groupby_name = time_groupby_info['time_groupby_idx_name']
             self.time_groupby_factors = time_groupby_info['time_groupby_factors'] 
             self.time_groupby_dims = time_groupby_info['time_groupby_dims']
-            ##--------------------------------------------------------------------.    
+            ##----------------------------------------------------------------.    
             # Retrieve dimensions over which to aggregate 
             # - If DataArray, exclude variable_dims 
             # - It include 'time_dim' by default (since groupby_dims do not include 'time_dim')
@@ -1370,7 +1420,7 @@ class TemporalMinMaxScaler():
                 self.aggregating_dims = dims.tolist()  
             else:
                 self.aggregating_dims = dims[np.isin(dims, groupby_dims, invert=True)].tolist()
-            ##--------------------------------------------------------------------. 
+            ##----------------------------------------------------------------. 
             # Initialize 
             self.scaler_class = 'TemporalMinMaxScaler'
             self.data = data
@@ -1386,14 +1436,14 @@ class TemporalMinMaxScaler():
     ##------------------------------------------------------------------------. 
     def fit(self):
         """Fit the TemporalMinMaxScaler."""
-        ##---------------------------------------------------------------------.
+        ##--------------------------------------------------------------------.
         if self.fitted: 
             raise ValueError("The scaler has been already fitted!")
-        ##---------------------------------------------------------------------.
+        ##--------------------------------------------------------------------.
         # Fit the scaler 
         self.min_ = self.data.groupby(self.time_groupby_idx).min(self.aggregating_dims).compute()
         self.max_ = self.data.groupby(self.time_groupby_idx).max(self.aggregating_dims).compute()
-        self.range_ = self.data_max_ - self.data_min_  
+        self.range_ = self.max_ - self.min_  
         self.fitted = True
         # del self.data
     
@@ -1410,7 +1460,7 @@ class TemporalMinMaxScaler():
         if fpath[-3:] != ".nc":
             fpath = fpath + ".nc"
             print("Added .nc extension to the provided fpath.")
-        #---------------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         ## Create xarray Dataset (to save as netCDF)
         # - Convert to DataArray
         min_ = self.min_.to_array()
@@ -1426,8 +1476,8 @@ class TemporalMinMaxScaler():
                            'aggregating_dims': self.aggregating_dims if self.aggregating_dims is not None else 'None', 
                            'groupby_dims': self.groupby_dims if self.groupby_dims is not None else 'None',
                            "time_dim": self.time_dim, 
-                           'feature_min': str(self.feature_min),
-                           'feature_max': str(self.feature_max),
+                           'feature_min': self.feature_min,
+                           'feature_max': self.feature_max,
                            'scaling': self.scaling,
                            'time_groups': str(self.time_groups),
                            'time_groupby_factors': str(self.time_groupby_factors), 
@@ -1468,7 +1518,7 @@ class TemporalMinMaxScaler():
         # Check dimension name coincides 
         new_data_dims = list(new_data.dims)
         required_dims = list(self.min_.dims)           
-        # - Replace time_grouby dim, with time_dim   
+        # - Replace time_grouby_idx dim, with time_dim   
         required_dims = [ self.time_dim if nm == self.time_groupby_name else nm for nm in required_dims]      
         
         # - Check no missing dims in new data 
@@ -1497,8 +1547,17 @@ class TemporalMinMaxScaler():
         if len(transform_vars) > 0: 
             new_data = new_data.copy()
             for var in transform_vars:
-                new_data[var] = (new_data[var].groupby(time_groupby_idx) - self.min_[var]) / self.range_[var] * self.scaling + self.feature_min
-                   
+                new_data[var] = xr.apply_ufunc(lambda x, min_, range_, scaling_, feature_min: (x - min_)/range_*scaling_ + feature_min, 
+                                               # Args
+                                               new_data[var].groupby(time_groupby_idx),
+                                               self.min_[var],
+                                               self.range_[var],
+                                               self.scaling,
+                                               self.feature_min,
+                                               dask="allowed", # "parallelized", # 
+                                               output_dtypes=[float],
+                                               keep_attrs=True)
+                                
             ##----------------------------------------------------------------.
             ## Remove non-dimension (time groupby) coordinate      
             new_data = new_data.drop(time_groupby_idx.name)
@@ -1579,12 +1638,21 @@ class TemporalMinMaxScaler():
         if len(transform_vars) > 0: 
             new_data = new_data.copy()
             for var in transform_vars:
-                new_data[var] = (new_data[var].groupby(time_groupby_idx) - self.feature_min) * self.range_[var] / self.scaling + self.min_[var]  
+                new_data[var] = xr.apply_ufunc(lambda x, min_, range_, scaling_, feature_min: (x - feature_min) * range_ / scaling_ + min_, 
+                                               # Args
+                                               new_data[var].groupby(time_groupby_idx),
+                                               self.min_[var],
+                                               self.range_[var],
+                                               self.scaling,
+                                               self.feature_min,
+                                               dask="allowed", # "parallelized", # 
+                                               output_dtypes=[float],
+                                               keep_attrs=True)
                 
             ##----------------------------------------------------------------.
-            ## Remove non-dimension (time groupby) coordinate      
+            ## Remove non-dimension (time groupby) coordinate  
             new_data = new_data.drop(time_groupby_idx.name)
-        
+            
         ##--------------------------------------------------------------------.      
         # Rename dimension as new_data (if necessary)
         if flag_dim_renamed: 
@@ -1700,7 +1768,11 @@ class Climatology():
                  groupby_dims = None, 
                  variable_dim=None, 
                  mean = True, variability=True, 
+                 reference_period = None,
                  ds_climatology=None):
+        # reference_period : numpy array or tuple of len 2 with datetime 
+        # ('1980-01-01T00:00','2010-12-31T23:00')
+        # np.array(['1980-01-01T00:00','2010-12-31T23:00'], dtype='M8') 
         ##--------------------------------------------------------------------.
         # Create a climatology object if ds_climatology is a xr.Dataset 
         if isinstance(ds_climatology, xr.Dataset):            
@@ -1728,6 +1800,7 @@ class Climatology():
                                                  time_groups = time_groups,
                                                  variable_dim = variable_dim, 
                                                  groupby_dims = groupby_dims,
+                                                 reference_period = reference_period, 
                                                  center=mean, standardize = variability)
             self.fitted = False 
     
@@ -1905,6 +1978,50 @@ def LoadClimatology(fpath):
 # ############### 
 #### Anomaly ####
 # ############### 
+class Anomaly(TemporalStandardScaler):
+    """Class object to transform data into anomalies (and back)."""
+    
+    def __init__(self, 
+                 data,
+                 time_dim, time_groups=None,
+                 variable_dim=None, groupby_dims=None, 
+                 reference_period=None, 
+                 eps=0.0001, ds_anomaly = None):
+        super().__init__(data = data, 
+                         time_dim = time_dim,
+                         time_groups = time_groups,
+                         variable_dim=variable_dim, groupby_dims=groupby_dims, 
+                         reference_period=reference_period,
+                         center=True, standardize=True, 
+                         eps=eps, ds_scaler=ds_anomaly)
+    
+    def transform(self, new_data, standardize=False, variable_dim=None, rename_dict=None):
+        """Transform new_data to anomalies."""
+        # Introduce option to get standardized anomalies  
+        self.standardize = standardize 
+        anom = TemporalStandardScaler.transform(self, new_data=new_data, variable_dim=variable_dim, rename_dict=rename_dict)
+        self.standardize = True 
+        return anom
+    
+    def inverse_transform(self, new_data, standardized=False, variable_dim=None, rename_dict=None):
+        """Retrieve original values from anomalies."""
+        # Introduce option to invert standardized anomalies  
+        self.standardize = standardized 
+        x = TemporalStandardScaler.inverse_transform(self, new_data=new_data, variable_dim=variable_dim, rename_dict=rename_dict)
+        self.standardize = True 
+        return x
+
+def LoadAnomaly(fpath):
+    """Load xarray scalers."""
+    # Check .nc 
+    if fpath[-3:] != ".nc":
+        fpath = fpath + ".nc"
+    # Check exist 
+    if not os.path.exists(fpath):
+        raise ValueError("{} does not exist on disk.".format(fpath))
+    # Create scaler 
+    ds_anomaly = xr.open_dataset(fpath)
+    return Anomaly(data=None, time_dim=None, ds_anomaly=ds_anomaly)
 
 #-----------------------------------------------------------------------------.
 # ################### 
@@ -1915,5 +2032,88 @@ def LoadClimatology(fpath):
 # ###################### 
 #### OneHotEncoding ####
 # ###################### 
+def OneHotEnconding(data, n_categories=None):
+    """
+    Perform OneHotEnconding of a categorical xarray DataArray.
 
+    Parameters
+    ----------
+    data : xr.DataArray
+        xarray DataArray to OneHotEncode.
+    n_categories : int, optional
+        Specify the number of categories. The default is None.
+
+    Returns
+    -------
+    Returns an xarray Dataset with OneHotEncoding variables.
+
+    """
+    if not isinstance(data, xr.DataArray):
+        raise TypeError("'data' must be a xarray DataArray.")
+    if not isinstance(n_categories, (int, type(None))):
+        raise TypeError("'n_categories' must be an integer.")
+    ##------------------------------------------------------------------------.
+    # Convert data as integers
+    x = data.values.astype(int) 
+    # Compute n_categories 
+    if n_categories is None:
+        n_categories = np.max(x) + 1
+    else: 
+        min_n_categories = np.max(x) + 1 
+        if n_categories < min_n_categories:
+            raise ValueError("'n_categories' must be equal or larger than {}.".format(min_n_categories))
+    ##------------------------------------------------------------------------.
+    # Compute OHE tensor
+    OHE = np.eye(n_categories)[x]
+    ##------------------------------------------------------------------------.
+    # Create Dataset 
+    da_name = data.name
+    list_da = []
+    for cat in range(n_categories):
+        tmp_da = data.copy()
+        tmp_da.values = OHE[..., cat]
+        tmp_da.name = da_name + " (OHE Class " + str(cat) + ")"
+        list_da.append(tmp_da)
+    ds = xr.merge(list_da)
+    ##------------------------------------------------------------------------.
+    return ds 
+    
+def InvertOneHotEnconding(data, name=None):
+    """
+    Invert OneHotEnconded variables of an xarray Dataset.
+
+    Parameters
+    ----------
+    data : xr.Dataset
+        xarray Dataset with OneHotEncoded variables
+    name: str
+        Name of the output xarray DataArray
+    Returns
+    -------
+    Returns an xarray DataArray with categorical labels.
+
+    """   
+    if not isinstance(data, xr.Dataset):
+        raise TypeError("'data' must be a xarray DataArray.")
+    if not isinstance(name, (str, type(None))):
+        raise TypeError("'name' must be a string (or None).")
+    ##------------------------------------------------------------------------.
+    # Convert Dataset to numpy tensor
+    OHE = data.to_array('OHE').transpose(...,'OHE').values
+    
+    (OHE > 1).any() or (OHE < 0).any()
+    # Check all values are between 0 or 1 (so that works also for probs)
+    if (OHE > 1).any() or (OHE < 0).any():
+        raise ValueError("Expects all values to be between 0 and 1")
+    ##-----------------------------------------------------------------------.
+    # Inverse
+    x = np.argmax(OHE, axis=len(OHE.shape) - 1)
+    ##------------------------------------------------------------------------.
+    # Create DataArray 
+    da = data[list(data.data_vars.keys())[0]]
+    da.values = x
+    da.name = name
+    ##------------------------------------------------------------------------.
+    return da
+ 
 #-----------------------------------------------------------------------------.
