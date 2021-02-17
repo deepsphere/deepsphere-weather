@@ -122,7 +122,7 @@ def get_dict_stack_info(AR_iterations, forecast_cycle, input_k, output_k, stack_
             dict_X_future[i] = idxs_future_data 
     ##------------------------------------------------------------------------.
     # - Define an index to choose which of the previous available prediction to take  
-    if stack_most_recent_prediction is True: 
+    if stack_most_recent_predictio: 
         idx_to_select = -1 # take the last  available prediction performed 
     else: 
         idx_to_select = 0  # take the first available prediction performed
@@ -275,7 +275,7 @@ def plot_AR_settings(input_k, output_k, forecast_cycle,
     arr = np.zeros(shape = (height, width))
     ##------------------------------------------------------------------------.
     # Create hatching array (only for forecasting mode)
-    if ((AR_iterations >= 1) and (hatch is True)):
+    if ((AR_iterations >= 1) and hatch):
         hatch_arr = np.zeros(shape = (height, width))
         dict_Y_to_stack, _ = get_dict_stack_info(AR_iterations=AR_iterations,
                                                  forecast_cycle=forecast_cycle, 
@@ -300,7 +300,7 @@ def plot_AR_settings(input_k, output_k, forecast_cycle,
     fig, ax = plt.subplots()
     ax.imshow(arr, aspect="auto")
     # - Add hatching (if forecasting mode) 
-    if ((AR_iterations >= 1) and (hatch is True)):
+    if ((AR_iterations >= 1) and hatch):
         hatch_arr = np.ma.masked_less(hatch_arr, 1)
         ax.pcolor(np.arange(width+1)-.5, np.arange(height+1)-.5, hatch_arr, 
                   hatch='//', alpha=0.)

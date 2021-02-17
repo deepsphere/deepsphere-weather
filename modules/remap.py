@@ -667,7 +667,7 @@ def cdo_remapping(method,
     ##-------------------------------------------------------------------------
     # Define temporary path for weights if weights are precomputed 
     FLAG_temporary_weight = False
-    if (precompute_weights is True): 
+    if precompute_weights: 
         FLAG_temporary_weight = False
         if (weights_fpath is None):
             # Create temporary directory where to store interpolation weights 
@@ -698,7 +698,7 @@ def cdo_remapping(method,
         opt_CDO_data_compression = ""
     ##------------------------------------------------------------------------.
     ## Precompute the weights (once) and then remap 
-    if (precompute_weights is True): 
+    if precompute_weights: 
         ##--------------------------------------------------------------------.  
         # If weights are not yet pre-computed, compute it 
         if not os.path.exists(weights_fpath):
@@ -765,7 +765,7 @@ def cdo_remapping(method,
             if (flag_cmd.returncode != 0):
                 raise ValueError("An error occured during remapping data with CDO.")
     ##-------------------------------------------------------------------------.
-    if (FLAG_temporary_weight is True):
+    if FLAG_temporary_weight:
         os.remove(weights_fpath)
     return 
 
@@ -961,9 +961,9 @@ def compute_interpolation_weights(src_graph, dst_graph,
         raise ValueError("The directory where to store the CDO (output) grid do not exists.")      
     ##-------------------------------------------------------------------------.
     # Define CDO grids based on pygsp graph if required 
-    if ((recreate_CDO_grids is True) or (FLAG_tmp_src_CDO_grid_fpath is True)):
+    if recreate_CDO_grids or FLAG_tmp_src_CDO_grid_fpath:
         pygsp_to_CDO_grid(src_graph, src_CDO_grid_fpath)
-    if ((recreate_CDO_grids is True) or (FLAG_tmp_dst_CDO_grid_fpath is True)):  
+    if recreate_CDO_grids or FLAG_tmp_dst_CDO_grid_fpath:  
         pygsp_to_CDO_grid(dst_graph, dst_CDO_grid_fpath)
     ##-------------------------------------------------------------------------.
     # Create a dummy input file for CDO 
@@ -1117,9 +1117,9 @@ def remap_dataset(src_ds,
         raise ValueError("The directory where to store the remapped Dataset do not exists.")    
     ##-------------------------------------------------------------------------.
     # Define CDO grids based on pygsp graph if required 
-    if FLAG_src_graph_provided is True:
+    if FLAG_src_graph_provided:
         pygsp_to_CDO_grid(src_graph, src_CDO_grid_fpath)
-    if FLAG_dst_graph_provided is True:  
+    if FLAG_dst_graph_provided:  
         pygsp_to_CDO_grid(dst_graph, dst_CDO_grid_fpath)
     ##-------------------------------------------------------------------------.
     # Save the source (input) dataset to disk temporary 
@@ -1251,9 +1251,9 @@ def compute_interpolation_weights_Healpix(src_graph, dst_graph,
         raise ValueError("The directory where to store the CDO (output) grid do not exists.")      
     ##------------------------------------------------------------------------.
     # Define CDO grids based on pygsp graph if required 
-    if ((recreate_CDO_grids is True) or (FLAG_tmp_src_CDO_grid_fpath is True)):
+    if recreate_CDO_grids or FLAG_tmp_src_CDO_grid_fpath:
         pygsp_Healpix_to_CDO_grid(src_graph, src_CDO_grid_fpath)
-    if ((recreate_CDO_grids is True) or (FLAG_tmp_dst_CDO_grid_fpath is True)):  
+    if recreate_CDO_grids or FLAG_tmp_dst_CDO_grid_fpath:  
         pygsp_Healpix_to_CDO_grid(dst_graph, dst_CDO_grid_fpath)
     ##------------------------------------------------------------------------.
     # Create a dummy input file for CDO 

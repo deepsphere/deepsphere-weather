@@ -73,11 +73,11 @@ def plot_loss(iterations,
         ax.plot(iterations, validation_loss, linestyle=linestyle)
     ##------------------------------------------------------------------------.
     # Plot legend 
-    if plot_legend is True: 
+    if plot_legend: 
         ax.legend(labels=labels, loc='upper right')
     ##------------------------------------------------------------------------.
     # Plot labels 
-    if plot_labels is True: 
+    if plot_labels: 
         ax.set_xlabel("Iteration")
         ax.set_ylabel("Loss")  
     ##------------------------------------------------------------------------.
@@ -287,7 +287,7 @@ class AR_TrainingInfo():
             raise TypeError("'plot_training' must be either True or False.")
         if not isinstance(plot_validation, bool): 
             raise TypeError("'plot_validation' must be either True or False.")
-        if plot_validation is False and plot_training is False: 
+        if ((not plot_validation) and (not plot_training)): 
             raise ValueError("At least one between 'plot_training' and 'plot_validation' must be True.")
         ##--------------------------------------------------------------------.
         # Check AR_iteration
@@ -308,9 +308,9 @@ class AR_TrainingInfo():
         iterations = self.training_loss_per_AR_iteration[AR_iteration]['iteration']
         training_loss =  self.training_loss_per_AR_iteration[AR_iteration]['loss']
         validation_loss = self.validation_loss_per_AR_iteration[AR_iteration]['loss']
-        if plot_training is False: 
+        if not plot_training: 
             training_loss = None 
-        if plot_validation is False: 
+        if not plot_validation: 
             validation_loss = None
         ##--------------------------------------------------------------------. 
         # Plot the loss 
@@ -330,7 +330,7 @@ class AR_TrainingInfo():
             [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
         ##--------------------------------------------------------------------.
         # If ax not provided to the function, return fig 
-        if flag_ax_provided is False:
+        if not flag_ax_provided:
             return fig 
         # Otherwise return ax 
         else: 
@@ -394,7 +394,7 @@ class AR_TrainingInfo():
             [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
         ##--------------------------------------------------------------------.
         # If ax not provided to the function, return fig 
-        if flag_ax_provided is False:
+        if not flag_ax_provided:
             return fig 
         # Otherwise return ax 
         else: 
@@ -432,7 +432,7 @@ class AR_TrainingInfo():
             fig, ax = plt.subplots()
         ##--------------------------------------------------------------------.
         # Plot absolute AR weights 
-        if normalized is False:    
+        if not normalized:    
             for i in range(self.AR_iterations + 1):
                 ax.plot(self.AR_weights_per_AR_iteration[i]['iteration'],
                         self.AR_weights_per_AR_iteration[i]['AR_absolute_weights'],
@@ -441,7 +441,7 @@ class AR_TrainingInfo():
             ax.set_title("Absolute AR weights")  
         ##--------------------------------------------------------------------.
         # Plot normalized AR weights     
-        if normalized is True: 
+        if normalized: 
             for i in range(self.AR_iterations + 1):
                 plt.plot(self.AR_weights_per_AR_iteration[i]['iteration'],
                          self.AR_weights_per_AR_iteration[i]['AR_weights'], 
@@ -464,7 +464,7 @@ class AR_TrainingInfo():
         ax.set_ylim(ylim)
         ##--------------------------------------------------------------------.
         # If ax not provided to the function, return fig 
-        if flag_ax_provided is False:
+        if not flag_ax_provided:
             return fig 
         # Otherwise return ax 
         else: 

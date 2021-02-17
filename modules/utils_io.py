@@ -19,7 +19,7 @@ def check_no_missing_timesteps(timesteps, verbose=True):
     """Check if there are missing timesteps in a numpy datetime64 array."""
     dt = np.diff(timesteps)
     dts, counts = np.unique(dt, return_counts=True)
-    if verbose is True:
+    if verbose:
         print("  --> Starting at", timesteps[0])
         print("  --> Ending at", timesteps[-1])
     if (len(counts) > 1):
@@ -47,7 +47,7 @@ def check_finite_Dataset(ds):
         if ds_isnan[var].sum().values != 0:
             list_vars_with_nan.append(var)
             flag_raise_error = True
-    if flag_raise_error is True: 
+    if flag_raise_error: 
         raise ValueError('The variables {} contain NaN values'.format(list_vars_with_nan))
     # Check no Inf values
     ds_isinf = xr.ufuncs.isinf(ds)  
@@ -57,7 +57,7 @@ def check_finite_Dataset(ds):
         if ds_isinf[var].sum().values != 0:
             list_vars_with_inf.append(var)
             flag_raise_error = True
-    if flag_raise_error is True: 
+    if flag_raise_error: 
         raise ValueError('The variables {} contain Inf values.'.format(list_vars_with_inf))
         
 def check_dimnames_DataArray(da, required_dimnames, da_name):

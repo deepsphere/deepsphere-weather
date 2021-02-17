@@ -394,7 +394,7 @@ def autoregressive_collate_fn(list_samples,
     dict_X_bc_batched = {}  
     for i in range(AR_iterations+1):
         if list_X_bc_samples[0][0] is not None: 
-            if pin_memory is True:
+            if pin_memory:
                 dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim).pin_memory()
             else: 
                 dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim) 

@@ -242,14 +242,14 @@ def plot_AR_scheduler(AR_scheduler, n_updates=4, update_every=15, plot_absolute_
                 dict_AR_weights_leadtimes[ld]['AR_weights'] = np.append(dict_AR_weights_leadtimes[ld]['AR_weights'], 0)                
      
     ### Visualize AR weights 
-    if plot_absolute_AR_weights is True:    
+    if plot_absolute_AR_weights:    
         for ld in range(AR_iterations):
             plt.plot(dict_AR_weights_leadtimes[ld]['iter'],
                      dict_AR_weights_leadtimes[ld]['AR_absolute_weights'],
                      marker='.')
         plt.title("Absolute AR weights ({})".format(method))  
         plt.show()
-    if plot_normalized_AR_weights is True:        
+    if plot_normalized_AR_weights:        
         for ld in range(AR_iterations):
             plt.plot(dict_AR_weights_leadtimes[ld]['iter'],
                      dict_AR_weights_leadtimes[ld]['AR_weights'], 

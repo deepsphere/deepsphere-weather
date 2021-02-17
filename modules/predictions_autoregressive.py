@@ -317,13 +317,13 @@ def AutoregressivePredictions(model,
     ## Checks arguments 
     device = check_torch_device(device)
     if device.type == 'cpu':
-        if pin_memory is True:
+        if pin_memory:
             print("GPU is not available. 'pin_memory' set to False.")
             pin_memory = False
-        if prefetch_in_GPU is True: 
+        if prefetch_in_GPU: 
             print("GPU is not available. 'prefetch_in_GPU' set to False.")
             prefetch_in_GPU = False
-        if asyncronous_GPU_transfer is True: 
+        if asyncronous_GPU_transfer: 
             print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
             asyncronous_GPU_transfer = False
     ##------------------------------------------------------------------------.
@@ -375,11 +375,11 @@ def AutoregressivePredictions(model,
     ##------------------------------------------------------------------------. 
     ### Prepare scalers for transform and inverse 
     if scaler is not None:
-        if scaler_transform is True:
+        if scaler_transform:
             scaler_transform = scaler
         else: 
             scaler_transform = None
-        if scaler_inverse is True:   
+        if scaler_inverse:   
             scaler_inverse = scaler 
         else: 
             scaler_inverse = None
@@ -474,7 +474,7 @@ def AutoregressivePredictions(model,
             ##----------------------------------------------------------------.
             # Create numpy array 
             # .detach() should not be necessary if grad_disabled 
-            if Y_forecasts.is_cuda is True: 
+            if Y_forecasts.is_cuda: 
                 Y_forecasts = Y_forecasts.cpu().numpy()
             else:
                 Y_forecasts = Y_forecasts.numpy()

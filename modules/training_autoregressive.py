@@ -267,7 +267,7 @@ def timing_AR_Training(dataset,
                    'Backward': Backprop_timing}
     ##------------------------------------------------------------------------. 
     # Create timing table 
-    if verbose is True:
+    if verbose:
         table = []
         headers = ['Run', 'Total', 'Dataloader','AR Batch', 'Delete', 'Forward', 'Loss', 'Backward']
         for count in range(n_repetitions):
@@ -786,7 +786,7 @@ def AutoregressiveTraining(model,
                 # If the model has not improved (based on early stopping settings)
                 # - If current_AR_iterations < AR_iterations --> Update AR scheduler
                 # - If current_AR_iterations = AR_iterations --> Stop training 
-                if early_stopping(training_info) is True:
+                if early_stopping(training_info):
                     # - If current_AR_iterations < AR_iterations --> Update AR scheduler
                     if AR_scheduler.current_AR_iterations < AR_iterations: 
                         ##----------------------------------------------------.
@@ -888,11 +888,11 @@ def AutoregressiveTraining(model,
         ### Print epoch training statistics  
         training_info.print_epoch_info()
         
-        if flag_stop_training is True:
+        if flag_stop_training:
             break 
         ##--------------------------------------------------------------------. 
         # Option to save the model each epoch
-        if save_model_each_epoch is True:
+        if save_model_each_epoch:
             torch.save(model.state_dict(), model_fpath[:-3] + '_epoch_{}'.format(epoch) + '.h5')
       
     ##------------------------------------------------------------------------.

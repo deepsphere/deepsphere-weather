@@ -134,7 +134,7 @@ def get_model_settings(cfg):
         if model_settings[key] is None:
             flag_error = True
             print("'{}' is a mandatory key that must be specified in the model settings section of the config file.".format(key))
-    if (flag_error is True):
+    if flag_error:
         raise ValueError('Specify the mandatory model settings keys in the config file!')    
     
     # Retrieve optional model settings  
@@ -167,8 +167,8 @@ def get_training_settings(cfg):
     if not isinstance(training_settings['GPU_devices_ids'], list):
         training_settings['GPU_devices_ids'] = [training_settings['GPU_devices_ids']]
         
-    if training_settings['GPU_training'] is False:    
-        if training_settings['DataParallel_training'] is True:
+    if not training_settings['GPU_training']:    
+        if training_settings['DataParallel_training']:
             print("DataParallel training is available only on GPUs!")
             training_settings['DataParallel_training'] = False
     
@@ -323,14 +323,14 @@ def pytorch_settings(training_settings):
     GPU_devices_ids = training_settings['GPU_devices_ids']     
     ##------------------------------------------------------------------------.
     # Set options for deterministic training 
-    if deterministic_training is True:
+    if deterministic_training:
         set_pytorch_deterministic(seed=deterministic_training_seed)
     
     ##------------------------------------------------------------------------.
     # If requested, autotunes to the best cuDNN kernel (for performing convolutions)
     # --> Find the best algorithm to use with the available hardware.
     # --> Usually leads to faster runtime. 
-    if benchmark_cuDNN is True:
+    if benchmark_cuDNN:
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
     else: 
@@ -338,7 +338,7 @@ def pytorch_settings(training_settings):
     
     ##------------------------------------------------------------------------.
     # Return the device to make the pytorch architecture working both on CPU and GPU
-    if GPU_training is True:
+    if GPU_training:
         if torch.cuda.is_available():
             device = torch.device(GPU_devices_ids[0])
         else:
@@ -402,7 +402,7 @@ def create_experiment_directories(exp_dir, model_name, force=False):
     # Check if the experiment directory already exists 
     exp_dir = os.path.join(exp_dir, model_name)
     if os.path.exists(exp_dir):
-        if force is True: 
+        if force: 
             shutil.rmtree(exp_dir)
         else:
             raise ValueError("The directory {} already exists.\
