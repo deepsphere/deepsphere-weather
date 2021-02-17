@@ -48,7 +48,7 @@ from modules.xscaler import LoadScaler
  
 from modules.my_io import readDatasets   
 from modules.my_io import reformat_Datasets
-import modules.architectures as my_architectures
+import modules.models as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
 ## Disable warnings
@@ -133,6 +133,10 @@ device = 'cpu'
 
 cfg = get_default_settings()
 cfg['model_settings']['architecture_name'] = "UNetSpherical"
+<<<<<<< HEAD
+=======
+cfg['model_settings']['architecture_fpath'] = "/home/ghiggi/Projects/DeepSphere/modules/models.py"
+>>>>>>> 9eab3ea69d550b4fdf0c5ce84e96ba306facbd93
 cfg['model_settings']['sampling'] = "Healpix"
 cfg['model_settings']['resolution'] = 16
 
@@ -250,8 +254,13 @@ scaler = None
 # """General function for training DeepSphere4Earth models."""
 # TODO: add missing input arguments    
 
+<<<<<<< HEAD
 exp_dir = "/home/ghiggi/Project/DeepSphere/models"
 architecture_fpath = "/home/ghiggi/Projects/weather_prediction/modules/architectures.py"
+=======
+exp_dir = "/data/weather_prediction/experiments"
+architecture_fpath = "/home/ghiggi/Projects/weather_prediction/modules/models.py"
+>>>>>>> 9eab3ea69d550b4fdf0c5ce84e96ba306facbd93
 
 ##------------------------------------------------------------------------.
 ### Read experiment configuration settings 

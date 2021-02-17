@@ -17,7 +17,7 @@ from modules.xscaler import SequentialScaler
 from modules.my_io import readDatasets   
 
 ##----------------------------------------------------------------------------.
-data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/data/" # to change to scratch/... 
+data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/" # to change to scratch/... 
 # - Dynamic data (i.e. pressure and surface levels variables)
 ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
 # - Boundary conditions data (i.e. TOA)
@@ -34,10 +34,10 @@ ds_static = ds_static.drop(["lat","lon"])
 # xr.testing.assert_identical
 # xr.testing.assert_equal
 # xr.ALL_DIMS # ...  
-#----------------------------------------------------------------------------.
-#######################
-### GlobalScalers #####
-#######################
+##----------------------------------------------------------------------------.
+# ######################
+#### GlobalScalers #####
+# ######################
 ds = ds_dynamic.compute()
 da = ds.to_array(dim='feature', name='whatever').transpose('time', 'node', 'feature')
 
@@ -117,10 +117,10 @@ da_trans = gs.transform(ds['z500'], variable_dim=None).compute()
 da_invert = gs.inverse_transform(da_trans, variable_dim=None).compute()
 xr.testing.assert_equal(ds['z500'], da_invert) 
 
-#-----------------------------------------------------------------------------.
-##########################
+##-----------------------------------------------------------------------------.
+# ########################
 #### Temporal Scalers ####
-##########################
+# ########################
 # Pixelwise --> groupby_dims = "node"
 # Anomalies: center=True, standardize=False
 # Standardized Anomalies: center=True, standardize=True
@@ -255,7 +255,7 @@ ds_trans = gs.transform(ds).compute()
 ds_invert = gs.inverse_transform(ds_trans).compute()
 xr.testing.assert_equal(ds, ds_invert)
 
-#----------------------------------------------------------------------------.
+##----------------------------------------------------------------------------.
 ### Check rename_dict 
 rename_dict = {'time': 'forecast_time', 
                'node': 'space'}
@@ -304,10 +304,10 @@ ds_invert1 = gs.inverse_transform(ds_trans).compute()
 ds_invert = gs.inverse_transform(ds_trans, rename_dict=rename_dict).compute()
 xr.testing.assert_equal(new_ds, ds_invert)
  
-#-----------------------------------------------------------------------------.
-#########################
-### SequentialScaler ####
-#########################
+##-----------------------------------------------------------------------------.
+# ########################
+#### SequentialScaler ####
+# ########################
 from modules.xscaler import SequentialScaler
 
 # Pixelwise over all time   
@@ -358,39 +358,64 @@ ds_invert = final_scaler.inverse_transform(ds_trans).compute()
 xr.testing.assert_allclose(ds, ds_invert)
 
 ##----------------------------------------------------------------------------.
-## MinMax 
-## Robust standardization (IQR, MEDIAN)
-## Trend 
-## Robust trend
-
-##----------------------------------------------------------------------------.
-
-## OneHotEncoder 
-## Binarizer
-## PowerTransformer 
-## QuantileTransformer 
-## MaxAbsScaler
-# https://scikit-learn.org/stable/modules/classes.html#module-sklearn.preprocessing
-# https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.QuantileTransformer.html#sklearn.preprocessing.QuantileTransformer
-# https://phausamann.github.io/sklearn-xarray/content/pipeline.html
-
-
-##----------------------------------------------------------------------------.
-#### Possible future improvements
-### RollingScalers 
-# -- No rolling yet implemented for groupby xarray object 
  
-### SpatialScaler 
-# --> Requires a groupby_spatially(geopandas)
+
 
 ##----------------------------------------------------------------------------.
+# ###################
+#### Climatology ####
+# ###################
+from modules.xscaler import Climatology
+from modules.xscaler import LoadClimatology
+### Daily climatology
+daily_clim = Climatology(data = ds_dynamic,
+                         time_dim = 'time',
+                         time_groups= ['day', 'month'],  
+                         groupby_dims = "node",  
+                         mean = True, variability=True)
+daily_clim1 = Climatology(data = ds_dynamic,
+                         time_dim = 'time',
+                         time_groups= 'dayofyear',
+                         groupby_dims = "node",  
+                         mean = True, variability=True)
+# - Compute the climatology
+daily_clim.compute()
+daily_clim1.compute()
 
+print(daily_clim.mean)
+print(daily_clim1.mean)
+print(daily_clim.variability)
+print(daily_clim1.variability)
 
+# - Forecast climatology 
+ds_forecast = daily_clim.forecast(ds_dynamic['time'].values)
+ds_forecast1 = daily_clim.forecast(ds_dynamic['time'].values)
+print(ds_forecast)
+xr.testing.assert_allclose(ds_forecast, ds_forecast1)
 
+### 3-hourly weekly climatology
+custom_clim = Climatology(data = ds_dynamic,
+                          time_dim = 'time',
+                          time_groups= {'hour': 3, 'weekofyear': 1},  
+                          groupby_dims = "node",  
+                          mean = True, variability=True)
+# - Compute the climatology
+custom_clim.compute()
 
+print(custom_clim.mean)
+print(custom_clim.variability)
 
+# - Forecast climatology 
+ds_forecast = custom_clim.forecast(ds_dynamic['time'].values)
 
+# - Save
+fpath = "/home/ghiggi/clim_test.nc"
+custom_clim.save(fpath)
 
+# - Reload
+custom_clim = LoadClimatology(fpath)
 
-
+# - Forecast
+custom_clim.forecast(ds_dynamic['time'].values)
+##----------------------------------------------------------------------------.
  
