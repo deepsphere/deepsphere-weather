@@ -159,7 +159,7 @@ class AutoregressiveDataset(Dataset):
             new_dim_size[dim_batch] = 1            # Batch dimension 
             new_dim_size[dim_time] = len(input_k)  # The (predictor lag) 'time' dimension)
             # - Use a view to expand (to not allocate new memory)
-            self.torch_static = torch.tensor(da_static.values, dtype=torch_dtype).unsqueeze(unsqueeze_time_dim).unsqueeze(unsqueeze_batch_dim).expand(new_dim_size)
+            self.torch_static = torch.tensor(da_static.values, dtype=torch_dtype, device=device).unsqueeze(unsqueeze_time_dim).unsqueeze(unsqueeze_batch_dim).expand(new_dim_size)
         else: 
             self.torch_static = None
             
@@ -416,8 +416,7 @@ def autoregressive_collate_fn(list_samples,
             dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
             if dict_X_bc_batched[i] is not None:
                 dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer) 
-        if torch_static is not None: 
-            torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer) 
+   
     #-------------------------------------------------------------------------.   
     # Return dictionary of batched data 
     batch_dict = {'X_dynamic': dict_X_dynamic_batched, 
@@ -595,9 +594,6 @@ def get_AR_batch(AR_iteration,
             torch_X_dynamic = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
         else:
             torch_X_dynamic = None
-        # X_static 
-        if torch_static is not None: 
-            torch_static = torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer)
         # X_bc
         if bc_is_available:
             torch_X_bc = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
