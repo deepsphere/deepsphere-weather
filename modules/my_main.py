@@ -48,7 +48,7 @@ from modules.xscaler import LoadScaler
  
 from modules.my_io import readDatasets   
 from modules.my_io import reformat_Datasets
-import modules.models as my_architectures
+import modules.my_models_graph as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
 ## Disable warnings
@@ -59,7 +59,7 @@ warnings.filterwarnings("ignore")
 # - Assume data with same temporal resolution 
 # - Assume data without missing timesteps 
 # - Do not expect data with different scales 
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 ## Tensor dimension order !!!
 # - For autoregressive: 
 # ['sample','time', 'node', ..., 'feature']
@@ -71,7 +71,7 @@ warnings.filterwarnings("ignore")
 # - ['time', 'node', 'level', 'ensemble', 'feature'] 
 
 # Feature dimension data order = [static, bc, dynamic]
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 ### TODO
 # - kernel_size vs kernel_size_pooling 
 # - numeric_precision: currently work only for float32 !!!
@@ -92,9 +92,9 @@ warnings.filterwarnings("ignore")
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/temporality/run_ar_tc.py
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/run_ar_tc.py
 #-----------------------------------------------------------------------------.
-#######################
+# #####################
 # Pytorch Settings ####
-#######################
+# #####################
 # data_dir = "/data/weather_prediction/ToyData/Healpix_400km/data/"
 # data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/data/" # to change to scratch/... 
 # # - Dynamic data (i.e. pressure and surface levels variables)
@@ -108,7 +108,7 @@ warnings.filterwarnings("ignore")
 # ds_bc = ds_bc.drop(["lat","lon"])
 # ds_static = ds_static.drop(["lat","lon"])
 
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 ### Lazy Loading of Datasets 
 data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km"
 t_i = time.time()
@@ -153,7 +153,7 @@ cfg['training_settings']["training_batch_size"] = 16
 cfg['training_settings']["validation_batch_size"] = 16
 cfg['training_settings']["epochs"] = 5
 
-cfg['training_settings']['numeric_precision'] = "float32"
+cfg['training_settings']['numeric_precision'] = "float32"  
 
 cfg['dataloader_settings']["prefetch_in_GPU"] = False
 cfg['dataloader_settings']["prefetch_factor"] = 2
@@ -163,7 +163,7 @@ cfg['dataloader_settings']["num_workers"] = 1    # os.cpu_count()
 cfg['dataloader_settings']["drop_last_batch"] = False  
         
  
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 # ### Scale data with xscaler 
 # dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
 # dynamic_scaler.fit()
@@ -191,7 +191,7 @@ cfg['dataloader_settings']["drop_last_batch"] = False
 #ds_dynamic1 = dynamic_scaler.inverse_transform(ds_dynamic_std.compute()).compute()
 #xr.testing.assert_equal(ds_dynamic, ds_dynamic1) 
 
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 # ### Split data into train, test and validation set 
 # # - Defining time split for training 
 # training_years = np.array(['1980-01-01T07:00','2013-12-31T23:00'], dtype='M8[m]')  
@@ -209,7 +209,7 @@ cfg['dataloader_settings']["drop_last_batch"] = False
 # ds_test_dynamic = ds_dynamic_std.sel(time=slice(test_years[0], test_years[-1]))
 # ds_test_bc = ds_bc_std.sel(time=slice(test_years[0], test_years[-1]))
 
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 ### Dataset to DataArray conversion 
 dict_DataArrays = reformat_Datasets(ds_training_dynamic = ds_training_dynamic,
                                     ds_validation_dynamic = ds_validation_dynamic,
@@ -237,15 +237,15 @@ check_AR_DataArrays(da_training_dynamic = da_training_dynamic,
                     verbose=True)                         
 
 scaler = None
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 
 ### GPU options 
 # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
 # os.environ["CUDA_LAUNCH_BLOCKING"] = 1
-##############  
+# ############  
 #### Main ####
-############## 
+# ############ 
 # def main(cfg_path):
 # """General function for training DeepSphere4Earth models."""
 # TODO: add missing input arguments    
@@ -284,12 +284,14 @@ print_dim_info(dim_info)
 ### Define the model architecture   
 # TODO (@Wentao ... )  
 # model = get_pytorch_model(model_settings = model_settings)
+model_settings['architecture_name'] = "UNetDiffSpherical"
 DeepSphereModelClass = getattr(my_architectures, model_settings['architecture_name'])
 # - Retrieve required model arguments
 model_keys = ['dim_info', 'sampling', 'resolution',
               'knn', 'kernel_size_conv',
               'pool_method', 'kernel_size_pooling']
 model_args = {k: model_settings[k] for k in model_keys}
+model_args['numeric_precision'] = training_settings['numeric_precision']
 # - Define DeepSphere model 
 model = DeepSphereModelClass(**model_args)              
  
@@ -342,7 +344,7 @@ print_model_description(cfg)
 # - --> variable weights 
 # - --> spatial masking 
 # - --> area_weights   
-weights = compute_error_weight(model.sphere_graph)
+weights = compute_error_weight(model.graphs[0])
 criterion = WeightedMSELoss(weights=weights)
 criterion.to(device) 
 
@@ -357,7 +359,7 @@ optimizer = optim.Adam(model.parameters(),
 ### - Define AR_Weights_Scheduler 
 AR_scheduler = AR_Scheduler(method = "LinearDecay",
                             factor = 0.025,
-                            initial_AR_weights = [0.25, 0.25, 0.25, 0.25])
+                            initial_AR_weights = [1])
 
 ### - Define Early Stopping 
 # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
@@ -398,8 +400,7 @@ training_info = AutoregressiveTraining(model = model,
                                        da_validation_bc = da_validation_bc,  
                                        scaler = scaler, 
                                        # Dataloader settings
-                                       num_workers = 4,  # dataloader_settings['num_workers'], 
-                                       autotune_num_workers = True, 
+                                       num_workers = 0,  # dataloader_settings['num_workers'], 
                                        prefetch_factor = dataloader_settings['prefetch_factor'],  
                                        prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 
                                        drop_last_batch = dataloader_settings['drop_last_batch'],     
@@ -472,7 +473,7 @@ training_info.plot_total_loss().savefig(os.path.join(exp_dir, "figs/training_inf
 training_info.plot_AR_weights(normalized=True).savefig(os.path.join(exp_dir, "figs/training_info/AR_Normalized_Weights.png"))
 training_info.plot_AR_weights(normalized=False).savefig(os.path.join(exp_dir, "figs/training_info/AR_Absolute_Weights.png"))   
 
-#-------------------------------------------------------------------------.
+##-------------------------------------------------------------------------.
 ### - Create predictions 
 forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
 ds_forecasts = AutoregressivePredictions(model = model, 
@@ -480,12 +481,11 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          da_dynamic = da_test_dynamic,
                                          da_static = da_test_static,              
                                          da_bc = da_test_bc, 
-                                         scaler = dynamic_scaler,
+                                         scaler = None,
                                          # Dataloader options
                                          device = 'cpu',
                                          batch_size = 20,  # number of forecasts per batch
                                          num_workers = 0, 
-                                         tune_num_workers = False, 
                                          prefetch_factor = 2, 
                                          prefetch_in_GPU = False,  
                                          pin_memory = True,
@@ -534,4 +534,4 @@ ds_verification = rechunk_forecasts_for_verification(ds=ds_forecasts,
     ##------------------------------------------------------------------------.
     ### - Create animations 
     
-    #-------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.

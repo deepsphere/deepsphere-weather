@@ -1,166 +1,73 @@
-import math
-from collections import Counter
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Feb 19 21:51:40 2021
 
-import numpy as np
-from scipy import sparse
+@author: ghiggi
+"""
+import math
 import torch
+import numpy as np
+from collections import Counter
+from abc import ABC, abstractmethod
+from scipy import sparse
 from torch.nn import functional as F
-from torch.nn import Conv1d, BatchNorm1d
+from torch.nn import Conv1d
 from modules import remap
 from sparselinear import SparseLinear
+### TODO:
+# - Generalize precision of chev_conv 
+# - Better explain ratio for equiangular
+##----------------------------------------------------------------------------.
+# ##############################
+#### Laplacian computations ####
+# ##############################
+def estimate_lmax(laplacian, tol=5e-3):
+    """Estimate the Laplacian's largest eigenvalue."""
+    lmax = sparse.linalg.eigsh(laplacian, k=1, tol=tol,
+                               ncv=min(laplacian.shape[0], 10),
+                               return_eigenvectors=False)
+    lmax = lmax[0]
+    lmax *= 1 + 2 * tol  # # Increase by 1 percent to be robust to errors.
+    return lmax
 
-
-def reformat(x):
-    """Reformat the input from a 4D tensor to a 3D tensor
-    Args:
-        x (:obj:`torch.tensor`): a 4D tensor
-    Returns:
-        :obj:`torch.tensor`: a 3D tensor
-    """
-    x = x.permute(0, 2, 3, 1)
-    N, D1, D2, Feat = x.size()
-    x = x.view(N, D1 * D2, Feat)
-    return x
-
-
-def equiangular_dimension_unpack(nodes, ratio):
-    """Calculate the two underlying dimensions
-    from the total number of nodes
-    Args:
-        nodes (int): combined dimensions
-        ratio (float): ratio between the two dimensions
-    Returns:
-        int, int: separated dimensions
-    """
-    dim1 = int((nodes / ratio) ** 0.5)
-    dim2 = int((nodes * ratio) ** 0.5)
-    if dim1 * dim2 != nodes: # Try to correct dim1 or dim2 if ratio is wrong
-        if nodes % dim1 == 0:
-            dim2 = nodes // dim1
-        if nodes % dim2 == 0:
-            dim1 = nodes // dim2
-    assert dim1 * dim2 == nodes, f'Unable to unpack nodes: {nodes}, ratio: {ratio}'
-    return dim1, dim2
-
-
-def equiangular_calculator(tensor, ratio):
-    N, M, F = tensor.size()
-    dim1, dim2 = equiangular_dimension_unpack(M, ratio)
-    # bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
-    tensor = tensor.view(N, dim1, dim2, F)
-    return tensor
-
-
-# 2D CNN layers
-class Conv2dEquiangular(torch.nn.Module):
-    """ Equiangular 2D Convolutional layer, periodic in the longitude (width) dimension.
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of channels in the input image.
-    out_channels : int
-        Number of channels in the output image.
-    kernel_size : int
-        Width of the square convolutional kernel.
-        The actual size of the kernel is kernel_size**2
-    ratio : int
-        ratio = H // W. Aspect ratio to reorganize the equiangular map from 1D to 2D
-    periodic : bool
-        whether to use periodic padding. (default: True)
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, ratio, periodic, **kwargs):
-        super().__init__()
-        self.ratio = ratio
-        self.periodic = periodic
-
-        self.kernel_size = kernel_size
-        self.pad_width = int((self.kernel_size - 1) / 2)
-        # TODO: Pass also ** kwargs ? Or just add self.bias?  
-        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size)  # TODO
-
-        torch.nn.init.xavier_uniform_(self.conv.weight)
-        torch.nn.init.zeros_(self.conv.bias)
-
-    def periodicPad(self, x, width, periodic=True):
-        """ Periodic padding function.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The tensor format should be N * C * H * W
-        width : int
-            The padding width.
-        periodic: bool
-            Whether to use periodic padding. If False, the function is same as ZeroPad2D. (default: True)
-        """
-        if periodic:
-            x = torch.cat((x[:, :, :, -width:], x, x[:, :, :, :width]), dim=3)
-            padded = F.pad(x, (0, 0, width, width), 'constant', 0)
-        else:
-            padded = F.pad(x, (width, width, width, width), 'constant', 0)
-        return padded
-
-    def forward(self, x):
-        x = equiangular_calculator(x, self.ratio)
-        x = x.permute(0, 3, 1, 2)
-
-        x = self.periodicPad(x, self.pad_width, self.periodic)
-        x = self.conv(x)
-
-        x = reformat(x)
-        return x
-
-
-
-# Graph CNN layers
-"""
-PyTorch implementation of a convolutional neural network on graphs based on
-Chebyshev polynomials of the graph Laplacian.
-See https://arxiv.org/abs/1606.09375 for details.
-Copyright 2018 Michaël Defferrard.
-Released under the terms of the MIT license.
-"""
-
-
-def prepare_laplacian(laplacian):
-    """Prepare a graph Laplacian to be fed to a graph convolutional layer
-    """
-
-    def estimate_lmax(laplacian, tol=5e-3):
-        r"""Estimate the largest eigenvalue of an operator."""
-        lmax = sparse.linalg.eigsh(laplacian, k=1, tol=tol,
-                                   ncv=min(laplacian.shape[0], 10),
-                                   return_eigenvectors=False)
-        lmax = lmax[0]
-        lmax *= 1 + 2 * tol  # Be robust to errors.
-        return lmax
-
-    def scale_operator(L, lmax, scale=1):
-        r"""Scale the eigenvalues from [0, lmax] to [-scale, scale]."""
-        I = sparse.identity(L.shape[0], format=L.format, dtype=L.dtype)
-        L *= 2 * scale / lmax
-        L -= I
-        return L
-
-    lmax = estimate_lmax(laplacian)
+def scale_operator(laplacian, lmax, scale=1):
+    """Scale the eigenvalues from [0, lmax] to [-scale, scale]."""
+    sparse_I = sparse.identity(laplacian.shape[0], format=laplacian.format, dtype=laplacian.dtype)
+    laplacian *= 2 * scale / lmax
+    laplacian -= sparse_I
+    return laplacian
+    
+def compute_torch_laplacian(graph, torch_dtype, laplacian_type="normalized"):
+    """Prepare a graph Laplacian to be fed to a graph convolutional layer."""
+    # Compute Laplacian and attach to the pgysp graph 
+    graph.compute_laplacian(laplacian_type)
+    # Change type   
+    laplacian = graph.L.astype(np.float32)
+    # Scale the eigenvalues
+    lmax = estimate_lmax(laplacian) 
     laplacian = scale_operator(laplacian, lmax)
-
+    # Construct the Laplacian sparse matrix in COOrdinate format
     laplacian = sparse.coo_matrix(laplacian)
-
-    # PyTorch wants a LongTensor (int64) as indices (it'll otherwise convert).
+    # Build Torch sparse tensor in COOrdinate format
+    # - PyTorch wants a LongTensor (int64) as indices (it'll otherwise convert).
     indices = np.empty((2, laplacian.nnz), dtype=np.int64)
     np.stack((laplacian.row, laplacian.col), axis=0, out=indices)
     indices = torch.from_numpy(indices)
-
-    laplacian = torch.sparse_coo_tensor(indices, laplacian.data, laplacian.shape)
+    laplacian = torch.sparse_coo_tensor(indices=indices, 
+                                        values=laplacian.data,
+                                        size=laplacian.shape,
+                                        dtype=torch_dtype)  
     laplacian = laplacian.coalesce()  # More efficient subsequent operations.
     return laplacian
 
-
+#----------------------------------------------------------------------------.
+# ################################
+#### Graph Convolution layer  ####
+# ################################
 def cheb_conv(laplacian, inputs, weight):
     """Chebyshev convolution.
+    
     Parameters
     ----------
     laplacian : torch.sparse.Tensor
@@ -175,7 +82,6 @@ def cheb_conv(laplacian, inputs, weight):
     x : torch.Tensor
         Inputs after applying Chebyshev convolution.
     """
-
     B, V, Fin1 = inputs.shape
     # print('B: {}, V. {}, Fin: {}'.format(B,V,Fin1))
     Fin, K, Fout = weight.shape
@@ -211,9 +117,14 @@ def cheb_conv(laplacian, inputs, weight):
 
     return x
 
-
 class ConvCheb(torch.nn.Module):
     """Graph convolutional layer.
+
+    PyTorch implementation of a convolutional neural network on graphs based on
+    Chebyshev polynomials of the graph Laplacian.
+    See https://arxiv.org/abs/1606.09375 for details.
+    Copyright 2018 Michaël Defferrard.
+    Released under the terms of the MIT license.
 
     Parameters
     ----------
@@ -263,7 +174,7 @@ class ConvCheb(torch.nn.Module):
 
     def reset_parameters(self, activation='relu', fan='in',
                          distribution='normal'):
-        r"""Reset weight and bias.
+        """Reset weight and bias.
 
         * Kaiming / He is given by `activation='relu'`, `fan='in'` or
         `fan='out'`, and `distribution='normal'`.
@@ -294,7 +205,6 @@ class ConvCheb(torch.nn.Module):
         networks, Xavier Glorot, Yoshua Bengio,
         http://proceedings.mlr.press/v9/glorot10a.html
         """
-
         if fan == 'in':
             fan = self.in_channels * self.kernel_size
         elif fan == 'out':
@@ -325,7 +235,7 @@ class ConvCheb(torch.nn.Module):
             self.bias.data.fill_(0)
 
     def set_parameters(self, weight, bias=None):
-        r"""Set weight and bias.
+        """Set weight and bias.
 
         Parameters
         ----------
@@ -339,12 +249,13 @@ class ConvCheb(torch.nn.Module):
             self.bias = torch.nn.Parameter(torch.as_tensor(bias))
 
     def extra_repr(self):
+        """Extra repr."""
         s = '{in_channels} -> {out_channels}, kernel_size={kernel_size}'
         s += ', bias=' + str(self.bias is not None)
         return s.format(**self.__dict__)
 
     def forward(self, inputs):
-        r"""Forward graph convolution.
+        """Forward graph convolution.
 
         Parameters
         ----------
@@ -353,313 +264,129 @@ class ConvCheb(torch.nn.Module):
         inputs : tensor of shape n_signals x n_vertices x n_features
             Data, i.e., features on the vertices.
         """
-
         outputs = self._conv(self.laplacian, inputs, self.weight)
         if self.bias is not None:
             outputs += self.bias
         return outputs
 
-
+##----------------------------------------------------------------------------.
 # Conv layers
-
-# TODO: 
-# - Where do we use Conv1dAuto? 
-# - Should we not use nnLinear instead of Conv1d when kernel_size = 1? Would be faster 
-
+# TODO - Where do we use Conv1dAuto? Remove?  
 class Conv1dAuto(Conv1d):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.padding = (self.kernel_size[0] // 2)  # dynamic add padding based on the kernel_size
 
+#----------------------------------------------------------------------------.
+# ######################################
+#### Equiangular Convolution layer  ####
+# ######################################  
+def reformat(x):
+    """Reformat the input from a 4D tensor to a 3D tensor."""
+    x = x.permute(0, 2, 3, 1)
+    N, D1, D2, Feat = x.size()
+    x = x.view(N, D1 * D2, Feat)
+    return x
 
+def equiangular_dimension_unpack(nodes, ratio):
+    """Calculate the two underlying dimensions from the total number of nodes."""
+    # TODO: @Wentao --> Rename dim1-dim2 with n_lat and n_lon  
+    dim1 = int((nodes / ratio) ** 0.5)
+    dim2 = int((nodes * ratio) ** 0.5)
+    if dim1 * dim2 != nodes: # Try to correct dim1 or dim2 if ratio is wrong
+        if nodes % dim1 == 0:
+            dim2 = nodes // dim1
+        if nodes % dim2 == 0:
+            dim1 = nodes // dim2
+    assert dim1 * dim2 == nodes, f'Unable to unpack nodes: {nodes}, ratio: {ratio}'
+    return dim1, dim2
 
-class PoolMaxEquiangular(torch.nn.MaxPool1d):
-    """EquiAngular max pooling module
-    
+def equiangular_calculator(tensor, ratio):
+    # TODO: @Wentao: better name? .. is reshaping the node dimension in lat and lon?)
+    N, M, F = tensor.size()
+    dim1, dim2 = equiangular_dimension_unpack(M, ratio)
+    # bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
+    tensor = tensor.view(N, dim1, dim2, F)
+    return tensor
+
+class Conv2dEquiangular(torch.nn.Module):
+    """Equiangular 2D Convolutional layer, periodic in the longitude (width) dimension.
+
     Parameters
     ----------
-    ratio : float
-        Ratio between latitude and longitude dimensions of the data
+    in_channels : int
+        Number of channels in the input image.
+    out_channels : int
+        Number of channels in the output image.
     kernel_size : int
-        Pooling kernel width
-    return_indices : bool (default : True)
-        Whether to return the indices corresponding to the locations of the maximum value retained at pooling
+        Width of the square convolutional kernel.
+        The actual size of the kernel is kernel_size**2
+    ratio : int
+        ratio = H // W. Aspect ratio to reorganize the equiangular map from 1D to 2D
+    periodic : bool
+        whether to use periodic padding. (default: True)
     """
 
-    def __init__(self, ratio, kernel_size, return_indices=True, *args, **kwargs):
-        self.ratio = ratio
-        kernel_size = int(kernel_size ** 0.5)
-        super().__init__(kernel_size=kernel_size, return_indices=return_indices)
-
-    def forward(self, inputs):
-        """calls Maxpool1d and if desired, keeps indices of the pixels pooled to unpool them
-        Parameters
-        ----------
-        x : torch.tensor of shape batch x pixels x features
-            Input data
-            
-        Returns
-        -------
-        x : torch.tensor of shape batch x unpooled pixels x features
-            Layer output
-        indices : list(int)
-            Indices of the pixels pooled
-        """
-        x = equiangular_calculator(inputs, self.ratio)
-        x = x.permute(0, 3, 1, 2)
-
-        if self.return_indices:
-            x, indices = F.max_pool2d(x, self.kernel_size, return_indices=self.return_indices)
-        else:
-            x = F.max_pool2d(x, self.kernel_size)
-        x = reformat(x)
-
-        if self.return_indices:
-            output = x, indices
-        else:
-            output = x
-
-        return output
-
-
-class UnpoolMaxEquiangular(torch.nn.MaxUnpool1d):
-    """Equiangular max unpooling module
-    
-    Parameters
-    ----------
-    ratio : float
-        Ratio between latitude and longitude dimensions of the data
-    kernel_size : int
-        Pooling kernel width
-    """
-
-    def __init__(self, ratio, kernel_size, *args, **kwargs):
-        self.ratio = ratio
-        kernel_size = int(kernel_size ** 0.5)
-        super().__init__(kernel_size=(kernel_size, kernel_size))
-
-    def forward(self, inputs, indices):
-        """calls MaxUnpool1d using the indices returned previously by PoolMaxEquiangular
-        Parameters
-        ----------
-        inputs : torch.tensor of shape batch x pixels x features
-            Input data
-        indices : int
-            Indices of pixels equiangular maxpooled previously
-            
-        Returns
-        -------
-        x : torch.tensor of shape batch x unpooled pixels x features
-            Layer output
-        """
-        x = equiangular_calculator(inputs, self.ratio)
-        x = x.permute(0, 3, 1, 2)
-        x = F.max_unpool2d(x, indices, self.kernel_size)
-        x = reformat(x)
-        return x
-
-
-class PoolAvgEquiangular(torch.nn.AvgPool1d):
-    """EquiAngular average pooling
-    
-    Parameters
-    ----------
-    ratio : float
-        Parameter for equiangular sampling -> width/height
-    kernel_size : int
-        Pooling kernel width
-    """
-
-    def __init__(self, ratio, kernel_size, *args, **kwargs):
-        self.ratio = ratio
-        kernel_size = int(kernel_size ** 0.5)
-        super().__init__(kernel_size=(kernel_size, kernel_size))
-
-    def forward(self, inputs):
-        """calls Avgpool1d
-        Parameters
-        ----------
-        inputs : torch.tensor of shape batch x pixels x features
-            Input data
-        
-        Returns
-        -------
-        x : torch.tensor of shape batch x pooled pixels x features
-            Layer output
-        """
-        x = equiangular_calculator(inputs, self.ratio)
-        x = x.permute(0, 3, 1, 2)
-        x = F.avg_pool2d(x, self.kernel_size)
-        x = reformat(x)
-
-        return x, None
-
-
-class UnpoolAvgEquiangular(torch.nn.Module):
-    """EquiAngular average unpooling
-    
-    Parameters
-    ----------
-    ratio : float
-        Parameter for equiangular sampling -> width/height
-    """
-
-    def __init__(self, ratio, kernel_size, *args, **kwargs):
-        self.ratio = ratio
-        self.kernel_size = int(kernel_size ** 0.5)
+    def __init__(self, in_channels, out_channels, kernel_size, ratio, periodic, **kwargs):
         super().__init__()
+        self.ratio = ratio
+        self.periodic = periodic
 
-    def forward(self, inputs, *args):
-        """calls pytorch's interpolate function to create the values while unpooling based on the nearby values
+        self.kernel_size = kernel_size
+        self.pad_width = int((self.kernel_size - 1) / 2)
+        # TODO: Pass also ** kwargs ? Or just add self.bias args?  
+        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size)  # TODO
+
+        torch.nn.init.xavier_uniform_(self.conv.weight)
+        torch.nn.init.zeros_(self.conv.bias)
+
+    def periodicPad(self, x, width, periodic=True):       
+        """Periodic padding function.
+
         Parameters
         ----------
-        inputs : torch.tensor of shape batch x pixels x features
-            Input data
+        x : torch.Tensor
+            The tensor format should be N * C * H * W
+        width : int
+            The padding width.
+        periodic: bool
+            Whether to use periodic padding. 
+            If False, the function is same as ZeroPad2D. 
+            The default is True
         
         Returns
         -------
-        x : torch.tensor of shape batch x unpooled pixels x features
-            Layer output
+        padded : torch.tensor 
+            Return the padded tensor.   
         """
-
-        x = equiangular_calculator(inputs, self.ratio)
-        x = x.permute(0, 3, 1, 2)
-        x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
-        x = reformat(x)
-        return x
-
-
-class PoolMaxHealpix(torch.nn.MaxPool1d):
-    """Healpix Maxpooling module
-     
-    Parameters
-    ----------
-    kernel_size : int
-        Pooling kernel width
-    return_indices : bool (default : True)
-        Whether to return the indices corresponding to the locations of the maximum value retained at pooling
-    """
-
-    def __init__(self, kernel_size, return_indices=True, *args, **kwargs):
-        super().__init__(kernel_size=kernel_size, return_indices=return_indices)
+        if periodic:
+            x = torch.cat((x[:, :, :, -width:], x, x[:, :, :, :width]), dim=3)
+            padded = F.pad(x, (0, 0, width, width), 'constant', 0)
+        else:
+            padded = F.pad(x, (width, width, width, width), 'constant', 0)
+        return padded
 
     def forward(self, x):
-        """calls Maxpool1d and if desired, keeps indices of the pixels pooled to unpool them
-        Parameters
-        ----------
-        x : torch.tensor of shape batch x pixels x features
-            Input data  
-        indices : list
-            Indices where the max value was located in unpooled image
-            
-        Returns
-        -------
-        x : torch.tensor of shape batch x unpooled pixels x features
-            Layer output
-        indices : list(int)
-            Indices of the pixels pooled
-        """
-        x = x.permute(0, 2, 1)
-        if self.return_indices:
-            x, indices = F.max_pool1d(x, self.kernel_size, return_indices=self.return_indices)
-        else:
-            x = F.max_pool1d(x)
-        x = x.permute(0, 2, 1)
+        """Perform convolution."""
+        x = equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
 
-        if self.return_indices:
-            output = x, indices
-        else:
-            output = x
-        return output
+        x = self.periodicPad(x, self.pad_width, self.periodic)
+        x = self.conv(x)
 
-
-class PoolAvgHealpix(torch.nn.Module):
-    """Healpix average pooling module
-    
-    Parameters
-    ----------
-    kernel_size : int
-        Pooling kernel width
-    """
-
-    def __init__(self, kernel_size, *args, **kwargs):
-        """kernel_size should be 4, 16, 64, etc."""
-        super().__init__()
-        self.kernel_size = kernel_size
-
-    def extra_repr(self):
-        return 'kernel_size={kernel_size}'.format(**self.__dict__)
-
-    def forward(self, x):
-        """x has shape (batch, pixels, channels) and is in nested ordering"""
-        x = x.permute(0, 2, 1)
-        x = torch.nn.functional.avg_pool1d(x, self.kernel_size)
-        return x.permute(0, 2, 1), None
-
-
-class UnpoolAvgHealpix(torch.nn.Module):
-    """Healpix Average Unpooling module
-    
-    Parameters
-    ----------
-    kernel_size : int
-        Pooling kernel width
-    """
-
-    def __init__(self, kernel_size, *args, **kwargs):
-        """kernel_size should be 4, 16, 64, etc."""
-        super().__init__()
-        self.kernel_size = kernel_size
-
-    def extra_repr(self):
-        return 'kernel_size={kernel_size}'.format(**self.__dict__)
-
-    def forward(self, x, *args):
-        """x has shape (batch, pixels, channels) and is in nested ordering"""
-        # return x.repeat_interleave(self.kernel_size, dim=1)
-        x = x.permute(0, 2, 1)
-        x = torch.nn.functional.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
-        return x.permute(0, 2, 1)
-
-
-class UnpoolMaxHealpix(torch.nn.MaxUnpool1d):
-    """HEALpix max unpooling module
-    
-    Parameters
-    ----------
-    kernel_size : int
-        Pooling kernel width
-    """
-
-    def __init__(self, kernel_size, *args, **kwargs):
-        super().__init__(kernel_size=kernel_size)
-
-    def forward(self, x, indices, **kwargs):
-        """calls pytorch's unpool1d function to create the values while unpooling based on the nearby values
-        Parameters
-        ----------
-        **kwargs
-        inputs : torch.tensor of shape batch x pixels x features
-            Input data
-        indices : list
-            Indices where the max value was located in unpooled image
-        
-        Returns
-        -------
-        x : torch.tensor of shape batch x unpooled pixels x features
-            Layer output
-        """
-
-        x = x.permute(0, 2, 1)
-        x = F.max_unpool1d(x, indices, self.kernel_size)
-        x = x.permute(0, 2, 1)
+        x = reformat(x)
         return x
 
-
+#----------------------------------------------------------------------------.
+# ##################### 
+#### Utils Pooling ####
+# #####################
 def _build_interpolation_matrix(src_graph, dst_graph):
     """Return the sparse matrix that interpolates between two spherical samplings."""
-
-    ds = remap.compute_interpolation_weights(src_graph, dst_graph, method='conservative', normalization='fracarea') # destarea’
+    ds = remap.compute_interpolation_weights(src_graph=src_graph,
+                                             dst_graph=dst_graph, 
+                                             method='conservative',
+                                             normalization='fracarea') # destarea’
 
     # Sanity checks.
     np.testing.assert_allclose(ds.src_grid_center_lat, src_graph.signals['lat'])
@@ -695,30 +422,359 @@ def _build_interpolation_matrix(src_graph, dst_graph):
 
     return weights
 
-
 def build_pooling_matrices(src_graph, dst_graph):
+    """Create pooling and unpooling matrix."""
     weights = _build_interpolation_matrix(src_graph, dst_graph)
     pool = weights.multiply(1/weights.sum(1))
     unpool = weights.multiply(1/weights.sum(0)).T
     return pool, unpool
 
-
 def convert_to_torch_sparse(mat: "sparse.coo.coo_matrix"):
+    """Convert a sparse matrix to a torch.sparse COO matrix."""
     indices = np.empty((2, mat.nnz), dtype=np.int64)
     np.stack((mat.row, mat.col), axis=0, out=indices)
     indices = torch.from_numpy(indices)
     mat = torch.sparse_coo_tensor(indices, mat.data, mat.shape, dtype=torch.float32)
     mat = mat.coalesce()
     return mat
+    
+#----------------------------------------------------------------------------.
+# ################################## 
+#### Graph-based Pooling layers ####
+# ##################################    
+class EquiangularMaxPool(torch.nn.MaxPool1d):
+    """Equiangular Max Pooling Layer.
+    
+    Parameters
+    ----------
+    ratio : float
+        Ratio between latitude and longitude dimensions of the data.
+        Ratio of 2 means same resolution in latitude and longitude.
+    kernel_size : int
+        Pooling kernel width
+    return_indices : bool (default : True)
+        Whether to return the indices corresponding to the locations of the
+        maximum value retained at pooling. Useful to unpool. The default is True.
+    """
+
+    def __init__(self, ratio, kernel_size, return_indices=True, *args, **kwargs):
+        self.ratio = ratio
+        kernel_size = int(kernel_size ** 0.5)
+        super().__init__(kernel_size=kernel_size, return_indices=return_indices)
+
+    def forward(self, x):
+        """Perform pooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+            
+        Returns
+        -------
+        x : torch.tensor
+            Pooling output tensor of shape batch x pooled pixels x features 
+        indices : list(int)
+            Indices of the pooled pixels.
+        """
+        x = equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+
+        if self.return_indices:
+            x, indices = F.max_pool2d(x, self.kernel_size, return_indices=self.return_indices)
+        else:
+            x = F.max_pool2d(x, self.kernel_size)
+        x = reformat(x)
+
+        if self.return_indices:
+            return x, indices
+        else:
+            return x
+
+class EquiangularMaxUnpool(torch.nn.MaxUnpool1d):
+    """Equiangular Max Unpooling Layer.
+    
+    Parameters
+    ----------
+    ratio : float
+        Ratio between latitude and longitude dimensions of the data.
+        Ratio of 2 means same resolution in latitude and longitude.
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, ratio, kernel_size, *args, **kwargs):
+        self.ratio = ratio
+        kernel_size = int(kernel_size ** 0.5)
+        super().__init__(kernel_size=(kernel_size, kernel_size))
+
+    def forward(self, x, indices):
+        """Perform unpooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+        indices : list(int)
+            Indices of the pooled pixels. 
+            
+        Returns
+        -------
+        x : torch.tensor 
+            Unpooling output tensor output of shape batch x unpooled pixels x features
+         
+        """
+        x = equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+        x = F.max_unpool2d(x, indices, self.kernel_size)
+        x = reformat(x)
+        return x
 
 
+class EquiangularAvgPool(torch.nn.AvgPool1d):
+    """Equiangular Average Pooling Layer.
+    
+    Parameters
+    ----------
+    ratio : float
+        Ratio between latitude and longitude dimensions of the data.
+        Ratio of 2 means same resolution in latitude and longitude.
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, ratio, kernel_size, *args, **kwargs):
+        self.ratio = ratio
+        kernel_size = int(kernel_size ** 0.5)
+        super().__init__(kernel_size=(kernel_size, kernel_size))
+
+    def forward(self, x):
+        """Perform pooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+            
+        Returns
+        -------
+        x : torch.tensor
+            Pooling output tensor of shape batch x pooled pixels x features 
+        
+        """
+        x = equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+        x = F.avg_pool2d(x, self.kernel_size)
+        x = reformat(x)
+
+        return x, None
+
+
+class EquiangularAvgUnpool(torch.nn.Module):
+    """Equiangular Average Pooling Layer.
+    
+    Parameters
+    ----------
+    ratio : float
+        Ratio between latitude and longitude dimensions of the data.
+        Ratio of 2 means same resolution in latitude and longitude.
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, ratio, kernel_size, *args, **kwargs):
+        self.ratio = ratio
+        self.kernel_size = int(kernel_size ** 0.5)
+        super().__init__()
+
+    def forward(self, x, *args):
+        """Perform unpooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+            
+        Returns
+        -------
+        x : torch.tensor 
+            Unpooling output tensor output of shape batch x unpooled pixels x features
+         
+        """
+        x = equiangular_calculator(x, self.ratio)
+        x = x.permute(0, 3, 1, 2)
+        x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
+        x = reformat(x)
+        return x
+
+
+class HealpixMaxPool(torch.nn.MaxPool1d):
+    """Healpix Max Pooling Layer.
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    return_indices : bool (default : True)
+        Whether to return the indices corresponding to the locations of the
+        maximum value retained at pooling. Useful to unpool. The default is True.
+    """
+    
+    def __init__(self, kernel_size, return_indices=True, *args, **kwargs):
+        super().__init__(kernel_size=kernel_size, return_indices=return_indices)
+
+    def forward(self, x):
+        """Perform pooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+            x is expected to have nested ordering.
+            
+        Returns
+        -------
+        x : torch.tensor
+            Pooling output tensor of shape batch x pooled pixels x features 
+        indices : list(int)
+            Indices of the pooled pixels.
+        """
+        x = x.permute(0, 2, 1)
+        if self.return_indices:
+            x, indices = F.max_pool1d(x, self.kernel_size, return_indices=self.return_indices)
+        else:
+            x = F.max_pool1d(x)
+        x = x.permute(0, 2, 1)
+
+        if self.return_indices:
+            output = x, indices
+        else:
+            output = x
+        return output
+
+class HealpixMaxUnpool(torch.nn.MaxUnpool1d):
+    """Healpix Max Unpooling Layer.
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, kernel_size, *args, **kwargs):
+        super().__init__(kernel_size=kernel_size)
+
+    def forward(self, x, indices, **kwargs):
+        """Perform unpooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+            x is expected to have nested ordering.
+        indices : list(int)
+            Indices of the pooled pixels. 
+            
+        Returns
+        -------
+        x : torch.tensor 
+            Unpooling output tensor output of shape batch x unpooled pixels x features
+         
+        """
+        x = x.permute(0, 2, 1)
+        x = F.max_unpool1d(x, indices, self.kernel_size)
+        x = x.permute(0, 2, 1)
+        return x
+
+class HealpixAvgPool(torch.nn.Module):
+    """Healpix Average Pooling Layer.
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    """
+    
+    def __init__(self, kernel_size, *args, **kwargs):
+        """kernel_size should be 4, 16, 64, etc."""
+        super().__init__()
+        self.kernel_size = kernel_size
+
+    def extra_repr(self):
+        """Extra repr."""
+        return 'kernel_size={kernel_size}'.format(**self.__dict__)
+
+    def forward(self, x):
+        """Perform pooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+            x is expected to have nested ordering.
+            
+        Returns
+        -------
+        x : torch.tensor
+            Pooling output tensor of shape batch x pooled pixels x features 
+        
+        """
+        x = x.permute(0, 2, 1)
+        x = torch.nn.functional.avg_pool1d(x, self.kernel_size)
+        return x.permute(0, 2, 1), None
+
+
+class HealpixAvgUnpool(torch.nn.Module):
+    """Healpix Average Unpooling Layer.
+    
+    Parameters
+    ----------
+    kernel_size : int
+        Pooling kernel width
+    """
+
+    def __init__(self, kernel_size, *args, **kwargs):
+        """kernel_size should be 4, 16, 64, etc."""
+        super().__init__()
+        self.kernel_size = kernel_size
+
+    def extra_repr(self):
+        """Extra repr."""
+        return 'kernel_size={kernel_size}'.format(**self.__dict__)
+
+    def forward(self, x, *args):
+        """Perform unpooling.
+        
+        Parameters
+        ----------
+        x : torch.tensor 
+            Torch tensor of shape batch x pixels x features.
+            x is expected to have nested ordering.
+            
+        Returns
+        -------
+        x : torch.tensor 
+            Unpooling output tensor output of shape batch x unpooled pixels x features
+         
+        """
+        x = x.permute(0, 2, 1)
+        x = torch.nn.functional.interpolate(x, scale_factor=self.kernel_size, mode='nearest')
+        return x.permute(0, 2, 1)
+
+#----------------------------------------------------------------------------.
+# ##################################
+#### Mesh-based Pooling layers  ####
+# ##################################
 class RemapBlock(torch.nn.Module):
+    """General function for mesh-based pool/unpooling."""
+    
     def __init__(self, remap_matrix: "sparse.coo.coo_matrix"):
         super().__init__()
         remap_matrix = self.process_remap_matrix(remap_matrix)
         self.register_buffer('remap_matrix', remap_matrix)
     
     def forward(self, x, *args, **kwargs):
+        """Perform pooling or unpooling."""
         n_batch, n_nodes, n_val = x.shape
         matrix = self.remap_matrix
         new_nodes, _ = matrix.shape
@@ -728,29 +784,38 @@ class RemapBlock(torch.nn.Module):
         return x
     
     def process_remap_matrix(self, mat):
+        """Compute the remapping matrix."""
         return convert_to_torch_sparse(mat)
-
-
+    
 class GeneralAvgPool(RemapBlock):
+    """Generalized Average Pooling."""
+    
     def forward(self, x, *args, **kwargs):
+        """Perform pooling."""
         x = super().forward(x, *args, **kwargs)
         # Some pooling methods (e.g. Avg) do not give source indices, please return None for compatibility reason
         return x, None
 
-
 class GeneralAvgUnpool(RemapBlock):
+    """Generalized Average Unpooling."""
+    
     def forward(self, x, *args, **kwargs):
+        """Perform unpooling."""
         x = super().forward(x, *args, **kwargs)
         return x
 
-
+##----------------------------------------------------------------------------.
 class GeneralMaxAreaPool(RemapBlock):
+    """Generalized Max Area Pooling."""
+    
     def forward(self, x, *args, **kwargs):
+        """Perform pooling."""
         x = super().forward(x, *args, **kwargs)
         # Some pooling methods (e.g. Avg) do not give source indices, please return None for compatibility reason
         return x, None
         
     def process_remap_matrix(self, mat):
+        """Compute the remapping matrix."""
         max_ind_col = np.argmax(mat, axis=1).T
         row = np.arange(max_ind_col.shape[1]).reshape(1, -1)
         indices = np.concatenate([row, max_ind_col], axis=0)
@@ -761,7 +826,10 @@ class GeneralMaxAreaPool(RemapBlock):
 
 
 class GeneralMaxAreaUnpool(RemapBlock):
+    """Generalized Max Area Unpooling."""
+    
     def process_remap_matrix(self, mat):
+        """Compute the remapping matrix."""
         max_ind_row = np.argmax(mat, axis=0)
         col = np.arange(max_ind_row.shape[1]).reshape(1, -1)
         indices = np.concatenate([max_ind_row, col], axis=0)
@@ -770,36 +838,16 @@ class GeneralMaxAreaUnpool(RemapBlock):
         mat = mat.coalesce()
         return mat
 
-
-class GeneralLearnableUnpool(SparseLinear):
-    def __init__(self, remap_matrix: "sparse.coo.coo_matrix"):
-        out_feature, in_feature = remap_matrix.shape
-        bias = False
-        indices = np.empty((2, remap_matrix.nnz), dtype=np.int64)
-        np.stack((remap_matrix.row, remap_matrix.col), axis=0, out=indices)
-        indices = torch.from_numpy(indices)
-        dynamic = False
-        super().__init__(in_feature, out_feature, bias, connectivity=indices, dynamic=dynamic)
+##----------------------------------------------------------------------------.
+class GeneralMaxValPool(RemapBlock):
+    """Generalized Max Value Pooling."""
     
     def forward(self, x, *args, **kwargs):
-        x = x.permute(0, 2, 1)
-        x = super().forward(x)
-        x = x.permute(0, 2, 1)
-        return x
-
-
-class GeneralLearnablePool(GeneralLearnableUnpool):    
-    def forward(self, inputs):
-        output = super().forward(inputs)
-        return output, None
-
-
-class GeneralMaxValPool(RemapBlock):
-    def forward(self, x, *args, **kwargs):
+        """Perform pooling."""
         n_batch, n_nodes, n_val = x.shape
         matrix = self.remap_matrix
         new_nodes, old_nodes = matrix.shape
-        assert n_nodes == old_nodes, 'remap_matrix.shape[1] != input.shape[1]'
+        assert n_nodes == old_nodes, 'remap_matrix.shape[1] != x.shape[1]'
         x = x.permute(1, 2, 0).reshape(n_nodes, n_batch * n_val)
 
         indices = matrix.indices()
@@ -836,9 +884,11 @@ class GeneralMaxValPool(RemapBlock):
 
         return x_pooled, nnz_ind
 
-
 class GeneralMaxValUnpool(RemapBlock):
+    """Generalized Max Value Unpooling."""
+    
     def forward(self, x, index, *args, **kwargs):
+        """Perform unpooling."""
         matrix = self.remap_matrix
 
         n_batch, _, n_val = x.shape
@@ -847,83 +897,51 @@ class GeneralMaxValUnpool(RemapBlock):
         x = x.permute(2, 0, 1).flatten()
         x_unpooled = torch.zeros([new_nodes, n_batch * n_val], dtype=x.dtype, device=x.device)
         row, col = index
-        x_unpooled =  torch.index_put(x_unpooled, (row, col), x)
+        x_unpooled = torch.index_put(x_unpooled, (row, col), x)
         x_unpooled = x_unpooled.reshape(new_nodes, n_val, n_batch).permute(2, 0, 1)
         return x_unpooled
+    
+##----------------------------------------------------------------------------.
+# TODO: reason why you defined for unpool? 
+class GeneralLearnableUnpool(SparseLinear):
+    """Generalized Learnable Unooling."""
+    
+    def __init__(self, remap_matrix: "sparse.coo.coo_matrix"):
+        out_feature, in_feature = remap_matrix.shape
+        bias = False
+        indices = np.empty((2, remap_matrix.nnz), dtype=np.int64)
+        np.stack((remap_matrix.row, remap_matrix.col), axis=0, out=indices)
+        indices = torch.from_numpy(indices)
+        dynamic = False
+        super().__init__(in_feature, out_feature, bias, connectivity=indices, dynamic=dynamic)
+    
+    def forward(self, x, *args, **kwargs):
+        """Perform unpooling."""
+        x = x.permute(0, 2, 1)
+        x = super().forward(x)
+        x = x.permute(0, 2, 1)
+        return x
+    
+class GeneralLearnablePool(GeneralLearnableUnpool):  
+    """Generalized Learnable Pooling."""
+    
+    def forward(self, x):
+        """Perform pooling."""
+        output = super().forward(x)
+        return output, None
 
+#----------------------------------------------------------------------------.
+# #################################### 
+#### Generalized PoolUnpoolBlock  ####
+# ####################################
+HEALPIX_POOL = {'max': (HealpixMaxPool, HealpixMaxUnpool), 
+                'avg': (HealpixAvgPool, HealpixAvgUnpool)}
 
-HEALPIX_POOL = {'max': (PoolMaxHealpix, UnpoolMaxHealpix), 
-                'avg': (PoolAvgHealpix, UnpoolAvgHealpix)}
-
-EQUIANGULAR_POOl = {'max': (PoolMaxEquiangular, UnpoolMaxEquiangular), 
-                    'avg': (PoolAvgEquiangular, UnpoolAvgEquiangular)}
+EQUIANGULAR_POOl = {'max': (EquiangularMaxPool, EquiangularMaxUnpool), 
+                    'avg': (EquiangularAvgPool, EquiangularAvgUnpool)}
 
 ALL_POOL = {'healpix': HEALPIX_POOL,
             'equiangular': EQUIANGULAR_POOl}
-
-ALL_CONV = {'image': Conv2dEquiangular,
-            'graph': ConvCheb}
-
-
-class ConvBlock(torch.nn.Module):
-    """Spherical graph convolution block.
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of channels in the input graph.
-    out_channels : int
-        Number of channels in the output graph.
-    kernel_size : int
-        Chebychev polynomial degree
-    laplacian : torch.sparse_coo_tensor
-        Graph laplacian
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size,
-                 conv_type = 'graph', 
-                 batch_norm=True, relu_activation=True, **kwargs):
-        super().__init__()
-        # TODO a 
-        # - add bias=False to getConvLayer() if batch_norm=True
-        # - add option BN_before_act_fun = False --> Add BN before or after act_fun  
-        # - replace relu activation with activation_function='relu'
-        #   --> self.act = getattr(torch.nn, activation_function)
-        
-        self.conv = ConvBlock.getConvLayer(in_channels, out_channels,
-                                           kernel_size=kernel_size, 
-                                           conv_type=conv_type, **kwargs)
-        self.bn = BatchNorm1d(out_channels)
-        self.norm = batch_norm
-        self.act = relu_activation
-        
-    def forward(self, x):
-        """Define forward pass of a ConvBlock."""
-        x = self.conv(x)
-        if self.norm:   # [batch, node, time-feature]
-            x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
-        if self.act:
-            x = F.relu(x)
-        return x
-    
-    @staticmethod
-    def getConvLayer(in_channels: int,
-                     out_channels: int,
-                     kernel_size: int,
-                     conv_type: str = 'graph', **kwargs):
-        """Retrieve the required ConvLayer."""
-        conv_type = conv_type.lower()
-        conv = None
-        if conv_type == 'graph':
-            assert 'laplacian' in kwargs
-            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
-        elif conv_type == 'image':
-            assert 'ratio' in kwargs
-            conv = ALL_CONV[conv_type](in_channels, out_channels, kernel_size, **kwargs)
-        else:
-            raise ValueError('{} convolution is not supported'.format(conv_type))
-        return conv
-
 
 class PoolUnpoolBlock(torch.nn.Module):
     """Define Pooling and Unpooling Layers."""
@@ -960,3 +978,39 @@ class PoolUnpoolBlock(torch.nn.Module):
             return pool, unpool
         else:
             raise ValueError(f'{pool_method} is not supoorted.')
+
+#----------------------------------------------------------------------------.
+# ############################## 
+#### Generalized ConvBlock  ####
+# ############################## 
+def get_conv_fun(conv_type):
+    """Retrieve the ConvLayer based on conv_type."""
+    ALL_CONV = {'image': Conv2dEquiangular,
+                'graph': ConvCheb}
+    return ALL_CONV[conv_type]
+
+class GeneralConvBlock(ABC, torch.nn.Module):
+    """Define General ConvBlock class."""
+    
+    @abstractmethod    
+    def forward(self, *args, **kwargs):
+        """Define forward pass of a ConvBlock."""
+        pass
+    
+    @staticmethod
+    def getConvLayer(in_channels: int,
+                     out_channels: int,
+                     kernel_size: int,
+                     conv_type: str = 'graph', **kwargs):
+        """Retrieve the required ConvLayer."""        
+        conv_type = conv_type.lower()
+        conv = None
+        if conv_type == 'graph':
+            assert 'laplacian' in kwargs
+            conv = get_conv_fun(conv_type)(in_channels, out_channels, kernel_size, **kwargs)
+        elif conv_type == 'image':
+            assert 'ratio' in kwargs
+            conv = get_conv_fun(conv_type)(in_channels, out_channels, kernel_size, **kwargs)
+        else:
+            raise ValueError("{} conv_type is not supported. Choose either 'graph' or 'image'".format(conv_type))
+        return conv
