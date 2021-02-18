@@ -343,7 +343,7 @@ def autoregressive_collate_fn(list_samples,
     dict_Y_to_stack = list_samples[0]['dict_Y_to_stack']
     dict_Y_to_remove = list_samples[0]['dict_Y_to_remove']
     dim_info = list_samples[0]['dim_info']
-    batch_dim = dim_info['sample'] 
+    batch_dim = dim_info['sample']
     ##------------------------------------------------------------------------.
     # Retrieve the different data (and forecast time info)
     list_X_dynamic_samples = []
