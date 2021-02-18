@@ -859,7 +859,6 @@ def AutoregressiveTraining(model,
                                                                       device = device)
                         trainingDataLoader_iter = cylic_iterator(trainingDataLoader)
                         if validationDataset is not None: 
-                            del validationDataLoader, validationDataLoader_iter
                             validationDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
                             validationDataLoader = AutoregressiveDataLoader(dataset = validationDataset, 
                                                                         batch_size = validation_batch_size,  
