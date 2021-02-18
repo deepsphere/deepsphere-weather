@@ -356,7 +356,8 @@ optimizer = optim.Adam(model.parameters(),
 ##------------------------------------------------------------------------.
 ### - Define AR_Weights_Scheduler 
 AR_scheduler = AR_Scheduler(method = "LinearDecay",
-                            factor = 0.025)    
+                            factor = 0.025,
+                            initial_AR_weights = [0.25, 0.25, 0.25, 0.25])
 
 ### - Define Early Stopping 
 # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
