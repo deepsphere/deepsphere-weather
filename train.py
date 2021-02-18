@@ -95,12 +95,12 @@ def main(cfg_path, exp_dir, data_dir):
     cfg = read_config_file(fpath=cfg_path)
     
     # Some special stuff you might want to adjust 
-    cfg['dataloader_settings']["prefetch_in_GPU"] = False # True? To test 
+    cfg['dataloader_settings']["prefetch_in_GPU"] = False# True? To test 
     cfg['dataloader_settings']["prefetch_factor"] = 2     # Maybe increase if only prefetch on CPU? 
-    # cfg['dataloader_settings']["num_workers"] = 4
+    cfg['dataloader_settings']["num_workers"] = 8
     cfg['dataloader_settings']["autotune_num_workers"] = False
-    # cfg['dataloader_settings']["pin_memory"] = True
-    cfg['dataloader_settings']["asyncronous_GPU_transfer"] = False
+    cfg['dataloader_settings']["pin_memory"] = False
+    cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
     
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
@@ -127,11 +127,11 @@ def main(cfg_path, exp_dir, data_dir):
     ##-----------------------------------------------------------------------------.
     #### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
-    dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
-    bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
-    static_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
-    # - Create single scaler 
-    scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
+    # dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
+    # bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
+    # static_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
+    # # - Create single scaler 
+    # scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
     
     ##-----------------------------------------------------------------------------.
     #### Split data into train, test and validation set 
@@ -277,7 +277,9 @@ def main(cfg_path, exp_dir, data_dir):
     ##------------------------------------------------------------------------.
     ### - Define AR_Weights_Scheduler 
     AR_scheduler = AR_Scheduler(method = "LinearDecay",
-                                factor = 0.025)    
+                                factor = 0.025,
+                                initial_AR_weights = [0.5, 0.5]
+                                )    
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
@@ -314,10 +316,10 @@ def main(cfg_path, exp_dir, data_dir):
                                            # Data
                                            da_training_dynamic = da_training_dynamic,
                                            da_validation_dynamic = da_validation_dynamic,
-                                           da_static = None,              
+                                           da_static = da_static,              
                                            da_training_bc = da_training_bc,         
                                            da_validation_bc = da_validation_bc,  
-                                           scaler = scaler, 
+                                           scaler = None, 
                                            # Dataloader settings
                                            num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
                                            autotune_num_workers = dataloader_settings['autotune_num_workers'], 
@@ -403,7 +405,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              da_dynamic = da_test_dynamic,
                                              da_static = da_static,              
                                              da_bc = da_test_bc, 
-                                             scaler = dynamic_scaler,
+                                             scaler = None,
                                              # Dataloader options
                                              device = 'cpu',
                                              batch_size = 20,  # number of forecasts per batch

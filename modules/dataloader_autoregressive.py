@@ -412,12 +412,12 @@ def autoregressive_collate_fn(list_samples,
     # Prefetch to GPU if asked
     if prefetch_in_GPU:
         for i in range(AR_iterations+1):
-            dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)  
-            dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
+            dict_X_dynamic_batched[i] = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)  
+            dict_Y_batched[i] = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
             if dict_X_bc_batched[i] is not None:
-                dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer) 
+                dict_X_bc_batched[i] = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer) 
         if torch_static is not None: 
-            torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer) 
+            torch_static = torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer) 
     #-------------------------------------------------------------------------.   
     # Return dictionary of batched data 
     batch_dict = {'X_dynamic': dict_X_dynamic_batched, 
@@ -604,9 +604,9 @@ def get_AR_batch(AR_iteration,
         # Y 
         torch_Y = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
     else:
-        torch_X_dynamic = dict_X_dynamic_batched[i] 
+        torch_X_dynamic = dict_X_dynamic_batched[i]
         if bc_is_available:
-            torch_X_bc = dict_X_bc_batched[i] 
+            torch_X_bc = dict_X_bc_batched[i]
         torch_Y = dict_Y_batched[i] 
     ##-------------------------------------------------------------------------.
     # Stack together data required for the current forecast 

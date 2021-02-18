@@ -160,7 +160,7 @@ class AR_Scheduler():
         if current_AR_iterations == 0:   
             self.global_step_count_arr = np.array([])
         else: 
-            self.global_step_count_arr = np.zeros(current_AR_iterations + 1)
+            self.global_step_count_arr = np.zeros(current_AR_iterations)
         ##--------------------------------------------------------------------.
         ### Define the update_weights function 
         fun_dict = {'Constant': _ConstantStep,
