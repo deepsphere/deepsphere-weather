@@ -15,7 +15,6 @@ from modules.dataloader_autoregressive import AutoregressiveDataLoader
 from modules.dataloader_autoregressive import get_AR_batch
 from modules.dataloader_autoregressive import remove_unused_Y
 from modules.dataloader_autoregressive import cylic_iterator
-from modules.utils_autoregressive import get_dict_stack_info
 from modules.utils_autoregressive import check_AR_settings
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
@@ -28,6 +27,16 @@ from modules.utils_torch import check_torch_device
 # - Record the loss per variable 
 # - Add something related to memory consumption --> torch.cuda.memory_summary() 
 ##----------------------------------------------------------------------------. 
+###################
+### Loss utils ####
+###################
+def reshape_tensors_4_loss(Y_pred, Y_obs, dim_names):
+    """Reshape tensors for loss computation."""
+    vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
+    Y_pred = Y_pred.rename(*dim_names).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+    Y_obs = Y_obs.rename(*dim_names).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+    return Y_pred, Y_obs
+
 # ####################
 #### Timing utils ####
 # ####################
@@ -65,7 +74,7 @@ def timing_AR_Training(dataset,
                        n_repetitions = 10,
                        verbose = True):
     """
-    Time AR training. 
+    Time AR training.
 
     Parameters
     ----------
@@ -199,14 +208,10 @@ def timing_AR_Training(dataset,
             # Compute loss for current forecast iteration 
             # - The criterion expects [data_points, nodes, features]
             # - Collapse all other dimensions to a 'data_points' dimension  
-            t_i = get_time()              
-            vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
-            Y_pred = dict_training_Y_predicted[i]
-            Y_pred.names = dim_names
-            Y_pred = Y_pred.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
-            Y_obs = torch_Y
-            Y_obs.names = dim_names
-            Y_obs = Y_obs.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+            t_i = get_time()   
+            Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[i],
+                                                   Y_obs = torch_Y,
+                                                   dim_names = dim_names)
             dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
             tmp_AR_loss_timing = tmp_AR_loss_timing + (get_time() - t_i)
             ##------------------------------------------------------------.
@@ -215,10 +220,11 @@ def timing_AR_Training(dataset,
             remove_unused_Y(AR_iteration = i, 
                             dict_Y_predicted = dict_training_Y_predicted,
                             dict_Y_to_remove = dict_Y_to_remove)
+            del Y_pred, Y_obs, torch_X, torch_Y
             if i == AR_iterations:
                 del dict_training_Y_predicted
             tmp_AR_data_removal_timing = tmp_AR_data_removal_timing + (get_time()- t_i)
-        
+            
         ##--------------------------------------------------------------------.  
         # Summarize timing 
         AR_batch_timing.append(tmp_AR_batch_timing)
@@ -228,7 +234,7 @@ def timing_AR_Training(dataset,
         ##--------------------------------------------------------------------.    
         ### Compute total (AR weighted) loss 
         t_i = get_time()
-        for i, (leadtime, loss) in enumerate(dict_training_loss_per_AR_iteration.items()):
+        for i, (AR_iteration, loss) in enumerate(dict_training_loss_per_AR_iteration.items()):
             if i == 0:
                 training_total_loss = loss 
             else: 
@@ -658,14 +664,10 @@ def AutoregressiveTraining(model,
                 ##------------------------------------------------------------.
                 # Compute loss for current forecast iteration 
                 # - The criterion expects [data_points, nodes, features]
-                # - Collapse all other dimensions to a 'data_points' dimension   
-                vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
-                Y_pred = dict_training_Y_predicted[i]
-                Y_pred.names = dim_names
-                Y_pred = Y_pred.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
-                Y_obs = torch_Y
-                Y_obs.names = dim_names
-                Y_obs = Y_obs.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+                # - Collapse all other dimensions to a 'data_points' dimension  
+                Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[i],
+                                                       Y_obs = torch_Y,
+                                                       dim_names = dim_names)
                 dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
                                                                     
                 ##------------------------------------------------------------.
@@ -673,16 +675,17 @@ def AutoregressiveTraining(model,
                 remove_unused_Y(AR_iteration = i, 
                                 dict_Y_predicted = dict_training_Y_predicted,
                                 dict_Y_to_remove = training_batch_dict['dict_Y_to_remove'])
+                del Y_pred, Y_obs, torch_X, torch_Y
                 if i == AR_scheduler.current_AR_iterations:
                     del dict_training_Y_predicted
 
             ##----------------------------------------------------------------.    
             ### Compute total (AR weighted) loss 
-            for i, (leadtime, loss) in enumerate(dict_training_loss_per_AR_iteration.items()):
+            for i, (AR_iteration, loss) in enumerate(dict_training_loss_per_AR_iteration.items()):
                 if i == 0:
-                    training_total_loss = AR_scheduler.AR_weights[leadtime] * loss 
+                    training_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
                 else: 
-                    training_total_loss += AR_scheduler.AR_weights[leadtime] * loss
+                    training_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
               
             ##----------------------------------------------------------------.       
             ### Backprogate the gradients and update the network weights 
@@ -736,14 +739,10 @@ def AutoregressiveTraining(model,
                 
                             ##------------------------------------------------.
                             # Compute loss for current forecast iteration 
-                            # - The criterion expects [data_points, nodes, features]
-                            vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
-                            Y_pred = dict_validation_Y_predicted[i]
-                            Y_pred.names = dim_names
-                            Y_pred = Y_pred.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
-                            Y_obs = torch_Y
-                            Y_obs.names = dim_names
-                            Y_obs = Y_obs.align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+                            # - The criterion expects [data_points, nodes, features] 
+                            Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_validation_Y_predicted[i],
+                                                                   Y_obs = torch_Y,
+                                                                   dim_names = dim_names)
                             dict_validation_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
                             
                             ##------------------------------------------------.
@@ -751,16 +750,17 @@ def AutoregressiveTraining(model,
                             remove_unused_Y(AR_iteration = i, 
                                             dict_Y_predicted = dict_validation_Y_predicted,
                                             dict_Y_to_remove = validation_batch_dict['dict_Y_to_remove'])
+                            del Y_pred, Y_obs, torch_X, torch_Y
                             if i == AR_scheduler.current_AR_iterations:
                                 del dict_validation_Y_predicted
 
                     ##--------------------------------------------------------.    
                     ### Compute total (AR weighted) loss 
-                    for i, (leadtime, loss) in enumerate(dict_validation_loss_per_AR_iteration.items()):
+                    for i, (AR_iteration, loss) in enumerate(dict_validation_loss_per_AR_iteration.items()):
                         if i == 0:
-                            validation_total_loss = AR_scheduler.AR_weights[leadtime] * loss 
+                            validation_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
                         else: 
-                            validation_total_loss += AR_scheduler.AR_weights[leadtime] * loss
+                            validation_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
                     
                     ##---------------------------------------------------------. 
                     ### Update validation info 
@@ -869,7 +869,7 @@ def AutoregressiveTraining(model,
                                                                         prefetch_in_GPU = prefetch_in_GPU,  
                                                                         prefetch_factor = prefetch_factor, 
                                                                         pin_memory = pin_memory,
-                                                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer,
                                                                         device = device)
                             validationDataLoader_iter = cylic_iterator(validationDataLoader)
                             
