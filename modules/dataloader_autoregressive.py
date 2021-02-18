@@ -5,7 +5,6 @@ Created on Mon Jan  4 00:04:12 2021
 
 @author: ghiggi
 """
-import time
 import torch
 import numpy as np
 from functools import partial 
@@ -57,7 +56,7 @@ class AutoregressiveDataset(Dataset):
                  # GPU settings 
                  device = 'cpu',
                  # Precision settings
-                 numeric_precision = 'float64'):    
+                 numeric_precision = 'float32'):    
         """
         "Create the Dataset required to generate an AutoregressiveDataloader.
 
@@ -87,7 +86,7 @@ class AutoregressiveDataset(Dataset):
         device : torch.device, optional
             Device on which to train the model. The default is 'cpu'.
         numeric_precision : str, optional
-            Numeric precision for model training. The default is 'float64'.
+            Numeric precision for model training. The default is 'float32'.
 
         """        
         ##--------------------------------------------------------------------.

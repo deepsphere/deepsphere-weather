@@ -291,7 +291,7 @@ def AutoregressivePredictions(model,
                               scaler_inverse = True,    # backtransform_predictions ????
                               # Dataloader options
                               batch_size = 64, 
-                              num_workers = 0, 
+                              num_workers = 0,
                               prefetch_factor = 2, 
                               prefetch_in_GPU = False,  
                               pin_memory = False,
