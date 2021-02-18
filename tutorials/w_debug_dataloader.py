@@ -61,7 +61,7 @@ scaler.fit()
 
 input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
 output_k = check_output_k(output_k=output_k)
-num_workers = 4   # if > 0, when changing AR iterations in Dataset ... do not update
+num_workers = 1   # if > 0, when changing AR iterations in Dataset ... do not update
 prefetch_factor = 5
 random_shuffle = True 
 

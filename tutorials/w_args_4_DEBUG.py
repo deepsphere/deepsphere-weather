@@ -114,7 +114,7 @@ device = 'cpu'
 num_workers = 1 
 training_num_workers = 2
 validation_num_workers = 2
-
+training_mode = True
 
 # zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
  
