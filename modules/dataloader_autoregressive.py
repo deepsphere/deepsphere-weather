@@ -255,7 +255,8 @@ class AutoregressiveDataset(Dataset):
                 'dict_Y_to_stack': self.dict_Y_to_stack,
                 'dict_Y_to_remove': self.dict_Y_to_remove,
                 'dim_info': self.dim_info,
-                'forecast_time_info': forecast_time_info}
+                'forecast_time_info': forecast_time_info,
+                'AR_iterations': self.AR_iterations}
     
     def update_indexing(self):
         """Update indices."""
@@ -342,6 +343,7 @@ def autoregressive_collate_fn(list_samples,
     dict_Y_to_stack = list_samples[0]['dict_Y_to_stack']
     dict_Y_to_remove = list_samples[0]['dict_Y_to_remove']
     dim_info = list_samples[0]['dim_info']
+    AR_iterations = list_samples[0]['AR_iterations']
     batch_dim = dim_info['sample']
     ##------------------------------------------------------------------------.
     # Retrieve the different data (and forecast time info)
@@ -360,11 +362,7 @@ def autoregressive_collate_fn(list_samples,
         # Forecast time info 
         list_forecast_reference_time.append(dict_samples['forecast_time_info']['forecast_reference_time'])
         list_dict_forecasted_time.append(dict_samples['forecast_time_info']['dict_forecasted_time'])
-    ##------------------------------------------------------------------------.
-    # Retrieve the number of autoregressive iterations 
-    AR_iterations = len(list_X_dynamic_samples[0]) - 1
-    
-    ##------------------------------------------------------------------------.    
+    ##------------------------------------------------------------------------.  
     ### Batch data togethers   
     # - Process X_dynamic and Y
     dict_X_dynamic_batched = {}

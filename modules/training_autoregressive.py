@@ -791,6 +791,9 @@ def AutoregressiveTraining(model,
                         ##----------------------------------------------------.
                         # Update the AR scheduler
                         AR_scheduler.update()
+                        # Reset early stopiing counter 
+                        early_stopping.reset()  
+                        # Print info
                         current_training_info = "(epoch: {}, iteration: {}, total_iteration: {})".format(training_info.current_epoch, 
                                                                                                          training_info.current_epoch_iteration,
                                                                                                          training_info.iteration)
