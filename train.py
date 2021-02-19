@@ -177,8 +177,8 @@ def main(cfg_path, exp_dir, data_dir):
                         verbose=True)    
     
     dict_test_DataArrays = reformat_Datasets(ds_training_dynamic = ds_test_dynamic,
-                                             ds_validation_dynamic = ds_test_bc,
-                                             ds_static = ds_static,              
+                                             ds_static = ds_static,  
+                                             ds_training_bc = ds_test_bc,            
                                              preload_data_in_CPU = True)
     
     da_static = dict_test_DataArrays['da_static']
@@ -284,8 +284,8 @@ def main(cfg_path, exp_dir, data_dir):
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 1
-    minimum_iterations = 0
+    patience = 100
+    minimum_iterations = 1000
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
@@ -409,7 +409,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              scaler = scaler,
                                              # Dataloader options
                                              device = 'cuda',
-                                             batch_size = 20,  # number of forecasts per batch
+                                             batch_size = 60,  # number of forecasts per batch
                                              num_workers = 8, 
                                             #  tune_num_workers = False, 
                                              prefetch_factor = 2, 
@@ -473,4 +473,5 @@ if __name__ == '__main__':
 
     data_dir = "/data/weather_prediction/data"
     exp_dir = "/data/weather_prediction/experiments"
+
     main(args.config_file, exp_dir, data_dir)
