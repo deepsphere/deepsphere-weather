@@ -434,7 +434,6 @@ def AutoregressivePredictions(model,
         # Iterate along training batches       
         for batch_dict in dataloader: 
             # batch_dict = next(iter(batch_dict))
-            print(".")
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
             dict_Y_predicted = {}
