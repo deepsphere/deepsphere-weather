@@ -280,7 +280,7 @@ class AutoregressiveDataset(Dataset):
         idx_end = get_last_valid_idx(output_k = output_k,
                                      forecast_cycle = forecast_cycle, 
                                      AR_iterations = AR_iterations)
-        self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end -1)]
+        self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end - 1)]
         self.idx_start = idx_start
         self.idx_end = idx_end
         self.n_samples = len(self.idxs)

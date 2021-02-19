@@ -269,14 +269,6 @@ class ConvCheb(torch.nn.Module):
             outputs += self.bias
         return outputs
 
-##----------------------------------------------------------------------------.
-# Conv layers
-# TODO - Where do we use Conv1dAuto? Remove?  
-class Conv1dAuto(Conv1d):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.padding = (self.kernel_size[0] // 2)  # dynamic add padding based on the kernel_size
-
 #----------------------------------------------------------------------------.
 # ######################################
 #### Equiangular Convolution layer  ####
@@ -290,6 +282,7 @@ def reformat(x):
 
 def equiangular_dimension_unpack(nodes, ratio):
     """Calculate the two underlying dimensions from the total number of nodes."""
+    # ratio = n_lon/n_lat (width/height)
     # TODO: @Wentao --> Rename dim1-dim2 with n_lat and n_lon  
     dim1 = int((nodes / ratio) ** 0.5)
     dim2 = int((nodes * ratio) ** 0.5)
@@ -304,9 +297,8 @@ def equiangular_dimension_unpack(nodes, ratio):
 def equiangular_calculator(tensor, ratio):
     # TODO: @Wentao: better name? .. is reshaping the node dimension in lat and lon?)
     N, M, F = tensor.size()
-    dim1, dim2 = equiangular_dimension_unpack(M, ratio)
-    # bw_dim1, bw_dim2 = dim1 / 2, dim2 / 2
-    tensor = tensor.view(N, dim1, dim2, F)
+    n_lon, n_lat = equiangular_dimension_unpack(M, ratio)
+    tensor = tensor.view(N, n_lon, n_lat, F)
     return tensor
 
 class Conv2dEquiangular(torch.nn.Module):
