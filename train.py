@@ -408,14 +408,14 @@ def main(cfg_path, exp_dir, data_dir):
                                              da_bc = da_test_bc, 
                                              scaler = scaler,
                                              # Dataloader options
-                                             device = 'cuda',
-                                             batch_size = 60,  # number of forecasts per batch
-                                             num_workers = 8, 
+                                             device = device,
+                                             batch_size = training_settings["validation_batch_size"],  # number of forecasts per batch
+                                             num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
-                                             prefetch_factor = 2, 
-                                             prefetch_in_GPU = False,  
-                                             pin_memory = False,
-                                             asyncronous_GPU_transfer = True,
+                                             prefetch_factor = dataloader_settings['prefetch_factor'], 
+                                             prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
+                                             pin_memory = dataloader_settings['pin_memory'],
+                                             asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
                                              numeric_precision = training_settings['numeric_precision'], 
                                              # Autoregressive settings
                                              input_k = AR_settings['input_k'], 

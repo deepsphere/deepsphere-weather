@@ -18,7 +18,7 @@
         "drop_last_batch": false,
         "prefetch_in_GPU": false,
         "prefetch_factor": 2,
-        "pin_memory": true,
+        "pin_memory": false,
         "asyncronous_GPU_transfer": true,
         "num_workers": 8,
         "autotune_num_workers": false
@@ -26,8 +26,8 @@
     "training_settings": {
         "epochs": 12,
         "learning_rate": 0.007,
-        "training_batch_size": 16,
-        "validation_batch_size": 16,
+        "training_batch_size": 32,
+        "validation_batch_size": 32,
         "scoring_interval": 10,
         "save_model_each_epoch": false,
         "numeric_precision": "float32",
