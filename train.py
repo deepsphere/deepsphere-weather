@@ -48,7 +48,7 @@ from modules.xscaler import SequentialScaler
  
 from modules.my_io import readDatasets   
 from modules.my_io import reformat_Datasets
-import modules.models as my_architectures
+import modules.my_models_graph as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
 ## Disable warnings
@@ -211,6 +211,7 @@ def main(cfg_path, exp_dir, data_dir):
                   'knn', 'kernel_size_conv',
                   'pool_method', 'kernel_size_pooling']
     model_args = {k: model_settings[k] for k in model_keys}
+    model_args['numeric_precision'] = training_settings['numeric_precision']
     # - Define DeepSphere model 
     model = DeepSphereModelClass(**model_args)              
      
@@ -263,7 +264,7 @@ def main(cfg_path, exp_dir, data_dir):
     # - --> variable weights 
     # - --> spatial masking 
     # - --> area_weights   
-    weights = compute_error_weight(model.sphere_graph)
+    weights = compute_error_weight(model.graphs[0])
     criterion = WeightedMSELoss(weights=weights)
     criterion.to(device) 
     
