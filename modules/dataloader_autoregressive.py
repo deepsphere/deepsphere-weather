@@ -393,13 +393,14 @@ def autoregressive_collate_fn(list_samples,
     # - Process X_bc
     dict_X_bc_batched = {}  
     for i in range(AR_iterations+1):
-        if list_X_bc_samples[0][0] is not None: 
+        print(i)
+        if len(list_X_bc_samples) != 0 and list_X_bc_samples[0].get(i, None) is not None: 
             if pin_memory:
                 dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim).pin_memory()
             else: 
                 dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim) 
         else:
-            dict_X_bc_batched[i] = None   
+            dict_X_bc_batched[i] = None
     ##------------------------------------------------------------------------. 
     # Assemble forecast_time_info 
     # dict_forecast_leadtime_idx

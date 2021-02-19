@@ -7,8 +7,8 @@ import os
 import sys
 sys.path.append('../')
 
-from .modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
-from .modules.my_io import readDatasets   
+from modules.xscaler import GlobalStandardScaler  # TemporalStandardScaler
+from modules.my_io import readDatasets   
 
 # ##############################
 #### Precompute the scalers ####

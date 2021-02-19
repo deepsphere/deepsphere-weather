@@ -127,11 +127,11 @@ def main(cfg_path, exp_dir, data_dir):
     ##-----------------------------------------------------------------------------.
     #### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
-    # dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
-    # bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
-    # static_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
+    dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
+    bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
+    static_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
     # # - Create single scaler 
-    # scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
+    scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
     
     ##-----------------------------------------------------------------------------.
     #### Split data into train, test and validation set 
@@ -277,15 +277,15 @@ def main(cfg_path, exp_dir, data_dir):
     ##------------------------------------------------------------------------.
     ### - Define AR_Weights_Scheduler 
     AR_scheduler = AR_Scheduler(method = "LinearDecay",
-                                factor = 0.025,
-                                initial_AR_weights = [0.5, 0.5]
+                                factor = 0.001,
+                                initial_AR_weights = [1]
                                 )    
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 10
-    minimum_iterations = 1000
-    minimum_improvement = 0.01 # 0 to not stop 
+    patience = 1
+    minimum_iterations = 0
+    minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
     early_stopping = EarlyStopping(patience = patience,
@@ -319,7 +319,7 @@ def main(cfg_path, exp_dir, data_dir):
                                            da_static = da_static,              
                                            da_training_bc = da_training_bc,         
                                            da_validation_bc = da_validation_bc,  
-                                           scaler = None, 
+                                           scaler = scaler, 
                                            # Dataloader settings
                                            num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
                                            autotune_num_workers = dataloader_settings['autotune_num_workers'], 
@@ -347,8 +347,8 @@ def main(cfg_path, exp_dir, data_dir):
     
     # Save AR TrainingInfo
     # - TODO: BUG !!!
-    with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
-        pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
+        # pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     # # Load AR TrainingInfo
     # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
@@ -405,15 +405,15 @@ def main(cfg_path, exp_dir, data_dir):
                                              da_dynamic = da_test_dynamic,
                                              da_static = da_static,              
                                              da_bc = da_test_bc, 
-                                             scaler = None,
+                                             scaler = scaler,
                                              # Dataloader options
-                                             device = 'cpu',
+                                             device = 'cuda',
                                              batch_size = 20,  # number of forecasts per batch
-                                             num_workers = 0, 
-                                             tune_num_workers = False, 
+                                             num_workers = 8, 
+                                            #  tune_num_workers = False, 
                                              prefetch_factor = 2, 
                                              prefetch_in_GPU = False,  
-                                             pin_memory = True,
+                                             pin_memory = False,
                                              asyncronous_GPU_transfer = True,
                                              numeric_precision = training_settings['numeric_precision'], 
                                              # Autoregressive settings
@@ -421,7 +421,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              output_k = AR_settings['output_k'], 
                                              forecast_cycle = AR_settings['forecast_cycle'],                         
                                              stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                             AR_iterations = 5,        # How many time to autoregressive iterate
+                                             AR_iterations = 40,        # How many time to autoregressive iterate
                                              # Save options 
                                              zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 
@@ -435,7 +435,7 @@ def main(cfg_path, exp_dir, data_dir):
     dask.config.set(scheduler='processes')
     ## Reshape on the fly (might work with the current size of data)
     # --> To test ...  
-    ds_verification = reshape_forecasts_for_verification(ds_forecasts)
+    # ds_verification = reshape_forecasts_for_verification(ds_forecasts)
     
     ## Reshape from 'forecast_reference_time'-'leadtime' to 'time (aka) forecasted_time'-'leadtime'  
     # - Rechunk Dataset over space on disk and then reshape the for verification
