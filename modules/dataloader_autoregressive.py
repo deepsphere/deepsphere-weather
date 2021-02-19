@@ -280,7 +280,7 @@ class AutoregressiveDataset(Dataset):
         idx_end = get_last_valid_idx(output_k = output_k,
                                      forecast_cycle = forecast_cycle, 
                                      AR_iterations = AR_iterations)
-        self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end -1)]
+        self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end - 1)]
         self.idx_start = idx_start
         self.idx_end = idx_end
         self.n_samples = len(self.idxs)
@@ -392,7 +392,7 @@ def autoregressive_collate_fn(list_samples,
     # - Process X_bc
     dict_X_bc_batched = {}  
     for i in range(AR_iterations+1):
-        if list_X_bc_samples[0][0] is not None: 
+        if list_X_bc_samples.get(0,None) and list_X_bc_samples.get[0].get(i, None): 
             if pin_memory:
                 dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim).pin_memory()
             else: 

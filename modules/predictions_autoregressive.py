@@ -397,7 +397,6 @@ def AutoregressivePredictions(model,
                                     output_k = output_k,
                                     forecast_cycle = forecast_cycle,                           
                                     AR_iterations = AR_iterations, 
-                                    max_AR_iterations = AR_iterations,
                                     stack_most_recent_prediction = stack_most_recent_prediction, 
                                     # GPU settings 
                                     device = device,

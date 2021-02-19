@@ -640,7 +640,6 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------.   
             # Retrieve the training batch
             training_batch_dict = next(trainingDataLoader_iter)
-            print(".")
             ##----------------------------------------------------------------.      
             # Perform autoregressive training loop
             # - The number of AR iterations is determined by AR_scheduler.AR_weights 
