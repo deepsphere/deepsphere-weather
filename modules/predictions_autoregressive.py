@@ -523,7 +523,7 @@ def AutoregressivePredictions(model,
                 
             ##----------------------------------------------------------------.
             # If zarr_fpath not provided, keep predictions in memory 
-            if zarr_fpath is not None:
+            if zarr_fpath is None:
                 list_ds.append(ds)
                 
             # Else, write forecast to zarr store  

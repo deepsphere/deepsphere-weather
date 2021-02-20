@@ -247,12 +247,12 @@ def timing_AR_Training(dataset,
         if training_mode: 
             t_i = get_time()
             # Backward pass 
-            training_total_loss.backward()          
             # - Update the network weights 
-            optimizer.step()
             # Zeros all the gradients
             # - By default gradients are accumulated in buffers (and not overwritten)
             optimizer.zero_grad()   
+            training_total_loss.backward()
+            optimizer.step()  
             # - Time backward pass 
             Backprop_timing.append(get_time() - t_i)
         else: 
@@ -689,14 +689,12 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------.       
             ### Backprogate the gradients and update the network weights 
             # Backward pass 
-            training_total_loss.backward()          
-            
             # - Update the network weights 
-            optimizer.step() 
-            
             # Zeros all the gradients
             # - By default gradients are accumulated in buffers (and not overwritten)
             optimizer.zero_grad()   
+            training_total_loss.backward()
+            optimizer.step()  
             
             ##----------------------------------------------------------------. 
             # - Update training statistics
