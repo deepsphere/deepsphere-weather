@@ -16,8 +16,12 @@ from torch.nn import Conv1d
 from modules import remap
 from sparselinear import SparseLinear
 ### TODO:
-# - Generalize precision of chev_conv 
 # - Better explain ratio for equiangular
+# - Generalize precision of chev_conv 
+# - How to set weights precision of pytorch Conv2d ? 
+# - --> torch.set_default_dtype()
+# - https://discuss.pytorch.org/t/training-with-half-precision/11815/9
+
 ##----------------------------------------------------------------------------.
 # ##############################
 #### Laplacian computations ####
@@ -150,7 +154,7 @@ class ConvCheb(torch.nn.Module):
     conv : callable
         Function which will perform the actual convolution.
     """
-
+    # TODO: take torch_dtype as argument to set precision of weights) ! 
     def __init__(self, in_channels, out_channels, kernel_size, laplacian, bias=True,
                  conv=cheb_conv, **kwargs):
         super().__init__()
@@ -316,7 +320,7 @@ class Conv2dEquiangular(torch.nn.Module):
     periodic : bool
         whether to use periodic padding. (default: True)
     """
-
+    ## TODO: accept torch.dtype as argument to set the weights 
     def __init__(self, in_channels, out_channels, kernel_size, ratio, periodic, **kwargs):
         super().__init__()
         self.ratio = ratio
@@ -993,6 +997,7 @@ class GeneralConvBlock(ABC, torch.nn.Module):
                      kernel_size: int,
                      conv_type: str = 'graph', **kwargs):
         """Retrieve the required ConvLayer."""        
+        # TODO: add torch.dtype argument ! 
         conv_type = conv_type.lower()
         conv = None
         if conv_type == 'graph':
