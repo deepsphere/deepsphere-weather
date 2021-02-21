@@ -226,9 +226,9 @@ def main(cfg_path, exp_dir, data_dir):
     
     ###-----------------------------------------------------------------------.
     # DataParallel training option on multiple GPUs
-    if training_settings['DataParallel_training'] is True:
-        if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
-            model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
+    # if training_settings['DataParallel_training'] is True:
+    #     if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
+    #         model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
         
     ###-----------------------------------------------------------------------.
     ## Generate the (new) model name and its directories 
@@ -266,7 +266,6 @@ def main(cfg_path, exp_dir, data_dir):
     # - --> area_weights   
     weights = compute_error_weight(model.graphs[0])
     criterion = WeightedMSELoss(weights=weights)
-    criterion.to(device) 
     
     ##------------------------------------------------------------------------.
     ### - Define optimizer 
@@ -347,9 +346,8 @@ def main(cfg_path, exp_dir, data_dir):
                                            device = device)
     
     # Save AR TrainingInfo
-    # - TODO: BUG !!!
-    # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
-        # pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
+        pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     # # Load AR TrainingInfo
     # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
@@ -422,7 +420,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              output_k = AR_settings['output_k'], 
                                              forecast_cycle = AR_settings['forecast_cycle'],                         
                                              stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                             AR_iterations = 40,        # How many time to autoregressive iterate
+                                             AR_iterations = 20,        # How many time to autoregressive iterate
                                              # Save options 
                                              zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 
@@ -463,8 +461,9 @@ def main(cfg_path, exp_dir, data_dir):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
+    default_config = 'configs/UNetSpherical/Healpix_400km/InterpPool-k20.json'
     parser = argparse.ArgumentParser(description='Training weather prediction model')
-    parser.add_argument('--config_file', type=str)
+    parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--cuda', type=str, default='0')
 
     args = parser.parse_args()

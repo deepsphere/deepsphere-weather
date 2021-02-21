@@ -632,11 +632,11 @@ def AutoregressiveTraining(model,
     flag_stop_training = False
     for epoch in range(epochs):
         training_info.new_epoch()
-        model.train() # Set model layers (i.e. batchnorm) in training mode 
         ##--------------------------------------------------------------------.
         # Iterate along training batches 
         trainingDataLoader_iter = iter(trainingDataLoader)
-        for batch_count in range(len(trainingDataLoader_iter)):  
+        for batch_count in range(len(trainingDataLoader_iter)):
+            model.train() # Set model layers (i.e. batchnorm) in training mode 
             ##----------------------------------------------------------------.   
             # Retrieve the training batch
             training_batch_dict = next(trainingDataLoader_iter)
