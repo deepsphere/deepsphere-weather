@@ -14,29 +14,46 @@ import matplotlib.pyplot as plt
 import xarray as xr
 import pygsp as pg
 from modules import xsphere
+from modules.my_io import readDatasets   
 
-dataset_path = "/home/ghiggi/Projects/DeepSphere/data/temporary"
 
 ##-----------------------------------------------------------------------------.
 # Choose one of the field below
-sampling = "Healpix_100km" # high resolution
-sampling = "Healpix_400km" # low resolution --> start with this ... faster to plot
+# sampling = "Healpix_100km" # high resolution
+# sampling = "Healpix_400km" # low resolution --> start with this ... faster to plot
+# dataset_path = "/home/ghiggi/Projects/DeepSphere/data/temporary"
+# folderpath = os.path.join(dataset_path, sampling, "geopotential_500")
+# filename = "geopotential_500_5.625deg.nc"  
+# # Load xarray Dataset
+# filepath = os.path.join(folderpath,filename)
+# ds = xr.load_dataset(filepath)
+# ds = ds.drop('level')
+##-----------------------------------------------------------------------------.
+sampling = "Healpix_400km" # you can choose another sampling ;)
+data_dir = "/data/weather_prediction/data"
+exp_dir = "/data/weather_prediction/experiments"
+data_sampling_dir = os.path.join(data_dir, sampling)
+# - Dynamic data (i.e. pressure and surface levels variables)
+ds_dynamic = readDatasets(data_dir=data_sampling_dir, feature_type='dynamic')
+# - Boundary conditions data (i.e. TOA)
+ds_bc = readDatasets(data_dir=data_sampling_dir, feature_type='bc')
+# - Static features
+ds_static = readDatasets(data_dir=data_sampling_dir, feature_type='static')
 
-folderpath = os.path.join(dataset_path, sampling, "geopotential_500")
-filename = "geopotential_500_5.625deg.nc"  
+ds_dynamic = ds_dynamic.drop(["level","lat","lon"])
+ds_bc = ds_bc.drop(["lat","lon"])
+ds_static = ds_static.drop(["lat","lon"])
 
 #-----------------------------------------------------------------------------.
-# Load xarray Dataset
-filepath = os.path.join(folderpath,filename)
-ds = xr.load_dataset(filepath)
-ds = ds.isel(time=slice(0,4))
-ds = ds.drop('level')
+ds = ds_dynamic
+ds = ds.isel(time=slice(0,4)) # select 4 timesteps
 ds
+
 ##----------------------------------------------------------------------------.
 ## Add nodes mesh from pygsp graph (DEBUG !!!!)
 # --> TODO !!! CHECK MATCHING helpix nest... CDO REVERSE POLES? where the order change?
 # --> Data are not as nest=True ? 
-ds1 = ds.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
+# ds1 = ds.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
 
 ##----------------------------------------------------------------------------.
 ## Infer mesh using SphericalVoronoi from node coordinates
