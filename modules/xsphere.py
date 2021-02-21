@@ -36,11 +36,16 @@ from xarray.plot.plot import contourf as xr_contourf
 # - add_CubedMesh
 # --> pgysp graph? 
 
-## Check_mesh --> Check Polygon mpatches 
+# - reshape equiangular to lat, lon core dim 
+# - reshape_equiangular_to_unstructured
+
+# - Check_mesh()  --> Check Polygon mpatches 
 
 ## Add from shapefile 
-## da.sphere.plot.add_mesh_from_shp(fpath)
-## da.sphere.plot.add_nodes_from_shp(fpath)
+# - da.sphere.add_mesh_from_shp(fpath)  # poly.shp 
+# - da.sphere.add_nodes_from_shp(fpath) # point.shp
+# - da.sphere.save_mesh_to_shp()
+# - da.sphere.save_nodes_to_shp()
 
 ## Spherical polygons area computations (now planar assumption)
 # - https://github.com/anutkk/sphericalgeometry
@@ -97,6 +102,7 @@ def xyz2lonlat(x,y,z, radius=1):
 #     x, y, z = sph2xyz(theta=theta, phi=phi, radius=1)
 #     return xyz2lonlat(x,y,z)
 
+## Testing 
 # x, y, z = xsphere.lonlat2xyz(lon, lat)
 # theta, phi, r = xsphere.xyz2sph(x,y,z)
 # x1, y1, z1 = xsphere.sph2xyz(theta, phi, r)
