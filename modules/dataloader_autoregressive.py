@@ -158,7 +158,7 @@ class AutoregressiveDataset(Dataset):
             new_dim_size[dim_batch] = 1            # Batch dimension 
             new_dim_size[dim_time] = len(input_k)  # The (predictor lag) 'time' dimension)
             # - Use a view to expand (to not allocate new memory)
-            self.torch_static = torch.tensor(da_static.values, dtype=torch_dtype).unsqueeze(unsqueeze_time_dim).unsqueeze(unsqueeze_batch_dim).expand(new_dim_size)
+            self.torch_static = torch.tensor(da_static.values, dtype=torch_dtype, device='cpu').unsqueeze(unsqueeze_time_dim).unsqueeze(unsqueeze_batch_dim).expand(new_dim_size)
         else: 
             self.torch_static = None
             
@@ -206,9 +206,9 @@ class AutoregressiveDataset(Dataset):
         dict_Y_data = {}
         for i in range(self.AR_iterations + 1): 
             # Extract numpy array from DataArray and conver to Torch Tensor
-            dict_Y_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).values), dtype=self.torch_dtype)
+            dict_Y_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).values), dtype=self.torch_dtype, device='cpu')
             if self.dict_rel_idx_X_dynamic[i] is not None:
-                dict_X_dynamic_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_X_dynamic[i]).values), dtype=self.torch_dtype)
+                dict_X_dynamic_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_X_dynamic[i]).values), dtype=self.torch_dtype, device='cpu')
             else: 
                 dict_X_dynamic_data[i] = None
         ##--------------------------------------------------------------------.
@@ -244,7 +244,7 @@ class AutoregressiveDataset(Dataset):
             dict_X_bc_data = {}
             for i in range(self.AR_iterations + 1): 
                 # Extract numpy array from DataArray and conver to Torch Tensor
-                dict_X_bc_data[i] = torch.as_tensor(torch.from_numpy(da_bc_subset.sel(rel_idx=self.dict_rel_idx_X_bc[i]).values), dtype=self.torch_dtype)
+                dict_X_bc_data[i] = torch.as_tensor(torch.from_numpy(da_bc_subset.sel(rel_idx=self.dict_rel_idx_X_bc[i]).values), dtype=self.torch_dtype, device='cpu')
         else: 
             dict_X_bc_data = None 
         
@@ -415,7 +415,7 @@ def autoregressive_collate_fn(list_samples,
                 dict_X_bc_batched[i] = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer) 
         if torch_static is not None: 
             torch_static = torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer) 
-    #-------------------------------------------------------------------------.   
+    ##------------------------------------------------------------------------.   
     # Return dictionary of batched data 
     batch_dict = {'X_dynamic': dict_X_dynamic_batched, 
                   'X_bc': dict_X_bc_batched, 
@@ -589,9 +589,9 @@ def get_AR_batch(AR_iteration,
     if not prefetched_in_GPU:
         # X_dynamic
         if dict_X_dynamic_batched[i] is not None:
-            torch_X_dynamic = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
+            torch_X = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
         else:
-            torch_X_dynamic = None
+            torch_X = None
         # X_static 
         if torch_static is not None: 
             torch_static = torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer)
@@ -600,8 +600,9 @@ def get_AR_batch(AR_iteration,
             torch_X_bc = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
         # Y 
         torch_Y = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
+    # Or retrieve the prefetched in GPU data
     else:
-        torch_X_dynamic = dict_X_dynamic_batched[i]
+        torch_X = dict_X_dynamic_batched[i]
         if bc_is_available:
             torch_X_bc = dict_X_bc_batched[i]
         torch_Y = dict_Y_batched[i] 
@@ -621,16 +622,14 @@ def get_AR_batch(AR_iteration,
             list_Y_to_stack.append(dict_Y_predicted[ldt][custom_idx])  
             
         torch_X_to_stack = torch.stack(list_Y_to_stack, dim=time_dim)  
-        if torch_X_dynamic is not None:
-            torch_X_dynamic = torch.cat((torch_X_dynamic, torch_X_to_stack), dim=time_dim)
+        if torch_X is not None:
+            torch_X = torch.cat((torch_X, torch_X_to_stack), dim=time_dim)
         else:
-            torch_X_dynamic = torch_X_to_stack
+            torch_X = torch_X_to_stack
             
     # - Add boundary conditions data (if available)
     if bc_is_available:
-        torch_X = torch.cat((torch_X_bc, torch_X_dynamic), dim=feature_dim) 
-    else: 
-        torch_X = torch_X_dynamic
+        torch_X = torch.cat((torch_X_bc, torch_X), dim=feature_dim) 
        
     # - Combine with the static tensor (which is constantly in the GPU)
     # --> In the batch dimension, match the number of samples of torch X
@@ -640,12 +639,13 @@ def get_AR_batch(AR_iteration,
         
     ##------------------------------------------------------------------------.
     # - Remove unused torch Tensors 
-    # del torch_X_dynamic
-    del dict_X_dynamic_batched[i]  # free space
-    del dict_Y_batched[i]          # free space
+    del dict_X_dynamic_batched[i]   
+    del dict_Y_batched[i]            
     if bc_is_available:
-        # del torch_X_bc
-        del dict_X_bc_batched[i]   # free space
+        del torch_X_bc
+        del dict_X_bc_batched[i]    
+    if static_is_available: 
+        del torch_static
     ##------------------------------------------------------------------------.    
     return (torch_X, torch_Y)
 
