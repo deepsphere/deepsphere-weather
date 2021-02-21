@@ -357,14 +357,14 @@ optimizer = optim.Adam(model.parameters(),
   
 ##------------------------------------------------------------------------.
 ### - Define AR_Weights_Scheduler 
-AR_scheduler = AR_Scheduler(method = "LinearDecay",
+AR_scheduler = AR_Scheduler(method = "LinearStep",
                             factor = 0.025,
                             initial_AR_weights = [1])
 
 ### - Define Early Stopping 
 # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-patience = 10
-minimum_iterations = 1000
+patience = 1
+minimum_iterations = 10
 minimum_improvement = 0.01 # 0 to not stop 
 stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
 mode = "min" # MSE best when low  
@@ -400,7 +400,8 @@ training_info = AutoregressiveTraining(model = model,
                                        da_validation_bc = da_validation_bc,  
                                        scaler = scaler, 
                                        # Dataloader settings
-                                       num_workers = 0,  # dataloader_settings['num_workers'], 
+                                       num_workers = 1,  # dataloader_settings['num_workers'], 
+                                       autotune_num_workers = False,
                                        prefetch_factor = dataloader_settings['prefetch_factor'],  
                                        prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 
                                        drop_last_batch = dataloader_settings['drop_last_batch'],     
