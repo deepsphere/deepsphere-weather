@@ -17,7 +17,7 @@ from modules import xsphere
 
 dataset_path = "/home/ghiggi/Projects/DeepSphere/data/temporary"
 
-#-----------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
 # Choose one of the field below
 sampling = "Healpix_100km" # high resolution
 sampling = "Healpix_400km" # low resolution --> start with this ... faster to plot
