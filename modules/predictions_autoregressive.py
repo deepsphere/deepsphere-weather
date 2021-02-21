@@ -434,7 +434,6 @@ def AutoregressivePredictions(model,
         # Iterate along training batches       
         for batch_dict in dataloader: 
             # batch_dict = next(iter(batch_dict))
-            print(".")
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
             dict_Y_predicted = {}
@@ -524,7 +523,7 @@ def AutoregressivePredictions(model,
                 
             ##----------------------------------------------------------------.
             # If zarr_fpath not provided, keep predictions in memory 
-            if zarr_fpath is not None:
+            if zarr_fpath is None:
                 list_ds.append(ds)
                 
             # Else, write forecast to zarr store  

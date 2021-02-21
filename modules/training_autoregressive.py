@@ -247,12 +247,12 @@ def timing_AR_Training(dataset,
         if training_mode: 
             t_i = get_time()
             # Backward pass 
-            training_total_loss.backward()          
             # - Update the network weights 
-            optimizer.step()
             # Zeros all the gradients
             # - By default gradients are accumulated in buffers (and not overwritten)
             optimizer.zero_grad()   
+            training_total_loss.backward()
+            optimizer.step()  
             # - Time backward pass 
             Backprop_timing.append(get_time() - t_i)
         else: 
@@ -632,11 +632,11 @@ def AutoregressiveTraining(model,
     flag_stop_training = False
     for epoch in range(epochs):
         training_info.new_epoch()
-        model.train() # Set model layers (i.e. batchnorm) in training mode 
         ##--------------------------------------------------------------------.
         # Iterate along training batches 
         trainingDataLoader_iter = iter(trainingDataLoader)
-        for batch_count in range(len(trainingDataLoader_iter)):  
+        for batch_count in range(len(trainingDataLoader_iter)):
+            model.train() # Set model layers (i.e. batchnorm) in training mode 
             ##----------------------------------------------------------------.   
             # Retrieve the training batch
             training_batch_dict = next(trainingDataLoader_iter)
@@ -689,14 +689,12 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------.       
             ### Backprogate the gradients and update the network weights 
             # Backward pass 
-            training_total_loss.backward()          
-            
             # - Update the network weights 
-            optimizer.step() 
-            
             # Zeros all the gradients
             # - By default gradients are accumulated in buffers (and not overwritten)
             optimizer.zero_grad()   
+            training_total_loss.backward()
+            optimizer.step()  
             
             ##----------------------------------------------------------------. 
             # - Update training statistics

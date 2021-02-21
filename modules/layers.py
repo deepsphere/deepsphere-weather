@@ -283,22 +283,20 @@ def reformat(x):
 def equiangular_dimension_unpack(nodes, ratio):
     """Calculate the two underlying dimensions from the total number of nodes."""
     # ratio = n_lon/n_lat (width/height)
-    # TODO: @Wentao --> Rename dim1-dim2 with n_lat and n_lon  
-    dim1 = int((nodes / ratio) ** 0.5)
-    dim2 = int((nodes * ratio) ** 0.5)
-    if dim1 * dim2 != nodes: # Try to correct dim1 or dim2 if ratio is wrong
-        if nodes % dim1 == 0:
-            dim2 = nodes // dim1
-        if nodes % dim2 == 0:
-            dim1 = nodes // dim2
-    assert dim1 * dim2 == nodes, f'Unable to unpack nodes: {nodes}, ratio: {ratio}'
-    return dim1, dim2
+    n_lat = int((nodes / ratio) ** 0.5)
+    n_lon = int((nodes * ratio) ** 0.5)
+    if n_lat * n_lon != nodes: # Try to correct n_lat or n_lon if ratio is wrong
+        if nodes % n_lat == 0:
+            n_lon = nodes // n_lat
+        if nodes % n_lon == 0:
+            n_lat = nodes // n_lon
+    assert n_lat * n_lon == nodes, f'Unable to unpack nodes: {nodes}, ratio: {ratio}'
+    return n_lat, n_lon
 
 def equiangular_calculator(tensor, ratio):
-    # TODO: @Wentao: better name? .. is reshaping the node dimension in lat and lon?)
-    N, M, F = tensor.size()
-    n_lon, n_lat = equiangular_dimension_unpack(M, ratio)
-    tensor = tensor.view(N, n_lon, n_lat, F)
+    batchsize, nodes, features = tensor.size()
+    n_lat, n_lon = equiangular_dimension_unpack(nodes, ratio)
+    tensor = tensor.view(batchsize, n_lat, n_lon, features)
     return tensor
 
 class Conv2dEquiangular(torch.nn.Module):

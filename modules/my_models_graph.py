@@ -106,7 +106,7 @@ class UNetSpherical(UNet, torch.nn.Module):
         #   --> ratio = 2
         #   --> periodic = True or False
         conv_type = "graph" # image
-        ratio = None        # 2
+        ratio = 2        # 2
         periodic = None     # True or False
         
         ##--------------------------------------------------------------------.

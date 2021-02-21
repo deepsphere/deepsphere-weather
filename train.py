@@ -177,8 +177,8 @@ def main(cfg_path, exp_dir, data_dir):
                         verbose=True)    
     
     dict_test_DataArrays = reformat_Datasets(ds_training_dynamic = ds_test_dynamic,
-                                             ds_validation_dynamic = ds_test_bc,
-                                             ds_static = ds_static,              
+                                             ds_static = ds_static,  
+                                             ds_training_bc = ds_test_bc,            
                                              preload_data_in_CPU = True)
     
     da_static = dict_test_DataArrays['da_static']
@@ -226,9 +226,9 @@ def main(cfg_path, exp_dir, data_dir):
     
     ###-----------------------------------------------------------------------.
     # DataParallel training option on multiple GPUs
-    if training_settings['DataParallel_training'] is True:
-        if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
-            model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
+    # if training_settings['DataParallel_training'] is True:
+    #     if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
+    #         model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
         
     ###-----------------------------------------------------------------------.
     ## Generate the (new) model name and its directories 
@@ -266,7 +266,6 @@ def main(cfg_path, exp_dir, data_dir):
     # - --> area_weights   
     weights = compute_error_weight(model.graphs[0])
     criterion = WeightedMSELoss(weights=weights)
-    criterion.to(device) 
     
     ##------------------------------------------------------------------------.
     ### - Define optimizer 
@@ -284,8 +283,13 @@ def main(cfg_path, exp_dir, data_dir):
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
+<<<<<<< HEAD
     patience = 1 #200
     minimum_iterations = 2 # 10000
+=======
+    patience = 100
+    minimum_iterations = 1000
+>>>>>>> 14eabf4f5c77765b5ab05570869c3e150e2150d5
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
@@ -347,9 +351,8 @@ def main(cfg_path, exp_dir, data_dir):
                                            device = device)
     
     # Save AR TrainingInfo
-    # - TODO: BUG !!!
-    # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
-        # pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
+        pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     # # Load AR TrainingInfo
     # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
@@ -408,21 +411,21 @@ def main(cfg_path, exp_dir, data_dir):
                                              da_bc = da_test_bc, 
                                              scaler = scaler,
                                              # Dataloader options
-                                             device = 'cuda',
-                                             batch_size = 20,  # number of forecasts per batch
-                                             num_workers = 8, 
+                                             device = device,
+                                             batch_size = training_settings["validation_batch_size"],  # number of forecasts per batch
+                                             num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
-                                             prefetch_factor = 2, 
-                                             prefetch_in_GPU = False,  
-                                             pin_memory = False,
-                                             asyncronous_GPU_transfer = True,
+                                             prefetch_factor = dataloader_settings['prefetch_factor'], 
+                                             prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
+                                             pin_memory = dataloader_settings['pin_memory'],
+                                             asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
                                              numeric_precision = training_settings['numeric_precision'], 
                                              # Autoregressive settings
                                              input_k = AR_settings['input_k'], 
                                              output_k = AR_settings['output_k'], 
                                              forecast_cycle = AR_settings['forecast_cycle'],                         
                                              stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                             AR_iterations = 40,        # How many time to autoregressive iterate
+                                             AR_iterations = 20,        # How many time to autoregressive iterate
                                              # Save options 
                                              zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 
@@ -463,8 +466,9 @@ def main(cfg_path, exp_dir, data_dir):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
+    default_config = 'configs/UNetSpherical/Healpix_400km/InterpPool-k20.json'
     parser = argparse.ArgumentParser(description='Training weather prediction model')
-    parser.add_argument('--config_file', type=str)
+    parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--cuda', type=str, default='0')
 
     args = parser.parse_args()
@@ -473,4 +477,5 @@ if __name__ == '__main__':
 
     data_dir = "/data/weather_prediction/data"
     exp_dir = "/data/weather_prediction/experiments"
+
     main(args.config_file, exp_dir, data_dir)
