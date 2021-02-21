@@ -75,9 +75,8 @@ class EarlyStopping:
         """Call to verify if training must stop."""
         stopping_metric = self.stopping_metric
         score = getattr(training_info, stopping_metric)[-1]
-        iteration = getattr(training_info, "iteration")
-        
-        if iteration > self.minimum_iterations:
+        iteration_from_last_AR_update = getattr(training_info, "iteration_from_last_AR_update")
+        if iteration_from_last_AR_update > self.minimum_iterations:
             if self.best_score is None:
                 self.best_score = score
     
@@ -91,7 +90,3 @@ class EarlyStopping:
                 self.counter = 0
         
         return self.early_stop
-    
-    def reset(self):
-        """Reset the counter."""
-        self.counter = 0

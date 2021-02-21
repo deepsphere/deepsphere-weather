@@ -113,6 +113,7 @@ class AR_TrainingInfo():
         self.starting_epochs_iterations = [] # to keep track of the iteration when a new epoch start
         self.iteration = 0        # to keep track of the total number of forward-backward pass
         self.current_epoch_iteration = 0  # to keep track of iteration within the epoch
+        self.iteration_from_last_AR_update = 0 # iteration from the last AR weight update (for early stopping)
         self.score_interval = 0   # to decide when to score 
         ##--------------------------------------------------------------------.
         # - Initialize dictionary to save the loss at different leadtimes
@@ -156,6 +157,7 @@ class AR_TrainingInfo():
         """Update iteration count."""
         self.iteration = self.iteration + 1
         self.current_epoch_iteration = self.current_epoch_iteration + 1
+        self.iteration_from_last_AR_update = self.iteration_from_last_AR_update + 1
         self.score_interval = self.score_interval + 1
     
     ##------------------------------------------------------------------------.
@@ -166,7 +168,7 @@ class AR_TrainingInfo():
         self.current_epoch_iteration = 0
         self.current_epoch = self.current_epoch + 1
         self.current_epoch_time_start = time.time()
-        print('Starting training epoch : {}'.format(self.current_epoch), end="")    
+        print('- Starting training epoch : {}'.format(self.current_epoch))    
         
     ##------------------------------------------------------------------------.    
     def update_training_stats(self, total_loss,
@@ -217,7 +219,12 @@ class AR_TrainingInfo():
         """Reset score_interval count."""
         # Reset score_interval  
         self.score_interval = 0 
-      
+    
+    def reset_iteration_from_last_AR_update(self):
+        """Reset counter of iteration from last AR weight update."""
+        # Reset counter of iteration_from_last_AR_update 
+        self.iteration_from_last_AR_update = 0
+        
     ##------------------------------------------------------------------------.
     def print_epoch_info(self):
         """Print training info at the end of an epoch."""
