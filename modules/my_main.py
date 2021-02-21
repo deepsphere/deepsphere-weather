@@ -138,9 +138,9 @@ cfg['model_settings']['resolution'] = 16
 
 
 # Current experiment (6h deltat)
-cfg['AR_settings']['input_k'] = [-3, -2, -1]
+cfg['AR_settings']['input_k'] = [-18, -12, -6]
 cfg['AR_settings']['output_k'] = [0]
-cfg['AR_settings']['forecast_cycle'] = 1
+cfg['AR_settings']['forecast_cycle'] = 6
 cfg['AR_settings']['AR_iterations'] = 3
 
 # cfg['AR_settings']['input_k'] = [-18, -12, -6]
@@ -161,8 +161,7 @@ cfg['dataloader_settings']["pin_memory"] = True
 cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
 cfg['dataloader_settings']["num_workers"] = 1    # os.cpu_count()  
 cfg['dataloader_settings']["drop_last_batch"] = False  
-        
- 
+
 ##-----------------------------------------------------------------------------.
 # ### Scale data with xscaler 
 # dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
@@ -243,6 +242,7 @@ scaler = None
 # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
 # os.environ["CUDA_LAUNCH_BLOCKING"] = 1
+
 # ############  
 #### Main ####
 # ############ 
@@ -484,7 +484,7 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          scaler = None,
                                          # Dataloader options
                                          device = 'cpu',
-                                         batch_size = 20,  # number of forecasts per batch
+                                         batch_size = 1,  # number of forecasts per batch
                                          num_workers = 0, 
                                          prefetch_factor = 2, 
                                          prefetch_in_GPU = False,  
@@ -496,7 +496,7 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                          output_k = AR_settings['output_k'], 
                                          forecast_cycle = AR_settings['forecast_cycle'],                         
                                          stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                         AR_iterations = 5,        # How many time to autoregressive iterate
+                                         AR_iterations = 30,        # How many time to autoregressive iterate
                                          # Save options 
                                          zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                          rounding = 2,             # Default None. Accept also a dictionary 

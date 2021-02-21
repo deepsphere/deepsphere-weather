@@ -284,8 +284,8 @@ def main(cfg_path, exp_dir, data_dir):
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 1
-    minimum_iterations = 0
+    patience = 1 #200
+    minimum_iterations = 2 # 10000
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
