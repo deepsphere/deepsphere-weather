@@ -627,6 +627,11 @@ def AutoregressiveTraining(model,
     # Get dimension infos
     dim_info = trainingDataset.dim_info
     dim_names = tuple(dim_info.keys())
+    
+    ##------------------------------------------------------------------------.
+    # Set model layers (i.e. batchnorm) in training mode 
+    model.train()
+    
     ##------------------------------------------------------------------------.
     # Iterate along epochs
     flag_stop_training = False
@@ -636,7 +641,6 @@ def AutoregressiveTraining(model,
         # Iterate along training batches 
         trainingDataLoader_iter = iter(trainingDataLoader)
         for batch_count in range(len(trainingDataLoader_iter)):
-            model.train() # Set model layers (i.e. batchnorm) in training mode 
             ##----------------------------------------------------------------.   
             # Retrieve the training batch
             training_batch_dict = next(trainingDataLoader_iter)
@@ -759,21 +763,26 @@ def AutoregressiveTraining(model,
                         else: 
                             validation_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
                     
-                    ##---------------------------------------------------------. 
+                    ##--------------------------------------------------------. 
                     ### Update validation info 
                     training_info.update_validation_stats(total_loss = validation_total_loss,
                                                           dict_loss_per_AR_iteration = dict_validation_loss_per_AR_iteration)
-
-            ##-----------------------------------------------------------------. 
+                    
+                    ##--------------------------------------------------------.
+                    ### Reset model to training mode
+                    model.train() 
+                    
+                    ##--------------------------------------------------------.
+            ##----------------------------------------------------------------. 
             # - Update learning rate 
             if LR_scheduler is not None:
                 LR_scheduler.step() 
                 
-            ##-----------------------------------------------------------------. 
+            ##----------------------------------------------------------------. 
             # - Update the AR weights 
             AR_scheduler.step()
             
-            ##-----------------------------------------------------------------. 
+            ##----------------------------------------------------------------. 
             # - Evaluate stopping metrics  
             # --> Update AR scheduler if the loss has plateau
             if training_info.score_interval == scoring_interval:
@@ -789,13 +798,13 @@ def AutoregressiveTraining(model,
                         ##----------------------------------------------------.
                         # Update the AR scheduler
                         AR_scheduler.update()
-                        # Reset early stopiing counter 
-                        early_stopping.reset()  
+                        # Reset iteration counter from last AR weight update
+                        training_info.reset_iteration_from_last_AR_update()
                         # Print info
                         current_training_info = "(epoch: {}, iteration: {}, total_iteration: {})".format(training_info.current_epoch, 
                                                                                                          training_info.current_epoch_iteration,
                                                                                                          training_info.iteration)
-                        print("--> Updating training to {} AR iterations {}.".format(AR_scheduler.current_AR_iterations, current_training_info))
+                        print("  --> Updating training to {} AR iterations {}.".format(AR_scheduler.current_AR_iterations, current_training_info))
                         ##----------------------------------------------------.           
                         # Update Datasets (to prefetch the correct amount of data)
                         # - Training
