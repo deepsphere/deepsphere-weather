@@ -62,7 +62,7 @@ class ConvBlock(GeneralConvBlock):
         if self.act:
             x = F.relu(x)
         return x
-    
+
 ##----------------------------------------------------------------------------.     
 class UNetSpherical(UNet, torch.nn.Module):
     """Classical spherical UNet with residual connections."""

@@ -25,7 +25,10 @@ from modules.utils_torch import check_torch_device
 # TODOs
 # - ONNX for saving model weights 
 # - Record the loss per variable 
-# - Add something related to memory consumption --> torch.cuda.memory_summary() 
+
+## Ensure data are removed from GPU 
+# del a
+# torch.cuda.synchronize()
 ##----------------------------------------------------------------------------. 
 ###################
 ### Loss utils ####
@@ -37,6 +40,7 @@ def reshape_tensors_4_loss(Y_pred, Y_obs, dim_names):
     Y_obs = Y_obs.rename(*dim_names).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
     return Y_pred, Y_obs
 
+#-----------------------------------------------------------------------------.
 # ####################
 #### Timing utils ####
 # ####################
@@ -659,7 +663,14 @@ def AutoregressiveTraining(model,
                                                 dict_Y_predicted = dict_training_Y_predicted,
                                                 asyncronous_GPU_transfer = asyncronous_GPU_transfer,
                                                 device = device)
-                        
+                # Print memory usage dataloader
+                if i == 0:
+                    if device.type != 'cpu':
+                        # torch.cuda.synchronize()
+                        # torch.cuda.memory_snapshot()
+                        # torch.cuda.memory_stats()
+                        # torch.cuda.memory_allocated()
+                        torch.cuda.memory_summary('cuda') 
                 ##------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
                 dict_training_Y_predicted[i] = model(torch_X)
@@ -909,3 +920,4 @@ def AutoregressiveTraining(model,
     ##-------------------------------------------------------------------------.
     # Return training info object 
     return training_info
+#-----------------------------------------------------------------------------.
