@@ -649,6 +649,8 @@ def AutoregressiveTraining(model,
     
     ##------------------------------------------------------------------------.
     # Iterate along epochs
+    print("")
+    print("========================================================================================")
     flag_stop_training = False
     for epoch in range(epochs):
         training_info.new_epoch()
@@ -834,7 +836,7 @@ def AutoregressiveTraining(model,
                                                                                                          training_info.epoch_iteration,
                                                                                                          training_info.iteration)
                         print("") 
-                        print("=========================================================================================")
+                        print("========================================================================================")
                         print("- Updating training to {} AR iterations {}.".format(AR_scheduler.current_AR_iterations, current_training_info))
                         ##----------------------------------------------------.           
                         # Update Datasets (to prefetch the correct amount of data)
@@ -938,7 +940,7 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     # Save final model
     print(" ")
-    print("=========================================================================================")
+    print("========================================================================================")
     print("- Training ended !")
     print("- Saving model to {}".format(model_fpath)) 
     torch.save(model.state_dict(), f=model_fpath)    

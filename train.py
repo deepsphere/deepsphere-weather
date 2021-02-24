@@ -27,7 +27,7 @@ from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
 # from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
-from modules.utils_config import pytorch_settings
+from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
@@ -38,7 +38,7 @@ from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
 from modules.predictions_autoregressive import reshape_forecasts_for_verification
-
+from modules.utils_torch import summarize_model
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
 
@@ -187,7 +187,7 @@ def main(cfg_path, exp_dir, data_dir):
     
     ##------------------------------------------------------------------------.
     ### Define pyTorch settings 
-    device = pytorch_settings(training_settings)
+    device = set_pytorch_settings(training_settings)
     
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
@@ -197,7 +197,6 @@ def main(cfg_path, exp_dir, data_dir):
                                     da_bc=da_training_bc)
     
     model_settings['dim_info'] = dim_info
-    
     print_dim_info(dim_info)
      
     ##------------------------------------------------------------------------.
@@ -221,9 +220,16 @@ def main(cfg_path, exp_dir, data_dir):
         load_pretrained_model(model = model, exp_dir=exp_dir, model_name = model_settings['pretrained_model_name'])
         
     ###-----------------------------------------------------------------------.
-    ### Transfer model to GPU 
+    ### Transfer model to the device (i.e. GPU)
     model = model.to(device)
     
+    ###-----------------------------------------------------------------------.
+    ### Summarize the model 
+    # summarize_model(model=model, 
+    #                 input_size=dim_info['input_shape'],  
+    #                 batch_size=training_settings["training_batch_size"], 
+    #                 device=device)
+
     ###-----------------------------------------------------------------------.
     # DataParallel training option on multiple GPUs
     # if training_settings['DataParallel_training'] is True:
@@ -276,32 +282,14 @@ def main(cfg_path, exp_dir, data_dir):
       
     ##------------------------------------------------------------------------.
     ### - Define AR_Weights_Scheduler 
-    # AR_scheduler = AR_Scheduler(method = "LinearStep",
-    #                             factor = 0.0005,
-    #                             initial_AR_weights = [1])   
-    
-    # ### - Define Early Stopping 
-    # # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    # patience = 200
-    # minimum_iterations = 2000
-    # minimum_improvement = 0.001 # 0 to not stop 
-    # stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
-    # mode = "min" # MSE best when low  
-    # early_stopping = EarlyStopping(patience = patience,
-    #                                minimum_improvement = minimum_improvement,
-    #                                minimum_iterations = minimum_iterations,
-    #                                stopping_metric = stopping_metric,                                                         
-    #                                mode = mode)  
-    ##------------------------------------------------------------------------.                              
-    ## - Define AR_Weights_Scheduler                                
     AR_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.01, 
+                                factor = 0.0005,
                                 initial_AR_weights = [1])   
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 1 #200
-    minimum_iterations = 2 # 10000
+    patience = 200
+    minimum_iterations = 2000
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
@@ -310,6 +298,24 @@ def main(cfg_path, exp_dir, data_dir):
                                    minimum_iterations = minimum_iterations,
                                    stopping_metric = stopping_metric,                                                         
                                    mode = mode)  
+    ##------------------------------------------------------------------------.                              
+    ## - Define AR_Weights_Scheduler                                
+    # AR_scheduler = AR_Scheduler(method = "LinearStep",
+    #                             factor = 0.01, 
+    #                             initial_AR_weights = [1])   
+    
+    # ### - Define Early Stopping 
+    # # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
+    # patience = 1 #200
+    # minimum_iterations = 2 # 10000
+    # minimum_improvement = 0.001 # 0 to not stop 
+    # stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
+    # mode = "min" # MSE best when low  
+    # early_stopping = EarlyStopping(patience = patience,
+    #                                minimum_improvement = minimum_improvement,
+    #                                minimum_iterations = minimum_iterations,
+    #                                stopping_metric = stopping_metric,                                                         
+    #                                mode = mode)  
     ##------------------------------------------------------------------------.
     ### - Defining LR_Scheduler 
     # TODO (@Yasser)
@@ -401,7 +407,7 @@ def main(cfg_path, exp_dir, data_dir):
     ## - Plot the loss at each AR iteration (in separate figures)
     for AR_iteration in range(training_info.AR_iterations+1):
         fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
-        training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+        training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
                                                  title="Loss evolution at AR iteration {}".format(AR_iteration)).savefig(fname) 
     
     ##------------------------------------------------------------------------.
@@ -415,7 +421,7 @@ def main(cfg_path, exp_dir, data_dir):
     
     ##-------------------------------------------------------------------------.
     ### - Create predictions 
-    print("====================================================================")
+    print("========================================================================================")
     print(" - Running predictions")
     forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
     dask.config.set(scheduler='synchronous')
@@ -458,6 +464,8 @@ def main(cfg_path, exp_dir, data_dir):
     
     ## Reshape from 'forecast_reference_time'-'leadtime' to 'time (aka) forecasted_time'-'leadtime'  
     # - Rechunk Dataset over space on disk and then reshape the for verification
+    print("========================================================================================")
+    print("- Reshape test set predictions for verification")
     verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
     ds_verification = rechunk_forecasts_for_verification(ds=ds_forecasts, 
                                                          chunks="auto", 
@@ -466,14 +474,16 @@ def main(cfg_path, exp_dir, data_dir):
      
     ##------------------------------------------------------------------------.
     ### - Run deterministic verification 
+    print("========================================================================================")
+    print("- Run deterministic verification")
     dask.config.set(scheduler='processes')
     
     print(ds_verification)
     ##------------------------------------------------------------------------.
-    ### - Create verification summary plot
-    
-    ##------------------------------------------------------------------------.
-    ### - Create verification maps 
+    ### - Create verification summary plots and maps
+    print("========================================================================================")
+    print("- Create verification summary plots and maps")
+
     
     ##------------------------------------------------------------------------.
     ### - Create animations 

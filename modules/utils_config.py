@@ -349,7 +349,7 @@ def set_pytorch_settings(training_settings):
 
     #------------------------------------------------------------------------.
     # Set numeric precision 
-    set_pytorch_numeric_precision(numeric_precision=numeric_precision, device=device)
+    # set_pytorch_numeric_precision(numeric_precision=numeric_precision, device=device)
 
     #------------------------------------------------------------------------.
     # Return the torch device 

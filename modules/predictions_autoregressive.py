@@ -554,7 +554,7 @@ def AutoregressivePredictions(model,
         ds_forecasts = xr.merge(list_ds)
         
     ##------------------------------------------------------------------------.    
-    print("- Forecast generation: {:.0f}s".format(time.time()-t_i))
+    print("- Elapsed time for forecast generation: {:.0f}s".format(time.time()-t_i))
     ##------------------------------------------------------------------------.    
     return ds_forecasts  
  
