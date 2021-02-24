@@ -31,9 +31,6 @@ from modules.utils_torch import get_time_function
 # - ONNX for saving model weights 
 # - Record the loss per variable 
 
-## Ensure data are removed from GPU 
-# del a
-# torch.cuda.synchronize()
 ##----------------------------------------------------------------------------. 
 ###################
 ### Loss utils ####
@@ -302,7 +299,7 @@ def timing_AR_Training(dataset,
         if device.type != 'cpu':
             print("- Model parameters requires {:.2f} MB in GPU".format(memory_info['Model parameters']))                     
             print("- A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU".format(batch_size, AR_iterations, memory_info['Batch']))
-            print("- The model require allocation of {:.2f} MB in GPU during the forwar pass".format(memory_info['Forward pass']))    
+            print("- The model forward pass allocates {:.2f} MB in GPU.".format(memory_info['Forward pass']))    
     ##------------------------------------------------------------------------.    
     # Reactivate gradient computations 
     torch.set_grad_enabled(True)
@@ -436,7 +433,7 @@ def tune_num_workers(dataset,
             memory_info = Memory_Info[optimal_num_workers]
             print("- Model parameters requires {:.2f} MB in GPU.".format(memory_info['Model parameters']))                     
             print("- A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU.".format(batch_size, dataset.AR_iterations, memory_info['Batch']))
-            print("- The model require allocation of {:.2f} MB in GPU during the forward pass.".format(memory_info['Forward pass']))    
+            print("- The model forward pass allocates {:.2f} MB in GPU.".format(memory_info['Forward pass']))    
     ##------------------------------------------------------------------------.
     return optimal_num_workers
         
