@@ -23,6 +23,10 @@ from modules.utils_io import is_dask_DataArray
 from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import get_torch_dtype
 from modules.utils_torch import check_torch_device
+from modules.utils_torch import check_pin_memory
+from modules.utils_torch import check_asyncronous_GPU_transfer
+from modules.utils_torch import check_prefetch_in_GPU
+from modules.utils_torch import check_prefetch_factor
 ##----------------------------------------------------------------------------.
 # TODO DataLoader Options    
 # - sampler                    # Provide this option? To generalize outside batch samples?  
@@ -494,26 +498,12 @@ def AutoregressiveDataLoader(dataset,
     ##------------------------------------------------------------------------.
     ## Checks 
     device = check_torch_device(device)
-    if device.type == 'cpu':
-        if pin_memory:
-            pin_memory = False
-            if verbose:
-                print("GPU is not available. 'pin_memory' set to False.")
-            
-        if prefetch_in_GPU: 
-            prefetch_in_GPU = False
-            if verbose:
-                print("GPU is not available. 'prefetch_in_GPU' set to False.")
-            
-        if asyncronous_GPU_transfer: 
-            asyncronous_GPU_transfer = False    
-            if verbose:
-                print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
-            
-    if num_workers == 0 and prefetch_factor !=2:
-        prefetch_factor = 2 # bug in pytorch ... need to set to 2 
-        if verbose:
-            print("Since num_workers=0, no prefetching is done.")
+    pin_memory = check_pin_memory(pin_memory=pin_memory, num_workers=num_workers, device=device)  
+    asyncronous_GPU_transfer = check_asyncronous_GPU_transfer(asyncronous_GPU_transfer=asyncronous_GPU_transfer, device=device) 
+    prefetch_in_GPU = check_prefetch_in_GPU(prefetch_in_GPU=prefetch_in_GPU, num_workers=num_workers, device=device) 
+    prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
+    device = check_torch_device(device)
+    
     ##------------------------------------------------------------------------. 
     # Retrieve dimension info dictiorary from Dataset 
     # - Provide information of Torch Tensor dimensions.
@@ -558,7 +548,8 @@ def get_AR_batch(AR_iteration,
                  batch_dict, 
                  dict_Y_predicted,
                  device = 'cpu', 
-                 asyncronous_GPU_transfer = True):
+                 asyncronous_GPU_transfer = True,
+                 training_mode=True):
     """Create X and Y Torch Tensors for a specific AR iteration."""
     i = AR_iteration
     ##------------------------------------------------------------------------.
@@ -599,7 +590,11 @@ def get_AR_batch(AR_iteration,
         if bc_is_available:
             torch_X_bc = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
         # Y 
-        torch_Y = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
+        if training_mode:
+            torch_Y = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)   
+        else: # prediction mode 
+            torch_Y = None  
+            
     # Or retrieve the prefetched in GPU data
     else:
         torch_X = dict_X_dynamic_batched[i]
