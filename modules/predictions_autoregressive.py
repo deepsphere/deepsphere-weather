@@ -26,7 +26,10 @@ from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import check_torch_device
-
+from modules.utils_torch import check_pin_memory
+from modules.utils_torch import check_asyncronous_GPU_transfer
+from modules.utils_torch import check_prefetch_in_GPU
+from modules.utils_torch import check_prefetch_factor
 # conda install -c conda-forge zarr
 # conda install -c conda-forge cfgrib
 # conda install -c conda-forge rechunker
@@ -316,16 +319,10 @@ def AutoregressivePredictions(model,
     ##------------------------------------------------------------------------.
     ## Checks arguments 
     device = check_torch_device(device)
-    if device.type == 'cpu':
-        if pin_memory:
-            print("GPU is not available. 'pin_memory' set to False.")
-            pin_memory = False
-        if prefetch_in_GPU: 
-            print("GPU is not available. 'prefetch_in_GPU' set to False.")
-            prefetch_in_GPU = False
-        if asyncronous_GPU_transfer: 
-            print("GPU is not available. 'asyncronous_GPU_transfer' set to False.")
-            asyncronous_GPU_transfer = False
+    pin_memory = check_pin_memory(pin_memory=pin_memory, num_workers=num_workers, device=device)  
+    asyncronous_GPU_transfer = check_asyncronous_GPU_transfer(asyncronous_GPU_transfer=asyncronous_GPU_transfer, device=device) 
+    prefetch_in_GPU = check_prefetch_in_GPU(prefetch_in_GPU=prefetch_in_GPU, num_workers=num_workers, device=device) 
+    prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
     ##------------------------------------------------------------------------.
     # Check that autoregressive settings are valid 
     # - input_k and output_k must be numpy arrays hereafter ! 
@@ -439,15 +436,24 @@ def AutoregressivePredictions(model,
             dict_Y_predicted = {}
             for i in range(AR_iterations+1):
                 # Retrieve X and Y for current AR iteration
-                torch_X, torch_Y = get_AR_batch(AR_iteration = i, 
-                                                batch_dict = batch_dict, 
-                                                dict_Y_predicted = dict_Y_predicted,
-                                                device = device, 
-                                                asyncronous_GPU_transfer = asyncronous_GPU_transfer)
-                
+                # - Torch Y stays in CPU with training_mode=False
+                torch_X, _ = get_AR_batch(AR_iteration = i, 
+                                          batch_dict = batch_dict, 
+                                          dict_Y_predicted = dict_Y_predicted,
+                                          device = device, 
+                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                          training_mode=False)
+                print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                 ##------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
                 dict_Y_predicted[i] = model(torch_X)
+                print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
+                ##------------------------------------------------------------.
+                # Remove unnecessary variables 
+                # --> TODO: maybe pass to CPU?  and remove unused? 
+                torch.cuda.synchronize()
+                del torch_X
+                print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                 
             ##----------------------------------------------------------------.
             # Retrieve forecast informations 
@@ -463,12 +469,12 @@ def AutoregressivePredictions(model,
             # - Select Y to stack (along time dimension)
             # [forecast_time, leadtime, node, feature]
             # dict_forecast_leadtime_idx = forecast_time_info["dict_forecast_leadtime_idx"]
-            dict_Y_forecasted = dict_Y_predicted  # just keep required value in dim 1, already ordered
+            # dict_Y_forecasted = dict_Y_predicted  # just keep required value in dim 1, already ordered
             
             ##----------------------------------------------------------------.
             # Create forecast tensors
-            Y_forecasts = torch.cat(list(dict_Y_forecasted.values()), dim=dim_info['time'])  
-            
+            Y_forecasts = torch.cat(list(dict_Y_predicted.values()), dim=dim_info['time'])  
+
             ##----------------------------------------------------------------.
             # Create numpy array 
             # .detach() should not be necessary if grad_disabled 
@@ -480,7 +486,8 @@ def AutoregressivePredictions(model,
             ##----------------------------------------------------------------.
             # Remove unused tensors 
             del dict_Y_predicted
-            
+       
+
             ##----------------------------------------------------------------.
             ### Create xarray Dataset of forecasts
             # - Retrieve coords 

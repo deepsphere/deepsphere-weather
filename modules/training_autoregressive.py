@@ -21,6 +21,11 @@ from modules.utils_autoregressive import check_output_k
 from modules.utils_io import check_AR_DataArrays 
 from modules.utils_training import AR_TrainingInfo
 from modules.utils_torch import check_torch_device
+from modules.utils_torch import check_pin_memory
+from modules.utils_torch import check_asyncronous_GPU_transfer
+from modules.utils_torch import check_prefetch_in_GPU
+from modules.utils_torch import check_prefetch_factor
+from modules.utils_torch import get_time_function
 ##----------------------------------------------------------------------------.
 # TODOs
 # - ONNX for saving model weights 
@@ -39,24 +44,6 @@ def reshape_tensors_4_loss(Y_pred, Y_obs, dim_names):
     Y_pred = Y_pred.rename(*dim_names).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
     Y_obs = Y_obs.rename(*dim_names).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
     return Y_pred, Y_obs
-
-#-----------------------------------------------------------------------------.
-# ####################
-#### Timing utils ####
-# ####################
-def get_synchronized_cuda_time():
-    """Get time after CUDA synchronization.""" 
-    torch.cuda.synchronize()
-    return time.time()
-
-def get_time_function(device):
-    """General function returing a time() function.""" 
-    if isinstance(device, str): 
-        device = torch.device(device)
-    if device.type == "cpu":
-        return time.time
-    else:
-        return get_synchronized_cuda_time
 
 #-----------------------------------------------------------------------------.
 # ############################
@@ -78,7 +65,7 @@ def timing_AR_Training(dataset,
                        n_repetitions = 10,
                        verbose = True):
     """
-    Time AR training.
+    Time execution and memory consumption of AR training.
 
     Parameters
     ----------
@@ -165,7 +152,7 @@ def timing_AR_Training(dataset,
     AR_loss_timing = []
     Backprop_timing = [] 
     Total_timing = []
-    ##------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Initialize DataLoader 
     trainingDataLoader = AutoregressiveDataLoader(dataset = dataset,                                                   
                                                   batch_size = batch_size,  
@@ -178,6 +165,13 @@ def timing_AR_Training(dataset,
                                                   asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                                   device = device)
     trainingDataLoader_iter = iter(trainingDataLoader)
+    ##-------------------------------------------------------------------------.
+    # Measure the size of model parameters 
+    if device.type != 'cpu':
+        model_params_size = torch.cuda.memory_allocated()/1000/1000
+    else: 
+        model_params_size = 0
+    ##-------------------------------------------------------------------------.
     # Repeat training n_repetitions
     for count in range(n_repetitions):  
         t_start = get_time()
@@ -188,7 +182,7 @@ def timing_AR_Training(dataset,
         # Perform AR iterations 
         dict_training_Y_predicted = {}
         dict_training_loss_per_AR_iteration = {}
-        ##-----------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         # Initialize stuff for AR loop timing 
         tmp_AR_data_removal_timing = 0
         tmp_AR_batch_timing = 0 
@@ -202,13 +196,17 @@ def timing_AR_Training(dataset,
                                             dict_Y_predicted = dict_training_Y_predicted,
                                             device = device, 
                                             asyncronous_GPU_transfer = asyncronous_GPU_transfer)
+            ##-----------------------------------------------------------------.                                
+            # Measure model parameters + batch size in MB 
+            if device.type != 'cpu' and i == 0:
+                batch_memory_size = torch.cuda.memory_allocated()/1000/1000 - model_params_size
             tmp_AR_batch_timing = tmp_AR_batch_timing + (get_time() - t_i)
-            ##------------------------------------------------------------.
+            ##-----------------------------------------------------------------.
             # Forward pass and store output for stacking into next AR iterations
             t_i = get_time()
             dict_training_Y_predicted[i] = model(torch_X)
             tmp_AR_forward_timing = tmp_AR_forward_timing + (get_time() - t_i) 
-            ##------------------------------------------------------------.
+            ##-----------------------------------------------------------------.
             # Compute loss for current forecast iteration 
             # - The criterion expects [data_points, nodes, features]
             # - Collapse all other dimensions to a 'data_points' dimension  
@@ -218,7 +216,7 @@ def timing_AR_Training(dataset,
                                                    dim_names = dim_names)
             dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
             tmp_AR_loss_timing = tmp_AR_loss_timing + (get_time() - t_i)
-            ##------------------------------------------------------------.
+            ##-----------------------------------------------------------------.
             # Remove unnecessary stored Y predictions 
             t_i = get_time()
             remove_unused_Y(AR_iteration = i, 
@@ -228,13 +226,18 @@ def timing_AR_Training(dataset,
             if i == AR_iterations:
                 del dict_training_Y_predicted
             tmp_AR_data_removal_timing = tmp_AR_data_removal_timing + (get_time()- t_i)
-            
-        ##--------------------------------------------------------------------.  
+    
+        ##---------------------------------------------------------------------.  
         # Summarize timing 
         AR_batch_timing.append(tmp_AR_batch_timing)
         AR_data_removal_timing.append(tmp_AR_data_removal_timing)
         AR_forward_timing.append(tmp_AR_forward_timing)
         
+        # Measure model size requirements 
+        if device.type != 'cpu':
+            model_memory_allocation = torch.cuda.memory_allocated()/1000/1000
+        else: 
+            model_memory_allocation = 0
         ##--------------------------------------------------------------------.    
         ### Compute total (AR weighted) loss 
         t_i = get_time()
@@ -275,7 +278,12 @@ def timing_AR_Training(dataset,
                    'Forward': AR_forward_timing,
                    'Loss': AR_loss_timing,
                    'Backward': Backprop_timing}
-    ##------------------------------------------------------------------------. 
+    ##-------------------------------------------------------------------------. 
+    memory_info = {'Model parameters': model_params_size,
+                   'Batch': batch_memory_size,
+                   'Forward pass' : model_memory_allocation}  
+    
+    ##-------------------------------------------------------------------------. 
     # Create timing table 
     if verbose:
         table = []
@@ -291,12 +299,15 @@ def timing_AR_Training(dataset,
                          round(Backprop_timing[count], 4)
                           ])
         print(tabulate(table, headers=headers))   
-    
+        if device.type != 'cpu':
+            print("Model parameters requires {:.2f} MB in GPU".format(memory_info['Model parameters']))                     
+            print("A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU".format(batch_size, AR_iterations, memory_info['Batch']))
+            print("The model require allocation of {:.2f} MB in GPU during the forwar pass".format(memory_info['Forward pass']))    
     ##------------------------------------------------------------------------.    
     # Reactivate gradient computations 
     torch.set_grad_enabled(True)
     ##------------------------------------------------------------------------.               
-    return timing_info   
+    return timing_info, memory_info
 
 def tune_num_workers(dataset,
                      model, 
@@ -371,24 +382,25 @@ def tune_num_workers(dataset,
     AR_loss_timing = {i: [] for i in num_workers_list }
     Backprop_timing = {i: [] for i in num_workers_list }
     Total_timing = {i: [] for i in num_workers_list }
+    Memory_Info = {i: [] for i in num_workers_list }
     ##------------------------------------------------------------------------.
     # Time AR training for specified num_workers in num_workers_list
     for num_workers in num_workers_list:  
-        timing_info = timing_AR_Training(dataset = dataset, 
-                                         model = model, 
-                                         optimizer = optimizer,
-                                         criterion = criterion,
-                                         # DataLoader options
-                                         batch_size = batch_size, 
-                                         num_workers = num_workers, 
-                                         prefetch_in_GPU = prefetch_in_GPU,
-                                         prefetch_factor = prefetch_factor,
-                                         pin_memory = pin_memory,
-                                         asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                                         # Timing options 
-                                         training_mode = training_mode, 
-                                         n_repetitions = n_repetitions,
-                                         verbose = False) 
+        timing_info, memory_info = timing_AR_Training(dataset = dataset, 
+                                                      model = model, 
+                                                      optimizer = optimizer,
+                                                      criterion = criterion,
+                                                      # DataLoader options
+                                                      batch_size = batch_size, 
+                                                      num_workers = num_workers, 
+                                                      prefetch_in_GPU = prefetch_in_GPU,
+                                                      prefetch_factor = prefetch_factor,
+                                                      pin_memory = pin_memory,
+                                                      asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                                      # Timing options 
+                                                      training_mode = training_mode, 
+                                                      n_repetitions = n_repetitions,
+                                                      verbose = False) 
         Dataloader_timing[num_workers] = timing_info['Dataloader']
         AR_batch_timing[num_workers] = timing_info['AR Batch']
         AR_data_removal_timing[num_workers] = timing_info['Delete']
@@ -396,6 +408,7 @@ def tune_num_workers(dataset,
         AR_loss_timing[num_workers] = timing_info['Loss']
         Backprop_timing[num_workers] = timing_info['Backward']
         Total_timing[num_workers] = timing_info['Total']
+        Memory_Info[num_workers] = memory_info
 
     ##------------------------------------------------------------------------. 
     ### Summarize timing results      
@@ -412,14 +425,18 @@ def tune_num_workers(dataset,
                       np.median(AR_forward_timing[num_workers]).round(4),
                       np.median(AR_loss_timing[num_workers]).round(4),
                       np.median(Backprop_timing[num_workers]).round(4)])
-    
+    ##------------------------------------------------------------------------.
+    # Select best num_workers
+    optimal_num_workers = num_workers_list[np.argmin(dtloader)]
     ##------------------------------------------------------------------------.
     # Print timing results  
     if verbose:
         print(tabulate(table, headers=headers)) 
-    ##------------------------------------------------------------------------.
-    # Select best num_workers
-    optimal_num_workers = num_workers_list[np.argmin(dtloader)]
+        if dataset.device.type != 'cpu':
+            memory_info = Memory_Info[optimal_num_workers]
+            print("Model parameters requires {:.2f} MB in GPU".format(memory_info['Model parameters']))                     
+            print("A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU".format(batch_size, dataset.AR_iterations, memory_info['Batch']))
+            print("The model require allocation of {:.2f} MB in GPU during the forward pass".format(memory_info['Forward pass']))    
     ##------------------------------------------------------------------------.
     return optimal_num_workers
         
@@ -470,16 +487,10 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     ## Checks arguments 
     device = check_torch_device(device)
-    if device.type == 'cpu':
-        if pin_memory:
-            print("- GPU is not available. 'pin_memory' set to False.")
-            pin_memory = False
-        if prefetch_in_GPU: 
-            print("- GPU is not available. 'prefetch_in_GPU' set to False.")
-            prefetch_in_GPU = False
-        if asyncronous_GPU_transfer: 
-            print("- GPU is not available. 'asyncronous_GPU_transfer' set to False.")
-            asyncronous_GPU_transfer = False
+    pin_memory = check_pin_memory(pin_memory=pin_memory, num_workers=num_workers, device=device)  
+    asyncronous_GPU_transfer = check_asyncronous_GPU_transfer(asyncronous_GPU_transfer=asyncronous_GPU_transfer, device=device) 
+    prefetch_in_GPU = check_prefetch_in_GPU(prefetch_in_GPU=prefetch_in_GPU, num_workers=num_workers, device=device) 
+    prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
     ##------------------------------------------------------------------------.   
     # Check that autoregressive settings are valid 
     # - input_k and output_k must be numpy arrays hereafter ! 
@@ -663,14 +674,11 @@ def AutoregressiveTraining(model,
                                                 dict_Y_predicted = dict_training_Y_predicted,
                                                 asyncronous_GPU_transfer = asyncronous_GPU_transfer,
                                                 device = device)
-                # Print memory usage dataloader
-                if i == 0:
-                    if device.type != 'cpu':
-                        # torch.cuda.synchronize()
-                        # torch.cuda.memory_snapshot()
-                        # torch.cuda.memory_stats()
-                        # torch.cuda.memory_allocated()
-                        torch.cuda.memory_summary('cuda') 
+                ##------------------------------------------------------------.                               
+                # # Print memory usage dataloader
+                # if device.type != 'cpu':
+                #     # torch.cuda.synchronize()
+                #     print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                 ##------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
                 dict_training_Y_predicted[i] = model(torch_X)
@@ -683,15 +691,28 @@ def AutoregressiveTraining(model,
                                                        Y_obs = torch_Y,
                                                        dim_names = dim_names)
                 dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
-                                                                    
+
+                ##------------------------------------------------------------.
+                # Detach graph from Y 
+                # print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000))
+                # dict_training_Y_predicted[i] = dict_training_Y_predicted[i].detach()  
+                # print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
+                                                
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
                 remove_unused_Y(AR_iteration = i, 
                                 dict_Y_predicted = dict_training_Y_predicted,
                                 dict_Y_to_remove = training_batch_dict['dict_Y_to_remove'])
+                torch.cuda.synchronize()
                 del Y_pred, Y_obs, torch_X, torch_Y
                 if i == AR_scheduler.current_AR_iterations:
                     del dict_training_Y_predicted
+
+                ##------------------------------------------------------------.
+                # # Print memory usage dataloader + model 
+                # if device.type != 'cpu':
+                #     torch.cuda.synchronize()
+                #     print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
 
             ##----------------------------------------------------------------.    
             ### Compute total (AR weighted) loss 
@@ -700,7 +721,8 @@ def AutoregressiveTraining(model,
                     training_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
                 else: 
                     training_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
-              
+            
+            # print("Loss: {:.4f} , AR weights: {}".format(training_total_loss, np.round(AR_scheduler.AR_weights,4)))
             ##----------------------------------------------------------------.       
             ### Backprogate the gradients and update the network weights 
             # Backward pass 
@@ -811,6 +833,8 @@ def AutoregressiveTraining(model,
                         AR_scheduler.update()
                         # Reset iteration counter from last AR weight update
                         training_info.reset_iteration_from_last_AR_update()
+                        # Reset early stopping 
+                        early_stopping.reset()
                         # Print info
                         current_training_info = "(epoch: {}, iteration: {}, total_iteration: {})".format(training_info.current_epoch, 
                                                                                                          training_info.current_epoch_iteration,
@@ -915,7 +939,8 @@ def AutoregressiveTraining(model,
             torch.save(model.state_dict(), model_fpath[:-3] + '_epoch_{}'.format(epoch) + '.h5')
       
     ##------------------------------------------------------------------------.
-    # Save final model 
+    # Save final model
+    print("Saving model to {}".format(model_fpath)) 
     torch.save(model.state_dict(), f=model_fpath)    
     ##-------------------------------------------------------------------------.
     # Return training info object 
