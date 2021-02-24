@@ -90,3 +90,7 @@ class EarlyStopping:
                 self.counter = 0
         
         return self.early_stop
+
+    def reset(self):
+        self.early_stop = False
+        self.counter = 0

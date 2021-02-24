@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 ## TODO:
 ## - Smooth loss by averaging over X values (rollapply in utils_numpy)
 # TODO Loss plot 
-# - Add xaxis epochs (as function of iterations) --> self.starting_epochs_iterations
+# - Add xaxis epochs (as function of iterations) --> self.start_epochs_iterations
 # - Add log axis, add exponential notation
 
-# - Add epoch on top x axis  --> using training_info.starting_epochs_iterations
+# - Add epoch on top x axis  --> using training_info.start_epochs_iterations
 #   axis_2 = axis_1.twinx()
 #   https://matplotlib.org/3.1.0/gallery/subplots_axes_and_figures/secondary_axis.html
 ##----------------------------------------------------------------------------.
@@ -104,16 +104,16 @@ class AR_TrainingInfo():
         # TODO
         # - loss per variable 
         # Initialize training info 
-        self.current_epoch = 0
+        self.epoch = 0
         self.n_epochs = epochs  
         self.AR_iterations = AR_iterations
         self.validation_stats = False
         ##--------------------------------------------------------------------.
         # Initialize iteration counts
-        self.starting_epochs_iterations = [] # to keep track of the iteration when a new epoch start
-        self.iteration = 0        # to keep track of the total number of forward-backward pass
-        self.current_epoch_iteration = 0  # to keep track of iteration within the epoch
-        self.iteration_from_last_AR_update = 0 # iteration from the last AR weight update (for early stopping)
+        self.iteration = 0        # track the total number of forward-backward pass
+        self.epoch_iteration = 0  # track the iteration number within the epoch
+        self.iteration_from_last_AR_update = 0 # track the iteration number from the last AR weight update (for early stopping)
+        self.start_epochs_iterations = [] # list the iterations numbers when a new epoch start
         self.score_interval = 0   # to decide when to score 
         ##--------------------------------------------------------------------.
         # - Initialize dictionary to save the loss at different leadtimes
@@ -134,6 +134,7 @@ class AR_TrainingInfo():
         ##--------------------------------------------------------------------.
         # - Initialize list for total loss    
         self.iteration_list = []
+        self.start_epoch_scoring_idx = 0 # to select score within an epoch
         self.training_total_loss = []
         self.validation_total_loss = [] 
         
@@ -156,19 +157,20 @@ class AR_TrainingInfo():
     def step(self): 
         """Update iteration count."""
         self.iteration = self.iteration + 1
-        self.current_epoch_iteration = self.current_epoch_iteration + 1
+        self.epoch_iteration = self.epoch_iteration + 1
         self.iteration_from_last_AR_update = self.iteration_from_last_AR_update + 1
         self.score_interval = self.score_interval + 1
     
     ##------------------------------------------------------------------------.
     def new_epoch(self):
         """Update training_info at the beginning of an epoch."""
-        self.last_iteration_of_previous_epoch = self.iteration
-        self.starting_epochs_iterations.append(self.iteration)
-        self.current_epoch_iteration = 0
-        self.current_epoch = self.current_epoch + 1
-        self.current_epoch_time_start = time.time()
-        print('- Starting training epoch : {}'.format(self.current_epoch))    
+        self.start_epoch_iteration = self.iteration
+        self.start_epochs_iterations.append(self.iteration)
+        self.start_epoch_scoring_idx = len(self.iteration_list)
+        self.epoch_iteration = 0
+        self.epoch = self.epoch + 1
+        self.epoch_time_start = time.time()
+        print('- Starting training epoch : {}'.format(self.epoch))    
         
     ##------------------------------------------------------------------------.    
     def update_training_stats(self, total_loss,
@@ -228,14 +230,17 @@ class AR_TrainingInfo():
     ##------------------------------------------------------------------------.
     def print_epoch_info(self):
         """Print training info at the end of an epoch."""
-        avg_training_loss = np.mean(self.training_total_loss[self.last_iteration_of_previous_epoch:])
-        print("- Epoch: {epoch:3d}/{n_epoch:3d}".format(epoch = self.current_epoch, n_epoch = self.n_epochs))
+        print("Loss vector")
+        print(self.start_epoch_iteration)
+        print(self.training_total_loss[self.start_epoch_scoring_idx:])  
+        avg_training_loss = np.mean(self.training_total_loss[self.start_epoch_scoring_idx:])
+        print("- Epoch: {epoch:3d}/{n_epoch:3d}".format(epoch = self.epoch, n_epoch = self.n_epochs))
         print("- Training loss: {training_total_loss:.3f}".format(training_total_loss=avg_training_loss))
         # If validation data are provided
         if len(self.validation_total_loss) != 0:
-            avg_validation_loss = np.mean(self.validation_total_loss[self.last_iteration_of_previous_epoch:])   
+            avg_validation_loss = np.mean(self.validation_total_loss[self.start_epoch_scoring_idx:])   
             print("- Validation Loss: {validation_total_loss:.3f}".format(validation_total_loss=avg_validation_loss))
-        print("- Elapsed time: {elapsed_time:2f}".format(elapsed_time = time.time() - self.current_epoch_time_start))                                                  
+        print("- Elapsed time: {elapsed_time:2f}".format(elapsed_time = time.time() - self.epoch_time_start))                                                  
 
     ##------------------------------------------------------------------------.
     def iterations_of_AR_updates(self):
