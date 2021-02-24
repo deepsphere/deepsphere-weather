@@ -451,7 +451,6 @@ def pretty_printing(d, indent=0, indent_factor=2):
         else:
             print(' ' + str(value), end="\n")
 
-
 # def pretty_printing(d, indent=0):
 #     """Pretty pritting of nested dictionaries."""
 #     for key, value in d.items():

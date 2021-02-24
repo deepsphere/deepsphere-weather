@@ -301,10 +301,27 @@ def get_AR_model_diminfo(da_dynamic, da_static=None, da_bc=None, AR_settings=Non
     # Define dimension order
     dim_order = ['sample'] + list(da_dynamic.dims) # Here I force batch_dim to be the first dimension (for all code)! 
     ##------------------------------------------------------------------------. 
-    # Define time dimension 
+    # Define time dimensions
     if AR_settings is not None:
         input_time_dim = len(AR_settings['input_k']) 
         output_time_dim = len(AR_settings['output_k']) 
+    ##------------------------------------------------------------------------. 
+    # Define input-ouput tensor shape 
+    if AR_settings is not None:
+        dim_input = {}
+        dim_input['node'] = input_node_dim
+        dim_input['time'] = input_time_dim
+        dim_input['feature'] = input_feature_dim
+        input_shape = tuple([dim_input[k] for k in dim_order[1:]])
+        
+        dim_output = {}
+        dim_output['node'] = output_node_dim
+        dim_output['time'] = output_time_dim
+        dim_output['feature'] = output_feature_dim
+        output_shape = tuple([dim_input[k] for k in dim_order[1:]])
+    ##------------------------------------------------------------------------.
+    # Define time dimension 
+    if AR_settings is not None:
         # Create dictionary with dimension infos 
         dim_info = {'input_feature_dim': input_feature_dim,
                     'output_feature_dim': output_feature_dim,
@@ -315,9 +332,11 @@ def get_AR_model_diminfo(da_dynamic, da_static=None, da_bc=None, AR_settings=Non
                     'input_node_dim': input_node_dim,
                     'output_node_dim': output_node_dim,
                     'dim_order': dim_order,
+                    'input_shape': input_shape,
+                    'output_shape': output_shape,
                     }
     else:
-        # Create dictionary with dimension infos 
+        # Create dictionary with dimension infos (without time)
         dim_info = {'input_feature_dim': input_feature_dim,
                     'output_feature_dim': output_feature_dim,
                     'input_features': input_features,
