@@ -101,7 +101,7 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-    
+    cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
@@ -276,16 +276,32 @@ def main(cfg_path, exp_dir, data_dir):
       
     ##------------------------------------------------------------------------.
     ### - Define AR_Weights_Scheduler 
+    # AR_scheduler = AR_Scheduler(method = "LinearStep",
+    #                             factor = 0.0005,
+    #                             initial_AR_weights = [1])   
+    
+    # ### - Define Early Stopping 
+    # # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
+    # patience = 200
+    # minimum_iterations = 2000
+    # minimum_improvement = 0.001 # 0 to not stop 
+    # stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
+    # mode = "min" # MSE best when low  
+    # early_stopping = EarlyStopping(patience = patience,
+    #                                minimum_improvement = minimum_improvement,
+    #                                minimum_iterations = minimum_iterations,
+    #                                stopping_metric = stopping_metric,                                                         
+    #                                mode = mode)  
+    ##------------------------------------------------------------------------.                              
+    ## - Define AR_Weights_Scheduler                                
     AR_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.0005,
+                                factor = 0.01, 
                                 initial_AR_weights = [1])   
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
     patience = 1 #200
     minimum_iterations = 2 # 10000
-    # patience = 100
-    # minimum_iterations = 5000
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
@@ -351,29 +367,30 @@ def main(cfg_path, exp_dir, data_dir):
         pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     # # Load AR TrainingInfo
+    # exp_dir = "/data/weather_prediction/experiments_GG/UNetSpherical-healpix-16-k20-InterpPooling-float32-AR6"
     # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
-    #     training_info = pickle.load(handle)
-        
+    #    training_info = pickle.load(handle)
+  
     ##------------------------------------------------------------------------.
     ### Create plots related to training evolution  
     ## - Plot the loss at all AR iterations (in one figure)
     fig, ax = plt.subplots()
     for AR_iteration in range(training_info.AR_iterations+1):
         ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                      ax = ax,
-                                                      linestyle="solid",
-                                                      plot_validation = False, 
-                                                      plot_labels = True,
-                                                      plot_legend = False)
+                                                        ax = ax,
+                                                        linestyle="solid",
+                                                        plot_validation = False, 
+                                                        plot_labels = True,
+                                                        plot_legend = False)
     ax.legend(labels=list(range(training_info.AR_iterations + 1)), title="AR iteration", loc='upper right')
     plt.gca().set_prop_cycle(None) # Reset color cycling 
     for AR_iteration in range(training_info.AR_iterations+1):
         ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                      ax = ax,
-                                                      linestyle="dashed",
-                                                      plot_training = False, 
-                                                      plot_labels = False,
-                                                      plot_legend = False)  
+                                                        ax = ax,
+                                                        linestyle="dashed",
+                                                        plot_training = False, 
+                                                        plot_labels = False,
+                                                        plot_legend = False)  
     # - Add vertical line when AR iteration is added
     iterations_of_AR_updates = training_info.iterations_of_AR_updates()
     if len(iterations_of_AR_updates) > 0: 
@@ -398,6 +415,8 @@ def main(cfg_path, exp_dir, data_dir):
     
     ##-------------------------------------------------------------------------.
     ### - Create predictions 
+    print("Out: {:.2f} MB".format(torch.cuda.memory_allocated()/1000/1000)) 
+    print(" - Running predictions")
     forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
     dask.config.set(scheduler='synchronous')
     ds_forecasts = AutoregressivePredictions(model = model, 
@@ -408,7 +427,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              scaler = scaler,
                                              # Dataloader options
                                              device = device,
-                                             batch_size = training_settings["validation_batch_size"],  # number of forecasts per batch
+                                             batch_size = 100,  # number of forecasts per batch
                                              num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
                                              prefetch_factor = dataloader_settings['prefetch_factor'], 
@@ -472,6 +491,6 @@ if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
 
     data_dir = "/data/weather_prediction/data"
-    exp_dir = "/data/weather_prediction/experiments"
+    exp_dir = "/data/weather_prediction/experiments_GG"
 
     main(args.config_file, exp_dir, data_dir)
