@@ -554,11 +554,14 @@ def get_AR_batch(AR_iteration,
     i = AR_iteration
     ##------------------------------------------------------------------------.
     # Get dimension info 
-    # batch_dim = batch_dict['dim_info']['sample']  
-    # node_dim = batch_dict['dim_info']['node']  
-    time_dim = batch_dict['dim_info']['time']  
-    feature_dim = batch_dict['dim_info']['feature']  
+    dim_info = batch_dict['dim_info']
+    n_dims = len(dim_info)   
+    time_dim = dim_info['time']  
+    feature_dim = dim_info['feature']  
+    # batch_dim = dim_info['sample']  
+    # node_dim = dim_info['node']  
  
+   
     ##------------------------------------------------------------------------.
     ## Get dictionary with batched data for all forecast iterations 
     torch_static = batch_dict['X_static']
@@ -609,13 +612,13 @@ def get_AR_batch(AR_iteration,
         # The loop below allow to generalize the stacking to whatever time_dim position  
         # list_Y_to_stack = [dict_Y_predicted[ldt][:,idx,...] for ldt, idx in list_tuple_idx_to_stack]
         # --> Maybe one day: torch.isel({dim_name: idx}) à la xarray
-        general_index = [slice(None) for i in range(len(torch_Y.shape))]
+        general_index = [slice(None) for i in range(n_dims)]
         list_Y_to_stack = []
         for ldt, idx in list_tuple_idx_to_stack:
             custom_idx = general_index.copy()
             custom_idx[time_dim] = idx
             list_Y_to_stack.append(dict_Y_predicted[ldt][custom_idx])  
-            
+ 
         torch_X_to_stack = torch.stack(list_Y_to_stack, dim=time_dim)  
         if torch_X is not None:
             torch_X = torch.cat((torch_X, torch_X_to_stack), dim=time_dim)

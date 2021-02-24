@@ -8,6 +8,7 @@ Created on Wed Feb  3 17:53:55 2021
 import torch 
 import random
 import numpy as np 
+import time
 
 def check_torch_device(device):
     """Check torch device validity."""

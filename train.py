@@ -415,7 +415,7 @@ def main(cfg_path, exp_dir, data_dir):
     
     ##-------------------------------------------------------------------------.
     ### - Create predictions 
-    print("Out: {:.2f} MB".format(torch.cuda.memory_allocated()/1000/1000)) 
+    print("====================================================================")
     print(" - Running predictions")
     forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
     dask.config.set(scheduler='synchronous')

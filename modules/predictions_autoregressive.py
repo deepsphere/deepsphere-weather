@@ -443,17 +443,15 @@ def AutoregressivePredictions(model,
                                           device = device, 
                                           asyncronous_GPU_transfer = asyncronous_GPU_transfer,
                                           training_mode=False)
-                print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                 ##------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
                 dict_Y_predicted[i] = model(torch_X)
-                print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                 ##------------------------------------------------------------.
                 # Remove unnecessary variables 
-                # --> TODO: maybe pass to CPU?  and remove unused? 
-                torch.cuda.synchronize()
+                # --> TODO: pass to CPU? Add remove_unused from GPU? 
+                # torch.cuda.synchronize()
                 del torch_X
-                print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
+                # print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                 
             ##----------------------------------------------------------------.
             # Retrieve forecast informations 
@@ -487,7 +485,6 @@ def AutoregressivePredictions(model,
             # Remove unused tensors 
             del dict_Y_predicted
        
-
             ##----------------------------------------------------------------.
             ### Create xarray Dataset of forecasts
             # - Retrieve coords 

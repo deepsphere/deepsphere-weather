@@ -230,10 +230,8 @@ class AR_TrainingInfo():
     ##------------------------------------------------------------------------.
     def print_epoch_info(self):
         """Print training info at the end of an epoch."""
-        print("Loss vector")
-        print(self.start_epoch_iteration)
-        print(self.training_total_loss[self.start_epoch_scoring_idx:])  
         avg_training_loss = np.mean(self.training_total_loss[self.start_epoch_scoring_idx:])
+        print(" ")
         print("- Epoch: {epoch:3d}/{n_epoch:3d}".format(epoch = self.epoch, n_epoch = self.n_epochs))
         print("- Training loss: {training_total_loss:.3f}".format(training_total_loss=avg_training_loss))
         # If validation data are provided

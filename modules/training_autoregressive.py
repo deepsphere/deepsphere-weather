@@ -300,9 +300,9 @@ def timing_AR_Training(dataset,
                           ])
         print(tabulate(table, headers=headers))   
         if device.type != 'cpu':
-            print("Model parameters requires {:.2f} MB in GPU".format(memory_info['Model parameters']))                     
-            print("A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU".format(batch_size, AR_iterations, memory_info['Batch']))
-            print("The model require allocation of {:.2f} MB in GPU during the forwar pass".format(memory_info['Forward pass']))    
+            print("- Model parameters requires {:.2f} MB in GPU".format(memory_info['Model parameters']))                     
+            print("- A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU".format(batch_size, AR_iterations, memory_info['Batch']))
+            print("- The model require allocation of {:.2f} MB in GPU during the forwar pass".format(memory_info['Forward pass']))    
     ##------------------------------------------------------------------------.    
     # Reactivate gradient computations 
     torch.set_grad_enabled(True)
@@ -434,9 +434,9 @@ def tune_num_workers(dataset,
         print(tabulate(table, headers=headers)) 
         if dataset.device.type != 'cpu':
             memory_info = Memory_Info[optimal_num_workers]
-            print("Model parameters requires {:.2f} MB in GPU".format(memory_info['Model parameters']))                     
-            print("A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU".format(batch_size, dataset.AR_iterations, memory_info['Batch']))
-            print("The model require allocation of {:.2f} MB in GPU during the forward pass".format(memory_info['Forward pass']))    
+            print("- Model parameters requires {:.2f} MB in GPU.".format(memory_info['Model parameters']))                     
+            print("- A batch with {} samples for {} AR iterations allocate {:.2f} MB in GPU.".format(batch_size, dataset.AR_iterations, memory_info['Batch']))
+            print("- The model require allocation of {:.2f} MB in GPU during the forward pass.".format(memory_info['Forward pass']))    
     ##------------------------------------------------------------------------.
     return optimal_num_workers
         
@@ -691,12 +691,6 @@ def AutoregressiveTraining(model,
                                                        Y_obs = torch_Y,
                                                        dim_names = dim_names)
                 dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
-
-                ##------------------------------------------------------------.
-                # Detach graph from Y 
-                # print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000))
-                # dict_training_Y_predicted[i] = dict_training_Y_predicted[i].detach()  
-                # print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                                                 
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
@@ -836,10 +830,12 @@ def AutoregressiveTraining(model,
                         # Reset early stopping 
                         early_stopping.reset()
                         # Print info
-                        current_training_info = "(epoch: {}, iteration: {}, total_iteration: {})".format(training_info.current_epoch, 
-                                                                                                         training_info.current_epoch_iteration,
+                        current_training_info = "(epoch: {}, iteration: {}, total_iteration: {})".format(training_info.epoch, 
+                                                                                                         training_info.epoch_iteration,
                                                                                                          training_info.iteration)
-                        print("  --> Updating training to {} AR iterations {}.".format(AR_scheduler.current_AR_iterations, current_training_info))
+                        print("") 
+                        print("=========================================================================================")
+                        print("- Updating training to {} AR iterations {}.".format(AR_scheduler.current_AR_iterations, current_training_info))
                         ##----------------------------------------------------.           
                         # Update Datasets (to prefetch the correct amount of data)
                         # - Training
@@ -851,7 +847,8 @@ def AutoregressiveTraining(model,
                             validationDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
                         ##----------------------------------------------------.                              
                         ## Time execution         
-                        # - Time AR training    
+                        # - Time AR training  
+                        print("")  
                         print("- Timing AR training with {} AR iterations:".format(trainingDataset.AR_iterations))
                         training_num_workers = tune_num_workers(dataset = trainingDataset,
                                                                 model = model, 
@@ -868,10 +865,10 @@ def AutoregressiveTraining(model,
                                                                 training_mode = True, 
                                                                 n_repetitions = 5,
                                                                 verbose = True)
-                        print('  --> Selecting num_workers={} for TrainingDataLoader.'.format(training_num_workers))
+                        print('--> Selecting num_workers={} for TrainingDataLoader.'.format(training_num_workers))
                         # - Time AR validation 
                         if validationDataset is not None: 
-                            print()
+                            print("")
                             print("- Timing AR validation with {} AR iterations:".format(validationDataset.AR_iterations))
                             validation_num_workers = tune_num_workers(dataset = validationDataset,
                                                                       model = model, 
@@ -888,7 +885,7 @@ def AutoregressiveTraining(model,
                                                                       training_mode = False, 
                                                                       n_repetitions = 5,
                                                                       verbose = True)
-                            print('  --> Selecting num_workers={} for ValidationDataLoader.'.format(validation_num_workers))
+                            print('--> Selecting num_workers={} for ValidationDataLoader.'.format(validation_num_workers))
                         ##----------------------------------------------------------------.
                         # Update DataLoaders (to prefetch the correct amount of data)
                         trainingDataLoader = AutoregressiveDataLoader(dataset = trainingDataset,                                                   
@@ -940,7 +937,10 @@ def AutoregressiveTraining(model,
       
     ##------------------------------------------------------------------------.
     # Save final model
-    print("Saving model to {}".format(model_fpath)) 
+    print(" ")
+    print("=========================================================================================")
+    print("- Training ended !")
+    print("- Saving model to {}".format(model_fpath)) 
     torch.save(model.state_dict(), f=model_fpath)    
     ##-------------------------------------------------------------------------.
     # Return training info object 
