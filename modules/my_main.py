@@ -27,7 +27,7 @@ from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
 # from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
-from modules.utils_config import pytorch_settings
+from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
@@ -266,7 +266,7 @@ dataloader_settings = get_dataloader_settings(cfg)
 
 ##------------------------------------------------------------------------.
 ### Define pyTorch settings and get pytorch device 
-device = pytorch_settings(training_settings)
+device = set_pytorch_settings(training_settings)
 
 ##------------------------------------------------------------------------.
 ## Retrieve dimension info of input-output Torch Tensors

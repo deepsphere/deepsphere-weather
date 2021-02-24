@@ -13,6 +13,7 @@ import shutil
 import numpy as np
 
 from modules.utils_torch import set_pytorch_deterministic
+from modules.utils_torch import set_pytorch_numeric_precision
 #-----------------------------------------------------------------------------.
 ########################
 ### Default settings ###
@@ -311,9 +312,7 @@ def load_pretrained_model(model, exp_dir, model_name):
 ######################### 
 ### Pytorch settings ####
 #########################
-# TODO set_numeric_precision 
-
-def pytorch_settings(training_settings):
+def set_pytorch_settings(training_settings):
     """Set training options with pytorch."""
     # Retrieve pytorch settings options
     deterministic_training = training_settings['deterministic_training'] 
@@ -321,6 +320,7 @@ def pytorch_settings(training_settings):
     benchmark_cuDNN = training_settings['benchmark_cuDNN'] 
     GPU_training = training_settings['GPU_training'] 
     GPU_devices_ids = training_settings['GPU_devices_ids']     
+    numeric_precision = training_settings['numeric_precision']
     ##------------------------------------------------------------------------.
     # Set options for deterministic training 
     if deterministic_training:
@@ -346,6 +346,13 @@ def pytorch_settings(training_settings):
             device = torch.device('cpu')
     else:
         device = torch.device('cpu')   
+
+    #------------------------------------------------------------------------.
+    # Set numeric precision 
+    set_pytorch_numeric_precision(numeric_precision=numeric_precision, device=device)
+
+    #------------------------------------------------------------------------.
+    # Return the torch device 
     return device
 
 #-----------------------------------------------------------------------------.

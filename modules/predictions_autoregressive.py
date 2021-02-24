@@ -25,7 +25,7 @@ from modules.utils_autoregressive import check_AR_settings
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_io import check_AR_DataArrays
-from modules.utils_torch import check_torch_device
+from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_GPU_transfer
 from modules.utils_torch import check_prefetch_in_GPU
@@ -318,7 +318,7 @@ def AutoregressivePredictions(model,
     # Work only if output_k are not replicated and are already time-ordered  !
     ##------------------------------------------------------------------------.
     ## Checks arguments 
-    device = check_torch_device(device)
+    device = check_device(device)
     pin_memory = check_pin_memory(pin_memory=pin_memory, num_workers=num_workers, device=device)  
     asyncronous_GPU_transfer = check_asyncronous_GPU_transfer(asyncronous_GPU_transfer=asyncronous_GPU_transfer, device=device) 
     prefetch_in_GPU = check_prefetch_in_GPU(prefetch_in_GPU=prefetch_in_GPU, num_workers=num_workers, device=device) 

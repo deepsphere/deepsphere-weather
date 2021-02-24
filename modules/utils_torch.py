@@ -12,14 +12,12 @@ import torch
 import torch.autograd.profiler as profiler
 import numpy as np 
 from collections import OrderedDict
-## TODO:
-# check torch device --> check_device
 #-----------------------------------------------------------------------------.
 # ###############
 #### Checks  ####
 # ###############
 
-def check_torch_device(device):
+def check_device(device):
     """Check torch device validity."""
     if isinstance(device, str): 
         device = torch.device(device)
@@ -100,7 +98,7 @@ def get_torch_dtype(numeric_precision):
 
 def get_torch_tensor_type(numeric_precision, device):
     """Provide torch tensor type based on numeric precision string."""
-    device = check_torch_device(device)
+    device = check_device(device)
     if device.type == 'cpu':
         tensor_types = {'float64': torch.DoubleTensor,
                         'float32': torch.FloatTensor,
@@ -123,7 +121,7 @@ def torch_tensor_type_2_dtype(tensor_type):
 
 def torch_dtype_2_tensor_type(dtype, device):
     """Conversion from torch.dtype to torch tensor type."""
-    device = check_torch_device(device)
+    device = check_device(device)
     if not isinstance(dtype, type(torch.float32)):
         raise TypeError("Expect a torch.dtype.")
     # Get the string 
@@ -218,7 +216,7 @@ def summary_string(model, input_size, batch_size=32, dtypes=None, device=torch.d
     """Create model summary string."""
     ##------------------------------------------------------------------------.
     # Check device 
-    device = check_torch_device(device)
+    device = check_device(device)
     ##------------------------------------------------------------------------.
     # Check input size 
     # - List of tuples (to deal with multiple input tensors)
@@ -400,7 +398,7 @@ def profile_model(model, input_size, batch_size, device='cpu', dtypes=None, row_
     """
     ##------------------------------------------------------------------------.
     # Check device 
-    device = check_torch_device(device)
+    device = check_device(device)
     ##------------------------------------------------------------------------.
     # Check input size 
     # - List of tuples (to deal with multiple input tensors)

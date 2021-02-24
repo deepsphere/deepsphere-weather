@@ -22,7 +22,7 @@ from modules.utils_autoregressive import check_AR_settings
 from modules.utils_io import is_dask_DataArray
 from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import get_torch_dtype
-from modules.utils_torch import check_torch_device
+from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_GPU_transfer
 from modules.utils_torch import check_prefetch_in_GPU
@@ -102,7 +102,7 @@ class AutoregressiveDataset(Dataset):
                             da_training_bc = da_bc,
                             da_static = da_static) 
         # Checks device
-        device = check_torch_device(device)
+        device = check_device(device)
         self.device = device
         ## -------------------------------------------------------------------.
         ### - Initialize autoregressive configs   
@@ -497,12 +497,12 @@ def AutoregressiveDataLoader(dataset,
     """
     ##------------------------------------------------------------------------.
     ## Checks 
-    device = check_torch_device(device)
+    device = check_device(device)
     pin_memory = check_pin_memory(pin_memory=pin_memory, num_workers=num_workers, device=device)  
     asyncronous_GPU_transfer = check_asyncronous_GPU_transfer(asyncronous_GPU_transfer=asyncronous_GPU_transfer, device=device) 
     prefetch_in_GPU = check_prefetch_in_GPU(prefetch_in_GPU=prefetch_in_GPU, num_workers=num_workers, device=device) 
     prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
-    device = check_torch_device(device)
+    device = check_device(device)
     
     ##------------------------------------------------------------------------. 
     # Retrieve dimension info dictiorary from Dataset 

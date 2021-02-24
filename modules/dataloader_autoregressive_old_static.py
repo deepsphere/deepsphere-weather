@@ -23,7 +23,7 @@ from modules.utils_autoregressive import check_AR_settings
 from modules.utils_io import is_dask_DataArray
 from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import get_torch_dtype
-from modules.utils_torch import check_torch_device
+from modules.utils_torch import check_device
 ##----------------------------------------------------------------------------.
 # TODO DataLoader Options    
 # - sampler                    # Provide this option? To generalize outside batch samples?  
@@ -99,7 +99,7 @@ class AutoregressiveDataset(Dataset):
                             da_training_bc = da_bc,
                             da_static = da_static) 
         # Checks device
-        device = check_torch_device(device)
+        device = check_device(device)
         self.device = device
         ## -------------------------------------------------------------------.
         ### - Initialize autoregressive configs   
@@ -495,7 +495,7 @@ def AutoregressiveDataLoader(dataset,
     """
     ##------------------------------------------------------------------------.
     ## Checks 
-    device = check_torch_device(device)
+    device = check_device(device)
     if device.type == 'cpu':
         if pin_memory:
             pin_memory = False
