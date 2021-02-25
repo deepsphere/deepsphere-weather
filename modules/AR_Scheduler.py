@@ -337,6 +337,8 @@ def plot_AR_scheduler(AR_scheduler,
                       plot_normalized_AR_weights=True):
     dict_AR_weights = {}
     dict_AR_absolute_weights = {}
+    n_initial_AR_weights = len(AR_scheduler.AR_weights)
+    n_final_AR_weights = n_initial_AR_weights + n_updates
     count = 0
     for i in range(n_updates):
         for j in range(update_every):
@@ -360,7 +362,7 @@ def plot_AR_scheduler(AR_scheduler,
         
     for arr in dict_AR_absolute_weights.values():
         tmp_max_AR_iterations = arr.shape[0] - 1
-        for ld in range(n_updates):
+        for ld in range(n_final_AR_weights):
             if ld <= tmp_max_AR_iterations:
                 dict_AR_weights_leadtimes[ld]['AR_absolute_weights'] = np.append(dict_AR_weights_leadtimes[ld]['AR_absolute_weights'], arr[ld])                
             else: 
@@ -368,7 +370,7 @@ def plot_AR_scheduler(AR_scheduler,
     
     for arr in dict_AR_weights.values():
         tmp_max_AR_iterations = arr.shape[0] - 1
-        for ld in range(n_updates):
+        for ld in range(n_final_AR_weights):
             if ld <= tmp_max_AR_iterations:
                 dict_AR_weights_leadtimes[ld]['AR_weights'] = np.append(dict_AR_weights_leadtimes[ld]['AR_weights'], arr[ld])                
             else: 
@@ -376,11 +378,12 @@ def plot_AR_scheduler(AR_scheduler,
      
     ### Visualize AR weights 
     if plot_absolute_AR_weights:    
-        for ld in range(n_updates):
+        for ld in range(n_final_AR_weights):
             plt.plot(dict_AR_weights_leadtimes[ld]['iter'],
                      dict_AR_weights_leadtimes[ld]['AR_absolute_weights'],
                      marker='.')
-        plt.title("Absolute AR weights ({})".format(method))  
+        plt.title("Absolute AR weights ({})".format(method)) 
+        leg = ax.legend(loc='upper right') 
         plt.show()
     if plot_normalized_AR_weights:        
         for ld in range(n_updates):
