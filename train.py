@@ -284,11 +284,11 @@ def main(cfg_path, exp_dir, data_dir):
     ### - Define AR_Weights_Scheduler 
     AR_scheduler = AR_Scheduler(method = "LinearStep",
                                 factor = 0.0005,
-                                initial_AR_weights = [1])   
+                                initial_AR_absolute_weights = [10, 5,0.1,0.1]) # [1] 
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 200
+    patience = 1000
     minimum_iterations = 2000
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
@@ -369,6 +369,8 @@ def main(cfg_path, exp_dir, data_dir):
                                            device = device)
     
     # Save AR TrainingInfo
+    print("========================================================================================")
+    print("- Saving training information")
     with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
         pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
@@ -379,28 +381,37 @@ def main(cfg_path, exp_dir, data_dir):
   
     ##------------------------------------------------------------------------.
     ### Create plots related to training evolution  
+    ### Create plots related to training evolution  
+    print("========================================================================================")
+    print("- Creating plots to investigate training evolution")
     ## - Plot the loss at all AR iterations (in one figure)
     fig, ax = plt.subplots()
     for AR_iteration in range(training_info.AR_iterations+1):
         ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                        ax = ax,
-                                                        linestyle="solid",
-                                                        plot_validation = False, 
-                                                        plot_labels = True,
-                                                        plot_legend = False)
+                                                      ax = ax,
+                                                      linestyle="solid",
+                                                      linewidth=0.1,
+                                                      ylim = (0,0.08),
+                                                      plot_validation = False, 
+                                                      plot_labels = True,
+                                                      plot_legend = False)
     ax.legend(labels=list(range(training_info.AR_iterations + 1)), title="AR iteration", loc='upper right')
     plt.gca().set_prop_cycle(None) # Reset color cycling 
     for AR_iteration in range(training_info.AR_iterations+1):
         ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                        ax = ax,
-                                                        linestyle="dashed",
-                                                        plot_training = False, 
-                                                        plot_labels = False,
-                                                        plot_legend = False)  
+                                                      ax = ax,
+                                                      linestyle="dashed",
+                                                      linewidth=0.1,
+                                                      ylim = (0,0.08),
+                                                      plot_training = False, 
+                                                      plot_labels = False,
+                                                      plot_legend = False)  
     # - Add vertical line when AR iteration is added
     iterations_of_AR_updates = training_info.iterations_of_AR_updates()
     if len(iterations_of_AR_updates) > 0: 
         [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+    # - Add title 
+    ax.set_title("Loss evolution at each AR iteration")
     # - Save figure
     fig.savefig(os.path.join(exp_dir, "figs/training_info/Loss_at_all_AR_iterations.png"))    
     ##------------------------------------------------------------------------.   
@@ -408,12 +419,14 @@ def main(cfg_path, exp_dir, data_dir):
     for AR_iteration in range(training_info.AR_iterations+1):
         fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
         training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
+                                                 linewidth=0.1,
+                                                 ylim = (0,0.08),
                                                  title="Loss evolution at AR iteration {}".format(AR_iteration)).savefig(fname) 
-    
+
     ##------------------------------------------------------------------------.
     ## - Plot total loss 
-    training_info.plot_total_loss().savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
-    
+    training_info.plot_total_loss(ylim = (0,0.08),linewidth=0.1).savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
+
     ##------------------------------------------------------------------------.
     ## - Plot AR weights  
     training_info.plot_AR_weights(normalized=True).savefig(os.path.join(exp_dir, "figs/training_info/AR_Normalized_Weights.png"))

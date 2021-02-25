@@ -482,6 +482,7 @@ def AutoregressiveTraining(model,
                            device = 'cpu'):
     """AutoregressiveTraining."""
     ##------------------------------------------------------------------------.
+    time_start_training = time.time()
     ## Checks arguments 
     device = check_device(device)
     pin_memory = check_pin_memory(pin_memory=pin_memory, num_workers=num_workers, device=device)  
@@ -939,6 +940,7 @@ def AutoregressiveTraining(model,
     print(" ")
     print("========================================================================================")
     print("- Training ended !")
+    print("- Total elapsed time: {} minutes.", format(time.time()-time_start_training))
     print("- Saving model to {}".format(model_fpath)) 
     torch.save(model.state_dict(), f=model_fpath)    
     ##-------------------------------------------------------------------------.

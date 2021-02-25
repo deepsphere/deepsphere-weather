@@ -27,6 +27,7 @@ def plot_loss(iterations,
               plot_labels = True,
               plot_legend = True, 
               linestyle = "solid",
+              linewidth = 0.1,
               xlim=None, ylim=None, 
               ax=None):
     """Plot the loss evolution as function of training iterations."""
@@ -68,9 +69,9 @@ def plot_loss(iterations,
     ##------------------------------------------------------------------------.
     # Plot loss evolution 
     if training_loss is not None:
-        ax.plot(iterations, training_loss, linestyle=linestyle)
+        ax.plot(iterations, training_loss, linestyle=linestyle, linewidth=linewidth)
     if validation_loss is not None:
-        ax.plot(iterations, validation_loss, linestyle=linestyle)
+        ax.plot(iterations, validation_loss, linestyle=linestyle, linewidth=linewidth)
     ##------------------------------------------------------------------------.
     # Plot legend 
     if plot_legend: 
@@ -170,6 +171,7 @@ class AR_TrainingInfo():
         self.epoch_iteration = 0
         self.epoch = self.epoch + 1
         self.epoch_time_start = time.time()
+        print("")
         print('- Starting training epoch : {}'.format(self.epoch))    
         
     ##------------------------------------------------------------------------.    
@@ -179,8 +181,8 @@ class AR_TrainingInfo():
         """Update training info statistics."""
         # Retrieve current number of AR iterations 
         current_AR_iterations = len(dict_loss_per_AR_iteration) - 1        
-        
-        # Update the iteration_list recording when the update occurs
+        self.AR_iterations = current_AR_iterations
+        # Update the iteration_list recording when the updaitte occurs
         self.iteration_list.append(self.iteration)
               
         # Update training_total_loss 
@@ -244,8 +246,9 @@ class AR_TrainingInfo():
     def iterations_of_AR_updates(self):
         """Return iterations at which the number of AR iterations has been increased."""
         iter_AR_update = [self.AR_weights_per_AR_iteration[i]['iteration'][0] for i in range(self.AR_iterations+1)]
-        # Remove iteration 1
-        iter_AR_update = np.array(iter_AR_update)[np.isin(iter_AR_update, [1], invert=True)].tolist()
+        # Remove first scoring iteration 
+        iter_AR_update = np.array(iter_AR_update)
+        iter_AR_update = iter_AR_update[iter_AR_update > self.score_interval].tolist()
         return iter_AR_update
     
     ##------------------------------------------------------------------------.
@@ -257,6 +260,7 @@ class AR_TrainingInfo():
                                    plot_labels = True,
                                    plot_legend = True, 
                                    linestyle = "solid", 
+                                   linewidth = 0.1, 
                                    xlim=None, ylim=None, 
                                    ax=None):
         """
@@ -331,6 +335,7 @@ class AR_TrainingInfo():
                        plot_labels = plot_labels,
                        plot_legend = plot_legend, 
                        linestyle = linestyle, 
+                       linewidth = linewidth,
                        xlim=xlim, ylim=ylim, 
                        ax=ax)
         ##--------------------------------------------------------------------.
@@ -352,6 +357,7 @@ class AR_TrainingInfo():
                         plot_labels = True,
                         plot_legend = True, 
                         linestyle = "solid", 
+                        linewidth = 0.1, 
                         xlim=None, ylim=None, 
                         ax=None):
         """
@@ -395,6 +401,7 @@ class AR_TrainingInfo():
                        plot_labels = plot_labels,
                        plot_legend = plot_legend, 
                        linestyle = linestyle, 
+                       linewidth = linewidth,
                        xlim=xlim, ylim=ylim, 
                        ax=ax)
         ##--------------------------------------------------------------------.  
