@@ -38,7 +38,7 @@ from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
 from modules.predictions_autoregressive import reshape_forecasts_for_verification
-
+from modules.utils_torch import summarize_model
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
 
@@ -304,6 +304,11 @@ if model_settings['pretrained_model_name'] is not None:
 ### Transfer model to GPU 
 model = model.to(device)
 
+profiling_info = summarize_model(model=model, 
+                                 input_size=dim_info['input_shape'],  
+                                 batch_size=training_settings["training_batch_size"], 
+                                 device=device)
+    
 ###-----------------------------------------------------------------------.
 # DataParallel training option on multiple GPUs
 if training_settings['DataParallel_training'] is True:

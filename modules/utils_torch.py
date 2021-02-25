@@ -12,6 +12,25 @@ import torch
 import torch.autograd.profiler as profiler
 import numpy as np 
 from collections import OrderedDict
+from tabulate import tabulate
+import pandas as pd 
+#-----------------------------------------------------------------------------.
+# ####################
+#### Timing utils ####
+# ####################
+def get_synchronized_cuda_time():
+    """Get time after CUDA synchronization.""" 
+    torch.cuda.synchronize()
+    return time.time()
+
+def get_time_function(device):
+    """General function returing a time() function.""" 
+    if isinstance(device, str): 
+        device = torch.device(device)
+    if device.type == "cpu":
+        return time.time
+    else:
+        return get_synchronized_cuda_time
 #-----------------------------------------------------------------------------.
 # ###############
 #### Checks  ####
@@ -158,24 +177,6 @@ def set_pytorch_numeric_precision(numeric_precision, device):
     dtype = get_torch_dtype(numeric_precision)
     torch.set_default_tensor_type(tensor_type) 
     torch.set_default_dtype(dtype)
- 
-#-----------------------------------------------------------------------------.
-# ####################
-#### Timing utils ####
-# ####################
-def get_synchronized_cuda_time():
-    """Get time after CUDA synchronization.""" 
-    torch.cuda.synchronize()
-    return time.time()
-
-def get_time_function(device):
-    """General function returing a time() function.""" 
-    if isinstance(device, str): 
-        device = torch.device(device)
-    if device.type == "cpu":
-        return time.time
-    else:
-        return get_synchronized_cuda_time
     
 #----------------------------------------------------------------------------.
 ############################
@@ -185,10 +186,86 @@ def get_time_function(device):
 # - check dtype validity more robust 
 # - check input size tuple values are positive integers
 
-def summarize_model(model, input_size, batch_size=32, dtypes=None, device=torch.device('cpu')):
-    """Print a summary of pytorch model structure and memory requirements.
+### Define hook for shape, parameter, memory and timing information
+def _generate_forward_hook(handle, summary_forward, m_key):
+    def forward_hook(module, input, output):
+        # register_forward_hook
+        # - The hook will be called every time after :func:`forward` has computed an output
+        # - hook(module, input, output)
+        #-----------------------------------------------------------------.
+        # Get device 
+        device = input[0].device
+        
+        #-----------------------------------------------------------------.
+        # Initialize dicionary 
+        summary_forward[m_key] = OrderedDict()
+        
+        ##----------------------------------------------------------------.
+        # Time execution
+        get_time = get_time_function(device)
+        summary_forward[m_key]['time'] = get_time()
+        
+        ##----------------------------------------------------------------.
+        # Measure memory allocation           
+        if device.type != 'cpu':
+            summary_forward[m_key]["memory_allocated"] = torch.cuda.memory_allocated()/1000/1000
+            summary_forward[m_key]["memory_cached"] = torch.cuda.memory_cached()/1000/1000
+           
+        ##----------------------------------------------------------------.
+        # Determine shape 
+        batch_size = len(input)
+        summary_forward[m_key]["input_shape"] = list(input[0].size())
+        summary_forward[m_key]["input_shape"][0] = batch_size
+        if isinstance(output, (list, tuple)):
+            summary_forward[m_key]["output_shape"] = [list(o.size()) for o in output]
+        else:
+            summary_forward[m_key]["output_shape"] = list(output.size())
+            #summary_forward[m_key]["output_shape"][0] = batch_size
+        ##----------------------------------------------------------------.
+        # Determine params 
+        params = 0
+        if hasattr(module, "weight") and hasattr(module.weight, "size"):
+            params += torch.prod(torch.LongTensor(list(module.weight.size())))
+            summary_forward[m_key]["trainable"] = module.weight.requires_grad
+        if hasattr(module, "bias") and hasattr(module.bias, "size"):
+            params += torch.prod(torch.LongTensor(list(module.bias.size())))
+        if not isinstance(params, int):
+            params = params.item()
+        summary_forward[m_key]["nb_params"] = params 
+        
+    return forward_hook
+
+def _generate_forward_pre_hook(handle, summary_pre_forward, m_key):
+    def forward_pre_hook(module, input):
+        # register_forward_pre_hook
+        # - hook is called every time before :func:`forward` is invoked.
+        # - hook(module, input)
+        #-----------------------------------------------------------------.
+        # Get device 
+        device = input[0].device
+        
+        #-----------------------------------------------------------------.
+        # Initialize dicionary 
+        summary_pre_forward[m_key] = OrderedDict()
+        
+        ##----------------------------------------------------------------.
+        # Time execution
+        get_time = get_time_function(device)
+        summary_pre_forward[m_key]['time'] = get_time()
+        
+        ##----------------------------------------------------------------.
+        # Measure memory allocation
+        if device.type != 'cpu':
+            summary_pre_forward[m_key]["memory_allocated"] = torch.cuda.memory_allocated()/1000/1000
+            summary_pre_forward[m_key]["memory_cached"] = torch.cuda.memory_cached()/1000/1000
+            
+    return forward_pre_hook
     
-    Originally inspired from https://github.com/sksq96/pytorch-summary
+def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.device('cpu')):
+    """Profile model execution time and memory consumption of each trainable layer.
+    
+    Originally inspired from https://github.com/sksq96/pytorch-summary and
+    https://www.sicara.ai/blog/2019-28-10-deep-learning-memory-usage-and-pytorch-optimization-tricks post.
     
     Parameters
     ----------
@@ -203,17 +280,17 @@ def summarize_model(model, input_size, batch_size=32, dtypes=None, device=torch.
         If set to None (and by default), it uses the default torch type. 
     device : str or torch.device, optional
         The torch device to use. The default is torch.device('cpu').
-    """
-    tmp_model = copy.deepcopy(model)
-    result, params_info = summary_string(model=tmp_model,
-                                         input_size=input_size,
-                                         batch_size=batch_size, 
-                                         device=device,
-                                         dtypes=dtypes)
-    print(result)
+    
+    Returns
+    -------
+    table : str
+        A tabulate string summarizing profiling results.
+    summary_str : str
+        String summarizing model information.
+    summary : dict
+        Dictionary with profiling information of each model layer.
 
-def summary_string(model, input_size, batch_size=32, dtypes=None, device=torch.device('cpu')):
-    """Create model summary string."""
+    """
     ##------------------------------------------------------------------------.
     # Check device 
     device = check_device(device)
@@ -245,42 +322,9 @@ def summary_string(model, input_size, batch_size=32, dtypes=None, device=torch.d
     # Retrieve timing function (for cpu and CUDA)
     get_time = get_time_function(device)
     ##------------------------------------------------------------------------.
-    # Initialize summary string 
-    summary_str = ''
-    ##------------------------------------------------------------------------.
-    ### Define hook (nested definition)
-    
-    def register_hook(module):
-        def hook(module, input, output):
-            class_name = str(module.__class__).split(".")[-1].split("'")[0]
-            module_idx = len(summary)
-
-            m_key = "%s-%i" % (class_name, module_idx + 1)
-            summary[m_key] = OrderedDict()
-            summary[m_key]["input_shape"] = list(input[0].size())
-            summary[m_key]["input_shape"][0] = batch_size
-            if isinstance(output, (list, tuple)):
-                summary[m_key]["output_shape"] = [
-                    [-1] + list(o.size())[1:] for o in output
-                ]
-            else:
-                summary[m_key]["output_shape"] = list(output.size())
-                summary[m_key]["output_shape"][0] = batch_size
-
-            params = 0
-            if hasattr(module, "weight") and hasattr(module.weight, "size"):
-                params += torch.prod(torch.LongTensor(list(module.weight.size())))
-                summary[m_key]["trainable"] = module.weight.requires_grad
-            if hasattr(module, "bias") and hasattr(module.bias, "size"):
-                params += torch.prod(torch.LongTensor(list(module.bias.size())))
-            summary[m_key]["nb_params"] = params
-
-        if not (isinstance(module, torch.nn.Sequential) and not isinstance(module, torch.nn.ModuleList)):
-            hooks.append(module.register_forward_hook(hook))
-            
-    ##------------------------------------------------------------------------.
     # Record how many memory is already taken in GPU (model params + ....)
     if device.type != 'cpu':
+        torch.cuda.empty_cache()
         already_allocated = torch.cuda.memory_allocated()/1000/1000
     ##------------------------------------------------------------------------.
     # Create the list of input tensors   
@@ -288,7 +332,7 @@ def summary_string(model, input_size, batch_size=32, dtypes=None, device=torch.d
          for in_size, dtype in zip(input_size, dtypes)]
     
     ##------------------------------------------------------------------------.
-    ### Profile memory (if CUDA)
+    ### Profile time (and memory if CUDA) of the entire forward pass 
     if device.type != 'cpu':
         batch_memory = torch.cuda.memory_allocated()/1000/1000 - already_allocated
         t_i = get_time()
@@ -299,54 +343,114 @@ def summary_string(model, input_size, batch_size=32, dtypes=None, device=torch.d
         t_i = get_time()
         output = model(*x)
         forward_time = get_time() - t_i
+    ##------------------------------------------------------------------------.    
+    # Free the memory
     del output 
+    if device.type != 'cpu':
+        torch.cuda.empty_cache()
     ##------------------------------------------------------------------------.
-    # Create properties
-    summary = OrderedDict()
+    # Initialize dictionary to store module properties (params, shape, memory, time)
+    summary_forward = {}
+    summary_pre_forward = {}
     hooks = []
-
+    ##------------------------------------------------------------------------.
     # Register the hook
-    model.apply(register_hook)
-
+    # - Applies register_hook recursively to every submodule
+    for idx, module in enumerate(model.modules()):
+        if not (isinstance(module, torch.nn.Sequential) and not isinstance(module, torch.nn.ModuleList)):
+            # Define dictionary key name
+            class_name = module.__class__.__name__ # str(module.__class__).split(".")[-1].split("'")[0]
+            m_key = "%s-%i" % (class_name, idx)
+            h = module.register_forward_pre_hook( _generate_forward_pre_hook(hooks, 
+                                                                             summary_pre_forward=summary_pre_forward,
+                                                                             m_key=m_key))      
+            hooks.append(h)
+            h = module.register_forward_hook(_generate_forward_hook(hooks,
+                                                                    summary_forward=summary_forward,
+                                                                    m_key=m_key))
+            hooks.append(h)
+   
+    ##------------------------------------------------------------------------.
     # Make a forward pass
     # print(x.shape)
     model(*x)
-
-    # Remove these hooks
+    
+    ##------------------------------------------------------------------------.
+    # Remove hooks
     for h in hooks:
         h.remove()
+        
     ##------------------------------------------------------------------------.
-    summary_str += "----------------------------------------------------------------" + "\n"
-    line_new = "{:>20}  {:>25} {:>15}".format(
-        "Layer (type)", "Output Shape", "Param #")
-    summary_str += line_new + "\n"
-    summary_str += "================================================================" + "\n"
+    # Create summary information
+    # - Create summary
+    summary = summary_forward.copy()   
+    # - Retrieve execution time and memory usage of each module 
+    for key in summary.keys():
+        summary[key]['time'] = summary_forward[key]['time'] - summary_pre_forward[key]['time']  
+        summary[key]['time'] = summary[key]['time']
+        if device.type != 'cpu':
+            summary[key]['delta_memory_allocated'] = summary_forward[key]['memory_allocated'] - summary_pre_forward[key]['memory_allocated']
+            summary[key]['delta_memory_cached'] = summary_forward[key]['memory_cached'] - summary_pre_forward[key]['memory_cached']
+    
+    ##------------------------------------------------------------------------.
+    # Conversion to dataframe for tabulate printing
+    df = pd.DataFrame.from_dict(summary).transpose()
+    print(tabulate(df, headers='keys', tablefmt="rst"))
+    # Set layer as column 
+    df.reset_index(level=0, inplace=True) # index --> layer 
+    # Remove not trainable layers
+    df = df.dropna() # Remove repeated info (i.e. ConvBlock) ...but discard also pooling
+    # Reset df index from 0 to ...
+    df.reset_index(level=0, drop = True, inplace=True)    
+    df['time'] = df['time'].apply(lambda x: round(x, 3))
+    # Rename Layers 
+    df['index'] = df['index'].apply(lambda x: x.split("-")[0])
+    # - Define Column order 
+    if device.type == 'cpu':
+        col_dict = {'index': 'Layer',
+                    'input_shape': 'Input Shape',
+                    'output_shape': 'Output Shape',
+                    'nb_params': '# Params', 
+                    'time': 'Time [s]'
+                    }
+        df = df[[*list(col_dict.keys())]]
+    else:
+        df['delta_memory_allocated'] = df['delta_memory_allocated'].apply(lambda x: round(x, 2))
+        df['delta_memory_cached'] = df['delta_memory_cached'].apply(lambda x: round(x, 2))
+        df['memory_allocated'] = df['memory_allocated'].apply(lambda x: round(x, 2))
+        df['memory_cached'] = df['memory_cached'].apply(lambda x: round(x, 2))
+        col_dict = {'index': 'Layer',
+                    'input_shape': 'Input Shape',
+                    'output_shape': 'Output Shape',
+                    'nb_params': '# Params', 
+                    'time': 'Time [s]',
+                    'delta_memory_allocated': 'Mem. allocated [MB]',
+                    'delta_memory_cached': 'Mem. cached [MB]',
+                    'memory_allocated': 'Total mem. allocated [MB]',
+                    'memory_cached': 'Total mem. cached [MB]',
+                    }
+        df = df[[*list(col_dict.keys())]]
+    # Create tabulate 
+    table = tabulate(df, headers=list(col_dict.values()), tablefmt="rst")
     ##------------------------------------------------------------------------.
     ### Parameters information
     total_params = 0
     total_output = 0
     trainable_params = 0
     for layer in summary:
-        # input_shape, output_shape, trainable, nb_params
-        line_new = "{:>20}  {:>25} {:>15}".format(
-            layer,
-            str(summary[layer]["output_shape"]),
-            "{0:,}".format(summary[layer]["nb_params"]),
-        )
         total_params += summary[layer]["nb_params"]
-
         total_output += np.prod(summary[layer]["output_shape"])
         if "trainable" in summary[layer]:
             if summary[layer]["trainable"]:
                 trainable_params += summary[layer]["nb_params"]
-        summary_str += line_new + "\n"
     ##------------------------------------------------------------------------.
-    summary_str += "================================================================" + "\n"
+    ## Summary string for parameters
+    summary_str = ""
     summary_str += "Total params: {0:,}".format(total_params) + "\n"
     summary_str += "Trainable params: {0:,}".format(trainable_params) + "\n"
     summary_str += "Non-trainable params: {0:,}".format(total_params - trainable_params) + "\n"
     ##------------------------------------------------------------------------.
-    ### Memory information 
+    ## Summary string for overall forward pass memory consumption
     if device.type != 'cpu':
         total_size = batch_memory + forward_memory + already_allocated
         summary_str += "================================================================" + "\n"
@@ -356,7 +460,7 @@ def summary_string(model, input_size, batch_size=32, dtypes=None, device=torch.d
         summary_str += "Estimated Total Size (MB): %0.2f" % total_size + "\n"
         summary_str += "----------------------------------------------------------------" + "\n"
     ##------------------------------------------------------------------------.
-    ### Timing information
+    ### Summary string with forward pass timing information
     summary_str += "================================================================" + "\n"
     summary_str += "Forward pass (s): %0.2f" % forward_time + "\n"
     summary_str += "================================================================" + "\n"
@@ -367,11 +471,44 @@ def summary_string(model, input_size, batch_size=32, dtypes=None, device=torch.d
     del x 
     ##------------------------------------------------------------------------.
     # Return summary
-    return summary_str, (total_params, trainable_params)
+    return table, summary_str, summary
 
+def summarize_model(model, input_size, batch_size=32, dtypes=None, device=torch.device('cpu')):
+    """Print a summary of pytorch model structure and memory requirements.
+    
+    Originally inspired from https://github.com/sksq96/pytorch-summary and
+    https://www.sicara.ai/blog/2019-28-10-deep-learning-memory-usage-and-pytorch-optimization-tricks post.
+    Profile the model computing execution time and memory consumption of each trainable layer.
+    The allocated memory is the memory that is currently used to store Tensors on the GPU.
+    The cached memory is the memory that is currently used on the GPU by pytorch (nvidia-smi)
+    
+    Parameters
+    ----------
+    model : 
+       Pytorch model.
+    input_size : tuple or list
+        A tuple or list of tuples describing input tensors shapes.
+    batch_size : int, optional
+        The batch size. The default is 32.
+    dtypes : list, optional
+        A list of dtype of the input tensors. 
+        If set to None (and by default), it uses the default torch type. 
+    device : str or torch.device, optional
+        The torch device to use. The default is torch.device('cpu').
+    """
+    tmp_model = copy.deepcopy(model)
+    table, summary_str, summary = profile_layers(model=tmp_model,
+                                                 input_size=input_size,
+                                                 batch_size=batch_size, 
+                                                 device=device,
+                                                 dtypes=dtypes)
+    print(table)
+    print(summary_str)
+    return summary
+    
 ##----------------------------------------------------------------------------.
 def profile_model(model, input_size, batch_size, device='cpu', dtypes=None, row_limit=10):
-    """Profile time execution and memory of pytorch operations.
+    """Profile time execution and memory of pytorch operations using pytorch profiler.
         
     Parameters
     ----------
