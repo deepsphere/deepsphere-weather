@@ -75,7 +75,11 @@ def plot_loss(iterations,
     ##------------------------------------------------------------------------.
     # Plot legend 
     if plot_legend: 
-        ax.legend(labels=labels, loc='upper right')
+        leg = ax.legend(labels=labels, loc='upper right')
+        # Make legend line more thick
+        for line in leg.get_lines():
+            line.set_linewidth(2)
+
     ##------------------------------------------------------------------------.
     # Plot labels 
     if plot_labels: 
