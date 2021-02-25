@@ -6,7 +6,7 @@ Created on Tue Jan 19 14:31:51 2021
 @author: ghiggi
 """
 import os
-os.chdir('/home/ghiggi/Projects/DeepSphere')
+os.chdir('/home/ghiggi/Projects/weather_prediction')
 import cartopy
 import cartopy.crs as ccrs
 import numpy as np
@@ -46,8 +46,8 @@ ds_static = ds_static.drop(["lat","lon"])
 
 #-----------------------------------------------------------------------------.
 ds = ds_dynamic
-ds = ds.isel(time=slice(0,4)) # select 4 timesteps
-ds
+ds = ds.isel(time=[0,6,12,18]) # select 4 timesteps
+ds = ds.load()
 
 ##----------------------------------------------------------------------------.
 ## Add nodes mesh from pygsp graph (DEBUG !!!!)
@@ -61,8 +61,9 @@ ds = ds.sphere.add_SphericalVoronoiMesh(x='lon',y='lat')
 
 ##----------------------------------------------------------------------------.
 ## Prepare data for below plots
-da = ds['z']
-da_single = ds['z'].isel(time=0)
+da = ds['z500']
+da = ds['t850']
+da_single = ds['t850'].isel(time=0)
 
 ##----------------------------------------------------------------------------.
 
@@ -134,9 +135,9 @@ p = ds.sphere.plot(transform=ccrs.Geodetic(),
                    # Colorbar options 
                    add_colorbar = True,
                    cmap = plt.get_cmap('Spectral_r'),
-                   vmin = 48000,
-                   vmax = 56500,
-                   robust=False,
+                   #    vmin = 48000,
+                   #    vmax = 56500,
+                   robust=True,
                    extend = 'neither', # 'neither', 'both', 'min', 'max'
                    # norm=None,
                    # center=None,
@@ -162,9 +163,9 @@ p = da.sphere.plot(transform=ccrs.Geodetic(),
                    # Colorbar options 
                    add_colorbar = True,
                    cmap = plt.get_cmap('Spectral_r'),
-                   vmin = 48000,
-                   vmax = 56500,
-                   robust=False,
+                   #    vmin = 48000,
+                   #    vmax = 56500,
+                   robust=True,
                    extend = 'neither', # 'neither', 'both', 'min', 'max'
                    # norm=None,
                    # center=None,
@@ -239,9 +240,9 @@ p = da.sphere.contourf(x='lon',
                       # Color options 
                       add_colorbar=True,
                       cmap = plt.get_cmap('Spectral_r'),
-                      vmin=48000,
-                      vmax=56500,
-                      # robust=True,
+                      #   vmin=48000,
+                      #   vmax=56500,
+                      robust=True,
                       extend='both', # 'neither', 'both', 'min', 'max'
                       norm=None,
                       center=None,
@@ -268,6 +269,7 @@ fg = da.sphere.plot(subplot_kws={'projection': crs_proj},
                     # Colorbar options 
                     add_colorbar = True,
                     cmap = plt.get_cmap('Spectral_r'),
+                    robust = True, 
                     # Customize colorbar 
                     cbar_kwargs={"orientation": "vertical",
                                  "shrink": 0.8,
@@ -309,14 +311,14 @@ p = xsphere._plot(da_single,
                   # Colorbar options 
                   add_colorbar = True,
                   cmap = plt.get_cmap('Spectral_r'),
-                  vmin = 48000,
-                  vmax = 56500,
-                  extend = 'both', # 'neither', 'both', 'min', 'max'
                   norm=None,
                   center=None,
-                  robust=False,
                   colors=None,
                   levels=None,
+                  #   vmin = 48000,
+                  #   vmax = 56500,
+                  robust=True,
+                  extend = 'both', # 'neither', 'both', 'min', 'max'
                   # Add colorbar label 
                   add_labels = True)
 
@@ -343,9 +345,9 @@ p = xsphere._contour(da_single,
                      add_colorbar = False,
                      cmap = plt.get_cmap('Spectral_r'),
                      levels=10,
-                     vmin = 48000,
-                     vmax = 56500,
-                     robust=False,
+                    #  vmin = 48000,
+                    #  vmax = 56500,
+                     robust=True,
                      norm=None,
                      center=None,
                      # colors="black",
@@ -364,12 +366,12 @@ p = xsphere._contourf(da_single,
                      ax=ax, 
                      plot_type='contourf',
                      # Color options 
-                     add_colorbar = False,
+                     add_colorbar = True,
                      cmap = plt.get_cmap('Spectral_r'),
                      levels=10,
-                     vmin = 48000,
-                     vmax = 56500,
-                     robust=False,
+                     #  vmin = 48000,
+                     #  vmax = 56500,
+                     robust=True,
                      norm=None,
                      center=None,
                      # colors="black",
