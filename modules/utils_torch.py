@@ -213,14 +213,22 @@ def _generate_forward_hook(handle, summary_forward, m_key):
            
         ##----------------------------------------------------------------.
         # Determine shape 
-        batch_size = len(input)
-        summary_forward[m_key]["input_shape"] = list(input[0].size())
-        summary_forward[m_key]["input_shape"][0] = batch_size
+        # summary_forward[m_key]["i"] = input
+        # summary_forward[m_key]["o"] = output
+        batch_size = len(input[0])
+        # - Retrieve input shape 
+        if len(input) > 1:
+            summary_forward[m_key]["input_shape"] = [list(i.size()) if i is not None else None for i in input]
+            #summary_forward[m_key]["input_shape"][0] = batch_size
+        else:
+            summary_forward[m_key]["input_shape"] = list(input[0].size())
+            # summary_forward[m_key]["input_shape"][0] = batch_size
+
+        # - Retrieve output shape 
         if isinstance(output, (list, tuple)):
-            summary_forward[m_key]["output_shape"] = [list(o.size()) for o in output]
+            summary_forward[m_key]["output_shape"] = [list(o.size()) if o is not None else None for o in output]
         else:
             summary_forward[m_key]["output_shape"] = list(output.size())
-            #summary_forward[m_key]["output_shape"][0] = batch_size
         ##----------------------------------------------------------------.
         # Determine params 
         params = 0
@@ -329,7 +337,7 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
     ##------------------------------------------------------------------------.
     # Create the list of input tensors   
     x = [torch.rand(batch_size, *in_size, dtype=dtype, device=device)
-         for in_size, dtype in zip(input_size, dtypes)]
+            for in_size, dtype in zip(input_size, dtypes)]
     
     ##------------------------------------------------------------------------.
     ### Profile time (and memory if CUDA) of the entire forward pass 
@@ -395,7 +403,7 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
     ##------------------------------------------------------------------------.
     # Conversion to dataframe for tabulate printing
     df = pd.DataFrame.from_dict(summary).transpose()
-    print(tabulate(df, headers='keys', tablefmt="rst"))
+    #print(tabulate(df, headers='keys', tablefmt="rst"))
     # Set layer as column 
     df.reset_index(level=0, inplace=True) # index --> layer 
     # Remove not trainable layers
@@ -424,10 +432,10 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
                     'output_shape': 'Output Shape',
                     'nb_params': '# Params', 
                     'time': 'Time [s]',
-                    'delta_memory_allocated': 'Mem. allocated [MB]',
+                    'delta_memory_allocated': 'Mem. alloc. [MB]',
                     'delta_memory_cached': 'Mem. cached [MB]',
-                    'memory_allocated': 'Total mem. allocated [MB]',
-                    'memory_cached': 'Total mem. cached [MB]',
+                    'memory_allocated': 'Tot. mem. alloc. [MB]',
+                    'memory_cached': 'Tot. mem. cached [MB]',
                     }
         df = df[[*list(col_dict.keys())]]
     # Create tabulate 
@@ -435,11 +443,9 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
     ##------------------------------------------------------------------------.
     ### Parameters information
     total_params = 0
-    total_output = 0
     trainable_params = 0
     for layer in summary:
         total_params += summary[layer]["nb_params"]
-        total_output += np.prod(summary[layer]["output_shape"])
         if "trainable" in summary[layer]:
             if summary[layer]["trainable"]:
                 trainable_params += summary[layer]["nb_params"]
@@ -456,13 +462,12 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
         summary_str += "================================================================" + "\n"
         summary_str += "Input batch size (MB): %0.2f" % batch_memory + "\n"
         summary_str += "Forward/backward pass size (MB): %0.2f" % forward_memory + "\n"
-        summary_str += "Params* size (MB): %0.2f" % already_allocated + "\n"
-        summary_str += "Estimated Total Size (MB): %0.2f" % total_size + "\n"
-        summary_str += "----------------------------------------------------------------" + "\n"
+        summary_str += "** Params size (MB): %0.2f" % already_allocated + "\n"
+        summary_str += "** Estimated Total Size (MB): %0.2f" % total_size + "\n"
     ##------------------------------------------------------------------------.
     ### Summary string with forward pass timing information
     summary_str += "================================================================" + "\n"
-    summary_str += "Forward pass (s): %0.2f" % forward_time + "\n"
+    summary_str += "** Forward pass (s): %0.2f" % forward_time + "\n"
     summary_str += "================================================================" + "\n"
     
     ##------------------------------------------------------------------------.
@@ -497,6 +502,7 @@ def summarize_model(model, input_size, batch_size=32, dtypes=None, device=torch.
         The torch device to use. The default is torch.device('cpu').
     """
     tmp_model = copy.deepcopy(model)
+    tmp_model.to(device)
     table, summary_str, summary = profile_layers(model=tmp_model,
                                                  input_size=input_size,
                                                  batch_size=batch_size, 
