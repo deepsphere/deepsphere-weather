@@ -197,6 +197,8 @@ def timing_AR_Training(dataset,
             # Measure model parameters + batch size in MB 
             if device.type != 'cpu' and i == 0:
                 batch_memory_size = torch.cuda.memory_allocated()/1000/1000 - model_params_size
+            else:
+                batch_memory_size = 0
             tmp_AR_batch_timing = tmp_AR_batch_timing + (get_time() - t_i)
             ##-----------------------------------------------------------------.
             # Forward pass and store output for stacking into next AR iterations
@@ -691,13 +693,17 @@ def AutoregressiveTraining(model,
                                                        Y_obs = torch_Y,
                                                        dim_names = dim_names)
                 dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
-                                                
+                
+                ##------------------------------------------------------------.
+                # Detach gradient of Y_pred (to avoid RNN-style optimization)
+                dict_training_Y_predicted[i] = dict_training_Y_predicted[i].detach()
+                
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
                 remove_unused_Y(AR_iteration = i, 
                                 dict_Y_predicted = dict_training_Y_predicted,
                                 dict_Y_to_remove = training_batch_dict['dict_Y_to_remove'])
-                torch.cuda.synchronize()
+                
                 del Y_pred, Y_obs, torch_X, torch_Y
                 if i == AR_scheduler.current_AR_iterations:
                     del dict_training_Y_predicted

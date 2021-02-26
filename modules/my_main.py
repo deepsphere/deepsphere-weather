@@ -72,17 +72,7 @@ warnings.filterwarnings("ignore")
 
 # Feature dimension data order = [static, bc, dynamic]
 ##-----------------------------------------------------------------------------.
-### TODO
-# - kernel_size vs kernel_size_pooling 
 # - numeric_precision: currently work only for float32 !!!
-
-# Torch precision 
-# --> Set torch.set_default_tensor_type() 
-
-# dataloader_settings : remove preload in CPU 
-# Check input data start same timestep
-
-## Code for measuring execution time as function of n. AR iterations 
 
 # import pdb
 # pdb.set_trace()
@@ -92,9 +82,7 @@ warnings.filterwarnings("ignore")
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/temporality/run_ar_tc.py
 # https://github.com/deepsphere/deepsphere-pytorch/blob/master/scripts/run_ar_tc.py
 #-----------------------------------------------------------------------------.
-# #####################
-# Pytorch Settings ####
-# #####################
+
 # data_dir = "/data/weather_prediction/ToyData/Healpix_400km/data/"
 # data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/data/" # to change to scratch/... 
 # # - Dynamic data (i.e. pressure and surface levels variables)
@@ -364,7 +352,7 @@ optimizer = optim.Adam(model.parameters(),
 ### - Define AR_Weights_Scheduler 
 AR_scheduler = AR_Scheduler(method = "LinearStep",
                             factor = 0.025,
-                            initial_AR_weights = [1])
+                            initial_AR_absolute_weights = [1,1,1])
 
 ### - Define Early Stopping 
 # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
