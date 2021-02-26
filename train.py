@@ -51,6 +51,10 @@ from modules.my_io import reformat_Datasets
 import modules.my_models_graph as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
+# For plotting 
+import matplotlib
+matplotlib.use('cairo') # Cairo
+# matplotlib.use('Agg') # Cairo
 ## Disable warnings
 warnings.filterwarnings("ignore")
 ##----------------------------------------------------------------------------.
@@ -82,11 +86,6 @@ warnings.filterwarnings("ignore")
 
 # Set RNG in worker_init_fn of DataLoader for reproducible ... 
 ##----------------------------------------------------------------------------.
-#### Set CUDA GPU options
-# os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"]="2,4"
-# os.environ["CUDA_LAUNCH_BLOCKING"] = 1
-
 #-----------------------------------------------------------------------------.
 def main(cfg_path, exp_dir, data_dir):
     """General function for training DeepSphere4Earth models."""
@@ -197,8 +196,12 @@ def main(cfg_path, exp_dir, data_dir):
                                     da_bc=da_training_bc)
     
     model_settings['dim_info'] = dim_info
-    print_dim_info(dim_info)
-     
+
+    ##------------------------------------------------------------------------.
+    # Print model settings 
+    print_model_description(cfg)
+    print_dim_info(dim_info)  
+
     ##------------------------------------------------------------------------.
     ### Define the model architecture   
     # TODO (@Wentao ... )  
@@ -213,7 +216,7 @@ def main(cfg_path, exp_dir, data_dir):
     model_args['numeric_precision'] = training_settings['numeric_precision']
     # - Define DeepSphere model 
     model = DeepSphereModelClass(**model_args)              
-     
+    
     ###-----------------------------------------------------------------------.
     ## If requested, load a pre-trained model for fine-tuning
     if model_settings['pretrained_model_name'] is not None:
@@ -225,10 +228,10 @@ def main(cfg_path, exp_dir, data_dir):
     
     ###-----------------------------------------------------------------------.
     ### Summarize the model 
-    # summarize_model(model=model, 
-    #                 input_size=dim_info['input_shape'],  
-    #                 batch_size=training_settings["training_batch_size"], 
-    #                 device=device)
+    profiling_info = summarize_model(model=model, 
+                                     input_size=dim_info['input_shape'],  
+                                     batch_size=training_settings["training_batch_size"], 
+                                     device=device)
 
     ###-----------------------------------------------------------------------.
     # DataParallel training option on multiple GPUs
@@ -259,11 +262,7 @@ def main(cfg_path, exp_dir, data_dir):
     # Write config file in the experiment directory 
     write_config_file(cfg = cfg,
                       fpath = os.path.join(exp_dir, 'config.json'))
-    
-    ##------------------------------------------------------------------------.
-    # Print model settings 
-    print_model_description(cfg)
-    
+       
     ##------------------------------------------------------------------------.
     ### - Define custom loss function 
     # TODO (@Wentao) 
@@ -282,9 +281,13 @@ def main(cfg_path, exp_dir, data_dir):
       
     ##------------------------------------------------------------------------.
     ### - Define AR_Weights_Scheduler 
-    AR_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.0005,
-                                initial_AR_absolute_weights = [10, 5,0.1,0.1]) # [1] 
+    ar_scheduler = AR_Scheduler(method = "Constant",
+                                # factor = 0.0005,
+                                initial_AR_absolute_weights = [0.8, 0.2, 1]) 
+
+    # ar_scheduler = AR_Scheduler(method = "LinearStep",
+    #                             factor = 0.0005,
+    #                             initial_AR_absolute_weights = [10, 10, 0.1,0.1]) # [1] 
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
@@ -300,7 +303,7 @@ def main(cfg_path, exp_dir, data_dir):
                                    mode = mode)  
     ##------------------------------------------------------------------------.                              
     ## - Define AR_Weights_Scheduler                                
-    # AR_scheduler = AR_Scheduler(method = "LinearStep",
+    # ar_scheduler = AR_Scheduler(method = "LinearStep",
     #                             factor = 0.01, 
     #                             initial_AR_weights = [1])   
     
@@ -334,7 +337,7 @@ def main(cfg_path, exp_dir, data_dir):
                                            criterion = criterion,
                                            optimizer = optimizer,  
                                            LR_scheduler = LR_scheduler, 
-                                           AR_scheduler = AR_scheduler,                                
+                                           AR_scheduler = ar_scheduler,                                
                                            early_stopping = early_stopping,
                                            # Data
                                            da_training_dynamic = da_training_dynamic,
@@ -375,7 +378,6 @@ def main(cfg_path, exp_dir, data_dir):
         pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     # # Load AR TrainingInfo
-    # exp_dir = "/data/weather_prediction/experiments_GG/UNetSpherical-healpix-16-k20-InterpPooling-float32-AR6"
     # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
     #    training_info = pickle.load(handle)
   
@@ -388,24 +390,30 @@ def main(cfg_path, exp_dir, data_dir):
     fig, ax = plt.subplots()
     for AR_iteration in range(training_info.AR_iterations+1):
         ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                      ax = ax,
-                                                      linestyle="solid",
-                                                      linewidth=0.1,
-                                                      ylim = (0,0.08),
-                                                      plot_validation = False, 
-                                                      plot_labels = True,
-                                                      plot_legend = False)
-    ax.legend(labels=list(range(training_info.AR_iterations + 1)), title="AR iteration", loc='upper right')
-    plt.gca().set_prop_cycle(None) # Reset color cycling 
+                                                        ax = ax,
+                                                        linestyle="solid",
+                                                        linewidth=0.3, 
+                                                        plot_validation = False, 
+                                                        plot_labels = True,
+                                                        plot_legend = False,
+                                                        add_AR_weights_updates=False)
+    leg = ax.legend(labels=list(range(training_info.AR_iterations + 1)), 
+                    title="AR iteration", 
+                    loc='upper right')
+    # - Make legend line more thick
+    for line in leg.get_lines():
+        line.set_linewidth(2)
+    # - Reset color cycling 
+    plt.gca().set_prop_cycle(None) 
     for AR_iteration in range(training_info.AR_iterations+1):
         ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                      ax = ax,
-                                                      linestyle="dashed",
-                                                      linewidth=0.1,
-                                                      ylim = (0,0.08),
-                                                      plot_training = False, 
-                                                      plot_labels = False,
-                                                      plot_legend = False)  
+                                                        ax = ax,
+                                                        linestyle="dashed",
+                                                        linewidth=0.3,
+                                                        plot_training = False, 
+                                                        plot_labels = False,
+                                                        plot_legend = False,
+                                                        add_AR_weights_updates=False)  
     # - Add vertical line when AR iteration is added
     iterations_of_AR_updates = training_info.iterations_of_AR_updates()
     if len(iterations_of_AR_updates) > 0: 
@@ -419,13 +427,13 @@ def main(cfg_path, exp_dir, data_dir):
     for AR_iteration in range(training_info.AR_iterations+1):
         fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
         training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
-                                                 linewidth=0.1,
+                                                 linewidth=0.6,
                                                  ylim = (0,0.08),
                                                  title="Loss evolution at AR iteration {}".format(AR_iteration)).savefig(fname) 
 
     ##------------------------------------------------------------------------.
     ## - Plot total loss 
-    training_info.plot_total_loss(ylim = (0,0.08),linewidth=0.1).savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
+    training_info.plot_total_loss(ylim = (0,0.08),linewidth=0.6).savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
 
     ##------------------------------------------------------------------------.
     ## - Plot AR weights  
@@ -446,7 +454,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              scaler = scaler,
                                              # Dataloader options
                                              device = device,
-                                             batch_size = 100,  # number of forecasts per batch
+                                             batch_size = 200,  # number of forecasts per batch
                                              num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
                                              prefetch_factor = dataloader_settings['prefetch_factor'], 
@@ -505,6 +513,8 @@ def main(cfg_path, exp_dir, data_dir):
 
 if __name__ == '__main__':
     default_config = 'configs/UNetSpherical/Healpix_400km/InterpPool-k20.json'
+    default_config = 'configs/UNetSpherical/Healpix_400km/MaxAreaPool-k20.json'
+
     parser = argparse.ArgumentParser(description='Training weather prediction model')
     parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--cuda', type=str, default='0')
