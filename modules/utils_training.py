@@ -118,8 +118,10 @@ class AR_TrainingInfo():
         self.iteration = 0        # track the total number of forward-backward pass
         self.epoch_iteration = 0  # track the iteration number within the epoch
         self.iteration_from_last_AR_update = 0 # track the iteration number from the last AR weight update (for early stopping)
+        self.iteration_from_last_scoring = 0  # count the iteration from last scoring  
         self.start_epochs_iterations = [] # list the iterations numbers when a new epoch start
-        self.score_interval = 0   # to decide when to score 
+        # Score interval to be inferred when reset_counter() is called 
+        self.score_interval = None   # to decide when to score 
         ##--------------------------------------------------------------------.
         # - Initialize dictionary to save the loss at different leadtimes
         # --> Used to analyze the impact of autoregressive weights updates
@@ -163,8 +165,9 @@ class AR_TrainingInfo():
         """Update iteration count."""
         self.iteration = self.iteration + 1
         self.epoch_iteration = self.epoch_iteration + 1
+
         self.iteration_from_last_AR_update = self.iteration_from_last_AR_update + 1
-        self.score_interval = self.score_interval + 1
+        self.iteration_from_last_scoring = self.iteration_from_last_scoring + 1
     
     ##------------------------------------------------------------------------.
     def new_epoch(self):
@@ -223,11 +226,13 @@ class AR_TrainingInfo():
             self.validation_loss_per_AR_iteration[i]['loss'].append(dict_loss_per_AR_iteration[i].item()) 
             
     ##------------------------------------------------------------------------.
-    def reset_score_interval(self): 
-        """Reset score_interval count."""
-        # Reset score_interval  
-        self.score_interval = 0 
-    
+    def reset_counter(self): 
+        """Reset iteration counter from last scoring."""
+        # Infer the score interval 
+        self.score_interval = self.iteration_from_last_scoring
+        # Reset iteration counter from last scoring 
+        self.iteration_from_last_scoring = 0
+     
     def reset_iteration_from_last_AR_update(self):
         """Reset counter of iteration from last AR weight update."""
         # Reset counter of iteration_from_last_AR_update 
@@ -263,6 +268,7 @@ class AR_TrainingInfo():
                                    plot_validation = True, 
                                    plot_labels = True,
                                    plot_legend = True, 
+                                   add_AR_weights_updates = True, 
                                    linestyle = "solid", 
                                    linewidth = 0.1, 
                                    xlim=None, ylim=None, 
@@ -344,9 +350,10 @@ class AR_TrainingInfo():
                        ax=ax)
         ##--------------------------------------------------------------------.
         ## Add vertical line when AR iteration is added
-        iterations_of_AR_updates = self.iterations_of_AR_updates()
-        if len(iterations_of_AR_updates) > 0: 
-            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        if add_AR_weights_updates:
+            iterations_of_AR_updates = self.iterations_of_AR_updates()
+            if len(iterations_of_AR_updates) > 0: 
+                [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
         ##--------------------------------------------------------------------.
         # If ax not provided to the function, return fig 
         if not flag_ax_provided:
@@ -360,6 +367,7 @@ class AR_TrainingInfo():
                         title="Total Loss Evolution",
                         plot_labels = True,
                         plot_legend = True, 
+                        add_AR_weights_updates = True, 
                         linestyle = "solid", 
                         linewidth = 0.1, 
                         xlim=None, ylim=None, 
@@ -410,9 +418,10 @@ class AR_TrainingInfo():
                        ax=ax)
         ##--------------------------------------------------------------------.  
         ## Add vertical line when AR iteration is added
-        iterations_of_AR_updates = self.iterations_of_AR_updates()
-        if len(iterations_of_AR_updates) > 0: 
-            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        if add_AR_weights_updates:
+            iterations_of_AR_updates = self.iterations_of_AR_updates()
+            if len(iterations_of_AR_updates) > 0: 
+                [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
         ##--------------------------------------------------------------------.
         # If ax not provided to the function, return fig 
         if not flag_ax_provided:
