@@ -103,18 +103,20 @@ epochs = training_settings['epochs']
 scoring_interval = training_settings['scoring_interval']
 save_model_each_epoch = training_settings['save_model_each_epoch']
 
-autotune_num_workers = True, 
+autotune_num_workers = False, 
 shuffle = random_shuffle
 rounding = 2
 batch_size = 30
 chunks = "auto" 
 compressor = "auto"
 timedelta_unit = 'hour'
-device = 'cpu'
-num_workers = 1 
 training_num_workers = 2
 validation_num_workers = 2
 training_mode = True
+
+device = 'cpu'
+num_workers = 1 
+
 
 # zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
  
