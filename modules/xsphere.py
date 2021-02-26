@@ -1428,7 +1428,7 @@ class SphereDatasetAccessor:
         pygsp_graph.set_coordinates('sphere', dim=2)
         lon = np.rad2deg(pygsp_graph.coords[:,0])
         lat = np.rad2deg(pygsp_graph.coords[:,1])
-         # Ensure lon is between -180 and 180
+        # Ensure lon is between -180 and 180
         lon[lon > 180] = lon[lon > 180] - 360
         return self.add_nodes(lon=lon, lat=lat, node_dim=node_dim)  
     
@@ -1498,14 +1498,14 @@ class SphereDatasetAccessor:
         if col is None and row is None: 
             raise NotImplementedError("When 'col' and 'row' are both None.")
         # Squeeze the dataset (to drop dim with 1)
-        ds = self.ds.squeeze()
+        ds = ds.squeeze()
         # Check remaining dimension
         if len(ds.dims) > 2: 
             raise ValueError("There must be just 1 dimension to facet (in addition to the 'node' dimension).")
         # Convert to DataArray
-        da = self.ds.to_array()  
+        da = ds.to_array()  
         if col is not None:
-            p = da.sphere.plot(row="variable",col=col *args, **kwargs)
+            p = da.sphere.plot(row="variable",col=col, *args, **kwargs)
             return p 
         elif row is not None: 
             p = da.sphere.plot(col="variable",row=row,*args, **kwargs)

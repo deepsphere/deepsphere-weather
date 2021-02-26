@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 import pygsp as pg
+import modules.xsphere  
 from modules import xsphere
 from modules.my_io import readDatasets   
 
@@ -57,7 +58,7 @@ ds = ds.load()
 
 ##----------------------------------------------------------------------------.
 ## Infer mesh using SphericalVoronoi from node coordinates
-ds = ds.sphere.add_SphericalVoronoiMesh(x='lon',y='lat')
+ds = ds.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
 
 ##----------------------------------------------------------------------------.
 ## Prepare data for below plots
@@ -127,7 +128,7 @@ crs_proj = ccrs.Robinson()
 p = ds.sphere.plot(transform=ccrs.Geodetic(),  
                    subplot_kws={'projection': crs_proj},
                    # Facets options 
-                   col="time", col_wrap=2, 
+                   col="time",  
                    # Polygon border option
                    edgecolors="white", # None to not display polygon border 
                    linewidths=0.01,
