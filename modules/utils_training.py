@@ -8,6 +8,7 @@ Created on Tue Jan 19 00:07:05 2021
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from cycler import cycler
 ## TODO:
 ## - Smooth loss by averaging over X values (rollapply in utils_numpy)
 # TODO Loss plot 
@@ -431,7 +432,7 @@ class AR_TrainingInfo():
             return ax
         ##--------------------------------------------------------------------.
 
-    def plot_AR_weights(self, normalized=True, xlim=None, ylim=None, ax=None):
+    def plot_AR_weights(self, normalized=True, xlim=None, ylim=(0,1), ax=None):
         """
         Plot the autoregressive weights evolution.
 
@@ -461,12 +462,19 @@ class AR_TrainingInfo():
             flag_ax_provided = False
             fig, ax = plt.subplots()
         ##--------------------------------------------------------------------.
+        # Set cycling colors and line style
+        prop_cycle = plt.rcParams['axes.prop_cycle']
+        colors = prop_cycle.by_key()['color']
+        custom_cycler = cycler(linestyle=['-', '--', ':', '-.','-', '--', ':', '-.','-', '--'],
+                               color=colors)
+        ax.set_prop_cycle(custom_cycler)
+        ##--------------------------------------------------------------------.
         # Plot absolute AR weights 
         if not normalized:    
             for i in range(self.AR_iterations + 1):
                 ax.plot(self.AR_weights_per_AR_iteration[i]['iteration'],
                         self.AR_weights_per_AR_iteration[i]['AR_absolute_weights'],
-                        marker ='.')
+                        antialiased = True)
             ax.set_ylabel("Absolute weights")
             ax.set_title("Absolute AR weights")  
         ##--------------------------------------------------------------------.
@@ -475,7 +483,7 @@ class AR_TrainingInfo():
             for i in range(self.AR_iterations + 1):
                 plt.plot(self.AR_weights_per_AR_iteration[i]['iteration'],
                          self.AR_weights_per_AR_iteration[i]['AR_weights'], 
-                         marker ='.')
+                         antialiased = True)
             ax.set_ylabel("Normalized weights")
             ax.set_title("Normalized AR weights")      
         ##--------------------------------------------------------------------.

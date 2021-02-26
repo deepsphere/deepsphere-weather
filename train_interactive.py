@@ -27,7 +27,7 @@ from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
 # from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
-from modules.utils_config import pytorch_settings
+from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
@@ -38,7 +38,7 @@ from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
 from modules.predictions_autoregressive import reshape_forecasts_for_verification
-
+from modules.utils_torch import summarize_model
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
 
@@ -88,7 +88,7 @@ warnings.filterwarnings("ignore")
 # os.environ["CUDA_LAUNCH_BLOCKING"] = 1
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
-os.environ["CUDA_VISIBLE_DEVICES"] = 0
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 data_dir = "/data/weather_prediction/data"
 exp_dir = "/data/weather_prediction/experiments"
@@ -193,7 +193,7 @@ da_test_bc = dict_test_DataArrays['da_training_bc']
 
 ##------------------------------------------------------------------------.
 ### Define pyTorch settings 
-device = pytorch_settings(training_settings)
+device = set_pytorch_settings(training_settings)
 
 ##------------------------------------------------------------------------.
 ## Retrieve dimension info of input-output Torch Tensors
@@ -230,6 +230,11 @@ if model_settings['pretrained_model_name'] is not None:
 ### Transfer model to GPU 
 model = model.to(device)
 
+### Summarize the model 
+profiling_info = summarize_model(model=model, 
+                                    input_size=dim_info['input_shape'],  
+                                    batch_size=training_settings["training_batch_size"], 
+                                    device=device)
 ###-----------------------------------------------------------------------.
 # DataParallel training option on multiple GPUs
 # if training_settings['DataParallel_training'] is True:
@@ -356,9 +361,10 @@ training_info = AutoregressiveTraining(model = model,
 with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
     pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+exp_dir = "/data/weather_prediction/experiments_GG/UNetSpherical-healpix-16-k20-InterpPooling-float32-AR6"
 # # Load AR TrainingInfo
-# with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
-#     training_info = pickle.load(handle)
+with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
+    training_info = pickle.load(handle)
     
 ##------------------------------------------------------------------------.
 ### Create plots related to training evolution  
@@ -368,18 +374,28 @@ for AR_iteration in range(training_info.AR_iterations+1):
     ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
                                                     ax = ax,
                                                     linestyle="solid",
+                                                    linewidth=0.3, 
                                                     plot_validation = False, 
                                                     plot_labels = True,
-                                                    plot_legend = False)
-ax.legend(labels=list(range(training_info.AR_iterations + 1)), title="AR iteration", loc='upper right')
+                                                    plot_legend = False,
+                                                    add_AR_weights_updates=False)
+leg = ax.legend(labels=list(range(training_info.AR_iterations + 1)), 
+                title="AR iteration", 
+                loc='upper right')
+# - Make legend line more thick
+for line in leg.get_lines():
+    line.set_linewidth(2)
+
 plt.gca().set_prop_cycle(None) # Reset color cycling 
 for AR_iteration in range(training_info.AR_iterations+1):
     ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
                                                     ax = ax,
                                                     linestyle="dashed",
+                                                    linewidth=0.3,
                                                     plot_training = False, 
                                                     plot_labels = False,
-                                                    plot_legend = False)  
+                                                    plot_legend = False,
+                                                    add_AR_weights_updates=False)  
 # - Add vertical line when AR iteration is added
 iterations_of_AR_updates = training_info.iterations_of_AR_updates()
 if len(iterations_of_AR_updates) > 0: 
@@ -452,18 +468,51 @@ ds_verification = rechunk_forecasts_for_verification(ds=ds_forecasts,
                                                         max_mem = '1GB')
     
 ##------------------------------------------------------------------------.
-### - Run deterministic verification 
-dask.config.set(scheduler='processes')
+from modules import xsphere
+import cartopy.crs as ccrs
 
-print(ds_verification)
-##------------------------------------------------------------------------.
-### - Create verification summary plot
+forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
+verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
 
-##------------------------------------------------------------------------.
-### - Create verification maps 
+ds = xr.open_zarr(forecast_zarr_fpath)
+ds = ds.isel(forecast_reference_time=0, leadtime=[0,10, 15, 20]) # select 4 timesteps
+ds = ds.load()
 
-##------------------------------------------------------------------------.
-### - Create animations 
-
-##-------------------------------------------------------------------------.
+import pygsp as pg
+ds = ds.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
+ds = ds.sphere.add_SphericalVoronoiMesh(x='lon',y='lat')
+##----------------------------------------------------------------------------.
+## Prepare data for below plots
+da = ds['z500']
+da = ds['t850']
  
+
+crs_proj = ccrs.Robinson()
+
+#### Plot() Dataset 
+p = da.sphere.plot(transform=ccrs.Geodetic(),  
+                   subplot_kws={'projection': crs_proj},
+                   # Facets options 
+                   col="leadtime", col_wrap=2, 
+                   # Polygon border option
+                   edgecolors="white", # None to not display polygon border 
+                   linewidths=0.01,
+                   antialiased=True,
+                   # Colorbar options 
+                   add_colorbar = True,
+                   cmap = plt.get_cmap('Spectral_r'),
+                   #    vmin = 48000,
+                   #    vmax = 56500,
+                   robust=True,
+                   extend = 'neither', # 'neither', 'both', 'min', 'max'
+                   # norm=None,
+                   # center=None,
+                   # colors=None,
+                   # levels=None,
+                   # cbar_kwargs
+                   # Add colorbar label 
+                   add_labels = True)
+# Set map options
+for ax in p.axes.flat:
+    ax.coastlines(alpha=0.2)
+plt.show()

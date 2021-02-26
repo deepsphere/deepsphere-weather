@@ -18,12 +18,14 @@ Created on Tue Feb 23 12:41:01 2021
 
 
 ### Memory deallocation example
+from warnings import WarningMessage
 import torch 
 a = torch.zeros(100,100,100).cuda()
 
 print(torch.cuda.memory_allocated())
 
 del a
+print(torch.cuda.memory_allocated())
 torch.cuda.synchronize()
 print(torch.cuda.memory_allocated())
 
@@ -33,8 +35,10 @@ print(torch.cuda.memory_allocated())
 # - https://pytorch.org/docs/master/profiler.html
 # - https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
 
-# Can't pin the memory in each worker process 
-#  - (because pinned memory can't be shared across processes)
+
+
+ 
+#  - (because )
 
 # torch.utils.data.get_worker_info()
 # - worker id, dataset replica, initial seed, etc.), 
@@ -56,11 +60,6 @@ print(torch.cuda.memory_allocated())
 # For iterable-style datasets, since each worker process gets a replica 
 #  of the dataset object, naive multi-process loading will often 
 #  result in duplicated data.
-
-# prefetch_in_GPU : ONLY WHEN num_workers = 0
-# It is generally not recommended to return CUDA tensors in multi-process 
-#  loading because of many subtleties in using CUDA and sharing CUDA tensors 
-#  in multiprocessing 
 
 # On Unix, fork() is the default multiprocessing start method. 
 #  Using fork(), child workers typically can access the dataset and Python 

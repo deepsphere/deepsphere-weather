@@ -31,8 +31,12 @@ from modules.utils_autoregressive import check_AR_settings
  
 from modules.utils_io import check_AR_Datasets
 from modules.utils_io import is_dask_DataArray
-from modules.utils_torch import get_torch_dtype
-from modules.utils_torch import check_torch_device
+from modules.utils_torch import check_device
+from modules.utils_torch import check_pin_memory
+from modules.utils_torch import check_asyncronous_GPU_transfer
+from modules.utils_torch import check_prefetch_in_GPU
+from modules.utils_torch import check_prefetch_factor
+from modules.utils_torch import get_time_function
 
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
@@ -81,7 +85,6 @@ AR_settings = get_AR_settings(cfg)
 training_settings = get_training_settings(cfg) 
 dataloader_settings = get_dataloader_settings(cfg) 
 
-
 num_workers = dataloader_settings['num_workers'] 
 prefetch_factor = dataloader_settings['prefetch_factor']   
 prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'] 
@@ -103,7 +106,7 @@ epochs = training_settings['epochs']
 scoring_interval = training_settings['scoring_interval']
 save_model_each_epoch = training_settings['save_model_each_epoch']
 
-autotune_num_workers = False, 
+autotune_num_workers = False
 shuffle = random_shuffle
 rounding = 2
 batch_size = 30
