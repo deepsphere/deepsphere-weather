@@ -729,7 +729,7 @@ def AutoregressiveTraining(model,
             
             ##----------------------------------------------------------------. 
             # - Update training statistics
-            if training_info.score_interval == scoring_interval:
+            if training_info.iteration_from_last_scoring == scoring_interval:
                 training_info.update_training_stats(total_loss = training_total_loss,
                                                     dict_loss_per_AR_iteration = dict_training_loss_per_AR_iteration, 
                                                     AR_scheduler = AR_scheduler, 
@@ -738,7 +738,7 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------. 
             ### Run validation 
             if validationDataset is not None:
-                if training_info.score_interval == scoring_interval:
+                if training_info.iteration_from_last_scoring == scoring_interval:
                     # Set model layers (i.e. batchnorm) in evaluation mode 
                     model.eval() 
                     
@@ -812,9 +812,9 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------. 
             # - Evaluate stopping metrics  
             # --> Update AR scheduler if the loss has plateau
-            if training_info.score_interval == scoring_interval:
+            if training_info.iteration_from_last_scoring == scoring_interval:
                 # Reset counter for scoring 
-                training_info.reset_score_interval()  
+                training_info.reset_counter()  
                 ##-------------------------------------------------------------.
                 # If the model has not improved (based on early stopping settings)
                 # - If current_AR_iterations < AR_iterations --> Update AR scheduler
