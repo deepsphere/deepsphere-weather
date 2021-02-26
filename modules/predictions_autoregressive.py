@@ -415,8 +415,8 @@ def AutoregressivePredictions(model,
     nodes = da_dynamic.node
     features = da_dynamic.feature 
     
-    t_res_timedelta = np.diff(da_dynamic.time.values)[0]    
-    t_res_timedelta.astype(get_timedelta_types()[timedelta_unit])    
+    t_res_timedelta = np.diff(da_dynamic.time.values)[0]*forecast_cycle   
+    t_res_timedelta = t_res_timedelta.astype(get_timedelta_types()[timedelta_unit])    
 
     ##------------------------------------------------------------------------.
     # Initialize 
@@ -488,8 +488,9 @@ def AutoregressivePredictions(model,
             ##----------------------------------------------------------------.
             ### Create xarray Dataset of forecasts
             # - Retrieve coords 
-            leadtime_idx = np.arange(Y_forecasts.shape[1])
-            leadtime = leadtime_idx * t_res_timedelta   
+            leadtime_idx = np.arange(Y_forecasts.shape[1]) # TODO generalize position
+            leadtime = leadtime_idx * t_res_timedelta    
+
             # - Create xarray DataArray 
             da=xr.DataArray(Y_forecasts,           
                             dims=['forecast_reference_time', 'leadtime', 'node', 'feature'],
