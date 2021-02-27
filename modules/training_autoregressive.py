@@ -946,7 +946,7 @@ def AutoregressiveTraining(model,
     print(" ")
     print("========================================================================================")
     print("- Training ended !")
-    print("- Total elapsed time: {} minutes.", format(time.time()-time_start_training))
+    print("- Total elapsed time: {:.2f} hours.", format((time.time()-time_start_training))/60/60)
     print("- Saving model to {}".format(model_fpath)) 
     torch.save(model.state_dict(), f=model_fpath)    
     ##-------------------------------------------------------------------------.

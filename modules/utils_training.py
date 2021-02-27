@@ -250,7 +250,7 @@ class AR_TrainingInfo():
         if len(self.validation_total_loss) != 0:
             avg_validation_loss = np.mean(self.validation_total_loss[self.start_epoch_scoring_idx:])   
             print("- Validation Loss: {validation_total_loss:.3f}".format(validation_total_loss=avg_validation_loss))
-        print("- Elapsed time: {elapsed_time:2f}".format(elapsed_time = time.time() - self.epoch_time_start))                                                  
+        print("- Elapsed time: {elapsed_time:.2f} minutes".format(elapsed_time = (time.time() - self.epoch_time_start)/60))                                                  
 
     ##------------------------------------------------------------------------.
     def iterations_of_AR_updates(self):

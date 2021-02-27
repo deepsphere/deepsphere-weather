@@ -361,7 +361,7 @@ training_info = AutoregressiveTraining(model = model,
 with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
     pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-exp_dir = "/data/weather_prediction/experiments_GG/UNetSpherical-healpix-16-k20-InterpPooling-float32-AR6"
+exp_dir = "/data/weather_prediction/experiments_GG/UNetSpherical-healpix-16-k20-MaxAreaPooling-float32-AR6"
 # # Load AR TrainingInfo
 with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
     training_info = pickle.load(handle)
@@ -475,7 +475,7 @@ forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/te
 verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
 
 ds = xr.open_zarr(forecast_zarr_fpath)
-ds = ds.isel(forecast_reference_time=0, leadtime=[0,10, 15, 20]) # select 4 timesteps
+ds = ds.isel(forecast_reference_time=0, leadtime=[0,1, 19, 20]) # select 4 timesteps
 ds = ds.load()
 
 import pygsp as pg
@@ -486,7 +486,7 @@ ds = ds.sphere.add_SphericalVoronoiMesh(x='lon',y='lat')
 da = ds['z500']
 da = ds['t850']
  
-
+crs_proj = ccrs.Orthographic(central_longitude=0.0, central_latitude=90.0)  # from the North Pole 
 crs_proj = ccrs.Robinson()
 
 #### Plot() Dataset 

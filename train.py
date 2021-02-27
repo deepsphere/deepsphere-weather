@@ -100,6 +100,8 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
+    cfg['model_settings']["model_name_suffix"] = "AR_UPDATE"
+    # cfg['training_settings']['epochs'] = 12
     cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
@@ -244,10 +246,10 @@ def main(cfg_path, exp_dir, data_dir):
     if model_settings['model_name'] is not None:
         model_name = model_settings['model_name']
     else: 
-        cfg['model_settings']["model_name_prefix"] = None
-        cfg['model_settings']["model_name_suffix"] = None
         model_name = get_model_name(cfg)
         model_settings['model_name'] = model_name
+        cfg['model_settings']["model_name_prefix"] = None
+        cfg['model_settings']["model_name_suffix"] = None
     
     exp_dir = create_experiment_directories(exp_dir = exp_dir,      
                                             model_name = model_name,
@@ -280,14 +282,15 @@ def main(cfg_path, exp_dir, data_dir):
                            weight_decay=0, amsgrad=False)
       
     ##------------------------------------------------------------------------.
-    ### - Define AR_Weights_Scheduler 
-    ar_scheduler = AR_Scheduler(method = "Constant",
-                                # factor = 0.0005,
-                                initial_AR_absolute_weights = [0.8, 0.2, 1]) 
+    # ### - Define AR_Weights_Scheduler 
+    # ar_scheduler = AR_Scheduler(method = "Constant",
+    #                             # factor = 0.0005,
+    #                             initial_AR_absolute_weights = [0.8, 0.2, 1]) 
 
-    # ar_scheduler = AR_Scheduler(method = "LinearStep",
-    #                             factor = 0.0005,
-    #                             initial_AR_absolute_weights = [10, 10, 0.1,0.1]) # [1] 
+    ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                factor = 0.0005,
+                                fixed_AR_weights = [0,3],
+                                initial_AR_absolute_weights = [1,1])   
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
@@ -392,7 +395,8 @@ def main(cfg_path, exp_dir, data_dir):
         ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
                                                         ax = ax,
                                                         linestyle="solid",
-                                                        linewidth=0.3, 
+                                                        linewidth=0.3,
+                                                        ylim = (0,0.08), 
                                                         plot_validation = False, 
                                                         plot_labels = True,
                                                         plot_legend = False,
@@ -410,6 +414,7 @@ def main(cfg_path, exp_dir, data_dir):
                                                         ax = ax,
                                                         linestyle="dashed",
                                                         linewidth=0.3,
+                                                        ylim = (0,0.08), 
                                                         plot_training = False, 
                                                         plot_labels = False,
                                                         plot_legend = False,
@@ -443,7 +448,7 @@ def main(cfg_path, exp_dir, data_dir):
     ##-------------------------------------------------------------------------.
     ### - Create predictions 
     print("========================================================================================")
-    print(" - Running predictions")
+    print("- Running predictions")
     forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
     dask.config.set(scheduler='synchronous')
     ds_forecasts = AutoregressivePredictions(model = model, 
@@ -454,7 +459,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              scaler = scaler,
                                              # Dataloader options
                                              device = device,
-                                             batch_size = 200,  # number of forecasts per batch
+                                             batch_size = 50,  # number of forecasts per batch
                                              num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
                                              prefetch_factor = dataloader_settings['prefetch_factor'], 
