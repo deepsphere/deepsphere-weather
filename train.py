@@ -294,8 +294,8 @@ def main(cfg_path, exp_dir, data_dir):
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 1000
-    minimum_iterations = 2000
+    patience = 500
+    minimum_iterations = 1000
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
@@ -459,7 +459,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              scaler = scaler,
                                              # Dataloader options
                                              device = device,
-                                             batch_size = 50,  # number of forecasts per batch
+                                             batch_size = 100,  # number of forecasts per batch
                                              num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
                                              prefetch_factor = dataloader_settings['prefetch_factor'], 
