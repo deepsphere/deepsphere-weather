@@ -51,10 +51,8 @@ ds = ds.isel(time=[0,6,12,18]) # select 4 timesteps
 ds = ds.load()
 
 ##----------------------------------------------------------------------------.
-## Add nodes mesh from pygsp graph (DEBUG !!!!)
-# --> TODO !!! CHECK MATCHING helpix nest... CDO REVERSE POLES? where the order change?
-# --> Data are not as nest=True ? 
-# ds1 = ds.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
+## Add nodes mesh from pygsp graph  
+ds1 = ds.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
 
 ##----------------------------------------------------------------------------.
 ## Infer mesh using SphericalVoronoi from node coordinates
