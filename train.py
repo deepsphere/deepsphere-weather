@@ -13,6 +13,8 @@ import argparse
 import torch
 import pickle
 import numpy as np
+import pygsp as pg
+import cartopy.crs as ccrs
 import xarray as xr
 import matplotlib.pyplot as plt
 from torch import nn, optim
@@ -37,7 +39,7 @@ from modules.utils_io import check_AR_DataArrays
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
-from modules.predictions_autoregressive import reshape_forecasts_for_verification
+# from modules.predictions_autoregressive import reshape_forecasts_for_verification
 from modules.utils_torch import summarize_model
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
@@ -45,11 +47,15 @@ from modules.early_stopping import EarlyStopping
 ## Project specific functions
 from modules.xscaler import LoadScaler
 from modules.xscaler import SequentialScaler
- 
+import modules.xsphere  # required for xarray 'sphere' accessor 
+import modules.xverif as xverif
+
 from modules.my_io import readDatasets   
 from modules.my_io import reformat_Datasets
 import modules.my_models_graph as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
+
+from modules.my_plotting import plot_skill_maps
 
 # For plotting 
 import matplotlib
@@ -283,18 +289,18 @@ def main(cfg_path, exp_dir, data_dir):
       
     ##------------------------------------------------------------------------.
     # ### - Define AR_Weights_Scheduler 
-    # ar_scheduler = AR_Scheduler(method = "Constant",
-    #                             # factor = 0.0005,
-    #                             initial_AR_absolute_weights = [0.8, 0.2, 1]) 
+    ar_scheduler = AR_Scheduler(method = "Constant",
+                                # factor = 0.0005,
+                                initial_AR_absolute_weights = [0.8, 0.2, 0.2, 0.2, 0.2, 1]) 
 
-    ar_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.0005,
-                                fixed_AR_weights = [0,3],
-                                initial_AR_absolute_weights = [1,1])   
+    # ar_scheduler = AR_Scheduler(method = "LinearStep",
+    #                             factor = 0.0005,
+    #                             fixed_AR_weights = [0,3],
+    #                             initial_AR_absolute_weights = [1,1])   
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 500
+    patience = 1000
     minimum_iterations = 1000
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
@@ -459,7 +465,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              scaler = scaler,
                                              # Dataloader options
                                              device = device,
-                                             batch_size = 100,  # number of forecasts per batch
+                                             batch_size = 25,  # number of forecasts per batch
                                              num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
                                              prefetch_factor = dataloader_settings['prefetch_factor'], 
@@ -493,26 +499,55 @@ def main(cfg_path, exp_dir, data_dir):
     print("========================================================================================")
     print("- Reshape test set predictions for verification")
     verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
-    ds_verification = rechunk_forecasts_for_verification(ds=ds_forecasts, 
-                                                         chunks="auto", 
-                                                         target_store=verification_zarr_fpath,
-                                                         max_mem = '1GB')
+    ds_verification_format = rechunk_forecasts_for_verification(ds=ds_forecasts, 
+                                                                chunks="auto", 
+                                                                target_store=verification_zarr_fpath,
+                                                                max_mem = '1GB')
      
     ##------------------------------------------------------------------------.
     ### - Run deterministic verification 
     print("========================================================================================")
     print("- Run deterministic verification")
     dask.config.set(scheduler='processes')
+    ds_skill = xverif.deterministic(pred = ds_verification_format,
+                                    obs = da_test_dynamic.to_dataset('feature'), 
+                                    forecast_type="continuous",
+                                    aggregating_dims='time',
+                                    exclude_dim="leadtime")
+
+    ds_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_skill.nc"))
     
-    print(ds_verification)
     ##------------------------------------------------------------------------.
     ### - Create verification summary plots and maps
     print("========================================================================================")
     print("- Create verification summary plots and maps")
-
+    # - Add mesh information 
+    # ---> TODO: To generalize based on cfg sampling !!!
+    ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
+    ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
     
+    # - Compute global and latitudinal skill summary statistics    
+    ds_global_skill = xverif.global_summary(ds_skill, area_coords="area")
+    ds_latitudinal_skill = xverif.latitudinal_summary(ds_skill, lat_dim='lat', lon_dim='lon', lat_res=5) 
+    ds_longitudinal_skill = xverif.longitudinal_summary(ds_skill, lat_dim='lat', lon_dim='lon', lon_res=5) 
+    
+    # - Create spatial maps 
+    plot_skill_maps(ds_skill = ds_skill,  
+                    figs_dir = os.path.join(exp_dir, "figs/skills/SpatialSkill"),
+                    crs_proj = ccrs.Robinson(),
+                    suffix="",
+                    prefix="")
+    
+    # - Create skill vs. leadtime plots 
+    # TODO:
+        
+        
+        
     ##------------------------------------------------------------------------.
     ### - Create animations 
+    # - Obs      , Forecast,       Error  
+    # - Obs Anom , Forecast Anom , Error Anom 
+
     
     ##-------------------------------------------------------------------------.
 
