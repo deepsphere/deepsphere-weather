@@ -102,6 +102,14 @@ def check_prefetch_factor(prefetch_factor, num_workers):
         prefetch_factor = 2 # bug in pytorch ... need to set to 2 
     return prefetch_factor
 
+def check_AR_training_strategy(AR_training_strategy):
+    """Check AR training strategy validity."""
+    if not isinstance(AR_training_strategy, str):
+        raise TypeError("'AR_training_strategy' must be a string: 'RNN' or 'AR'.")
+    if AR_training_strategy not in ["RNN","AR"]:
+        raise ValueError("'AR_training_strategy' must be either 'RNN' or 'AR'.")
+    return AR_training_strategy
+
 #-----------------------------------------------------------------------------.
 # #######################
 #### Pytorch settings ###

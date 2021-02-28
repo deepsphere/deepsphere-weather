@@ -45,7 +45,9 @@ from modules.early_stopping import EarlyStopping
 ## Project specific functions
 from modules.xscaler import LoadScaler
 from modules.xscaler import SequentialScaler
- 
+import modules.xsphere  # required for xarray 'sphere' accessor 
+import modules.xverif as xverif
+
 from modules.my_io import readDatasets   
 from modules.my_io import reformat_Datasets
 import modules.my_models_graph as my_architectures
@@ -289,7 +291,7 @@ optimizer = optim.Adam(model.parameters(),
 ### - Define AR_Weights_Scheduler 
 AR_scheduler = AR_Scheduler(method = "LinearStep",
                             factor = 0.0005,
-                            initial_AR_weights = [1])   
+                            initial_AR_absolute_weights = [1,1,1])   
 
 ### - Define Early Stopping 
 # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
@@ -348,6 +350,7 @@ training_info = AutoregressiveTraining(model = model,
                                         AR_iterations = AR_settings['AR_iterations'], 
                                         stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
                                         # Training settings 
+                                        AR_training_strategy = "RNN",
                                         numeric_precision = training_settings['numeric_precision'], 
                                         training_batch_size = training_settings['training_batch_size'], 
                                         validation_batch_size = training_settings['validation_batch_size'],   
@@ -462,17 +465,17 @@ dask.config.set(scheduler='processes')
 ## Reshape from 'forecast_reference_time'-'leadtime' to 'time (aka) forecasted_time'-'leadtime'  
 # - Rechunk Dataset over space on disk and then reshape the for verification
 verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
-ds_verification = rechunk_forecasts_for_verification(ds=ds_forecasts, 
-                                                        chunks="auto", 
-                                                        target_store=verification_zarr_fpath,
-                                                        max_mem = '1GB')
-    
+ds_verification_format = rechunk_forecasts_for_verification(ds=ds_forecasts, 
+                                                            chunks="auto", 
+                                                           target_store=verification_zarr_fpath,
+                                                          max_mem = '1GB')
+
+
 ##------------------------------------------------------------------------.
 from modules import xsphere
 import cartopy.crs as ccrs
 
 forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
-verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
 
 ds = xr.open_zarr(forecast_zarr_fpath)
 ds = ds.isel(forecast_reference_time=0, leadtime=[0,1, 19, 20]) # select 4 timesteps

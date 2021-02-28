@@ -35,6 +35,7 @@ def get_default_model_settings():
 def get_default_training_settings():
     """Return some default settings for training the model."""
     training_settings = {"epochs": 10,
+                         "AR_training_strategy": "AR",
                          "learning_rate": 0.001,
                          "training_batch_size": 32,
                          "validation_batch_size": 32,
@@ -376,10 +377,12 @@ def get_model_name(cfg):
         resolution = cfg['model_settings']["resolution"]
         knn = cfg['model_settings']["knn"]
         pool_method = cfg['model_settings']["pool_method"]
+        AR_training_strategy = cfg['training_settings']["AR_training_strategy"],
         numeric_precision = cfg['training_settings']["numeric_precision"]
         AR_iterations = cfg['AR_settings']["AR_iterations"]
         # Create model name 
-        model_name = "-".join([architecture_name,
+        model_name = "-".join([AR_training_strategy,
+                               architecture_name,
                                sampling,
                                str(resolution),
                                "k" + str(knn),

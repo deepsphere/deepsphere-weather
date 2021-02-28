@@ -60,8 +60,17 @@ from modules.my_plotting import plot_skill_maps
 # For plotting 
 import matplotlib
 matplotlib.use('cairo') # Cairo
-# matplotlib.use('Agg') # Cairo
-## Disable warnings
+matplotlib.rcParams["figure.facecolor"] = "white"
+matplotlib.rcParams["savefig.facecolor"] = "white" # (1,1,1,0)
+matplotlib.rcParams["savefig.edgecolor"] = 'none'
+
+# Dask client 
+# from dask.distributed import Client
+# print("- Initialize dask client")
+# client = Client(processes=False)
+# print(client)
+
+# Disable warnings
 warnings.filterwarnings("ignore")
 ##----------------------------------------------------------------------------.
 ## Assumptions 
@@ -106,8 +115,9 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-    cfg['model_settings']["model_name_suffix"] = "AR_UPDATE"
-    # cfg['training_settings']['epochs'] = 12
+    cfg['model_settings']["model_name_suffix"] = "LinearStep"
+    cfg['training_settings']["AR_training_strategy"] = "AR"
+    cfg['training_settings']['epochs'] = 12
     cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
@@ -293,15 +303,15 @@ def main(cfg_path, exp_dir, data_dir):
                                 # factor = 0.0005,
                                 initial_AR_absolute_weights = [0.8, 0.2, 0.2, 0.2, 0.2, 1]) 
 
-    # ar_scheduler = AR_Scheduler(method = "LinearStep",
-    #                             factor = 0.0005,
-    #                             fixed_AR_weights = [0,3],
-    #                             initial_AR_absolute_weights = [1,1])   
+    ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                factor = 0.0005,
+                                fixed_AR_weights = [0,4],
+                                initial_AR_absolute_weights = [1,1])   
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 1000
-    minimum_iterations = 1000
+    patience = 500
+    minimum_iterations = 500
     minimum_improvement = 0.001 # 0 to not stop 
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
@@ -371,6 +381,7 @@ def main(cfg_path, exp_dir, data_dir):
                                            AR_iterations = AR_settings['AR_iterations'], 
                                            stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
                                            # Training settings 
+                                           AR_training_strategy = training_settings["AR_training_strategy"],
                                            numeric_precision = training_settings['numeric_precision'], 
                                            training_batch_size = training_settings['training_batch_size'], 
                                            validation_batch_size = training_settings['validation_batch_size'],   
@@ -402,7 +413,7 @@ def main(cfg_path, exp_dir, data_dir):
                                                         ax = ax,
                                                         linestyle="solid",
                                                         linewidth=0.3,
-                                                        ylim = (0,0.08), 
+                                                        ylim = (0,0.06), 
                                                         plot_validation = False, 
                                                         plot_labels = True,
                                                         plot_legend = False,
@@ -420,7 +431,7 @@ def main(cfg_path, exp_dir, data_dir):
                                                         ax = ax,
                                                         linestyle="dashed",
                                                         linewidth=0.3,
-                                                        ylim = (0,0.08), 
+                                                        ylim = (0,0.06), 
                                                         plot_training = False, 
                                                         plot_labels = False,
                                                         plot_legend = False,
@@ -439,12 +450,12 @@ def main(cfg_path, exp_dir, data_dir):
         fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
         training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
                                                  linewidth=0.6,
-                                                 ylim = (0,0.08),
+                                                 ylim = (0,0.06),
                                                  title="Loss evolution at AR iteration {}".format(AR_iteration)).savefig(fname) 
 
     ##------------------------------------------------------------------------.
     ## - Plot total loss 
-    training_info.plot_total_loss(ylim = (0,0.08),linewidth=0.6).savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
+    training_info.plot_total_loss(ylim = (0,0.06),linewidth=0.6).savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
 
     ##------------------------------------------------------------------------.
     ## - Plot AR weights  
@@ -508,12 +519,11 @@ def main(cfg_path, exp_dir, data_dir):
     ### - Run deterministic verification 
     print("========================================================================================")
     print("- Run deterministic verification")
-    dask.config.set(scheduler='processes')
-    ds_skill = xverif.deterministic(pred = ds_verification_format,
+    # dask.config.set(scheduler='processes')
+    ds_skill = xverif.deterministic(pred = ds_verification_format.load(),
                                     obs = da_test_dynamic.to_dataset('feature'), 
                                     forecast_type="continuous",
-                                    aggregating_dims='time',
-                                    exclude_dim="leadtime")
+                                    aggregating_dims='time')
 
     ds_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_skill.nc"))
     
