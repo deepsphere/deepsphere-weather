@@ -35,18 +35,19 @@ def _xr_inner_product(x, y, dim, dask="parallelized"):
         raise ValueError("Requiring a dimension...")
     return xr.apply_ufunc(_inner, x, y, 
                           input_core_dims=input_core_dims,
-                          dask="parallelized")
+                          dask="parallelized",
+                          output_dtypes=[float])
 
-def _xr_covariance(x, y, aggregating_dims=None):
+def _xr_covariance(x, y, aggregating_dims=None, dask="parallelized"):
     x_mean = x.mean(aggregating_dims)
     y_mean = y.mean(aggregating_dims)
     N = x.count(aggregating_dims)
-    return _xr_inner_product(x - x_mean, y - y_mean, dim=aggregating_dims) / N
+    return _xr_inner_product(x - x_mean, y - y_mean, dim=aggregating_dims, dask=dask) / N
     
-def _xr_pearson_correlation(x, y, aggregating_dims=None, thr=0.0000001):
+def _xr_pearson_correlation(x, y, aggregating_dims=None, thr=0.0000001, dask="parallelized"):
     x_std = x.std(aggregating_dims) + thr
     y_std = y.std(aggregating_dims) + thr
-    return _xr_covariance(x, y, aggregating_dims=aggregating_dims)/(x_std*y_std)
+    return _xr_covariance(x, y, aggregating_dims=aggregating_dims, dask=dask)/(x_std*y_std)
 
 # import bottleneck
 # def _xr_rank(x, dim, dask="parallelized"): 
@@ -109,22 +110,26 @@ def _deterministic_continuous_metrics(pred, obs,
     error_abs = np.abs(error)
     error_squared = error**2
     error_perc = error_abs/(obs + thr)
-    ##----------------------------------------------------------------------------.
-    # - Mean 
-    pred_mean = pred.mean(aggregating_dims).compute()
+    print(1)
+    ##-------------------------------------------------------------------------.
+    # - Mean
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        pred_mean = pred.mean(aggregating_dims).compute()
     obs_mean = obs.mean(aggregating_dims).compute()
     error_mean = error.mean(aggregating_dims).compute()
-    ##----------------------------------------------------------------------------. 
+    ##-------------------------------------------------------------------------. 
     # - Standard deviation
     pred_std = pred.std(aggregating_dims).compute()
     obs_std = obs.std(aggregating_dims).compute()
     error_std = error.std(aggregating_dims).compute()
-    ##----------------------------------------------------------------------------.
+    print(2)
+    ##-------------------------------------------------------------------------.
     # - Coefficient of variability
     pred_CoV = pred_std / (pred_mean + thr) 
     obs_CoV = obs_std / (obs_mean + thr)
     error_CoV = error_std / (error_mean + thr)
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # - Magnitude metrics
     BIAS = error_mean
     MAE = np.abs(error).mean(aggregating_dims).compute()
@@ -138,17 +143,18 @@ def _deterministic_continuous_metrics(pred, obs,
     relMAE = MAE / (obs_mean + thr)
     relMSE = MSE / (obs_mean + thr)
     relRMSE = RMSE / (obs_mean + thr)
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # - Average metrics 
     rMean = pred_mean / (obs_mean + thr)
     diffMean = pred_mean - obs_mean
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # - Variability metrics 
     rSD = pred_std / (obs_std + thr)
     diffSD = pred_std - obs_std  
     rCoV = pred_CoV / obs_CoV
     diff_CoV = pred_CoV - obs_CoV
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
+    print(3)
     # - Correlation metrics 
     # --> TODO: only works when len(aggregating_dims) == 1
     # --> If > 1 ... reshape data of aggregating_dims into 1D dimension
@@ -161,13 +167,14 @@ def _deterministic_continuous_metrics(pred, obs,
     #                                       aggregating_dims=aggregating_dims,
     #                                       thr=thr).compute()
     # spearman_R2 = spearman_R**2
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # - Overall skill metrics 
+    print(4)
     LTM_forecast_error = ((obs_mean - obs)**2).sum(aggregating_dims) # Long-term mean as prediction
     NSE = 1 - ( error_squared.sum(aggregating_dims)/ (LTM_forecast_error + thr) )
     NSE = NSE.compute()
     KGE = 1 - ( np.sqrt((pearson_R - 1)**2 + (rSD - 1)**2 + (rMean - 1)**2) )
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # - Create dictionary skill 
     # If dimension is provided as a DataArray or Index
     skill_dict = {"error_CoV": error_CoV,
