@@ -9,7 +9,7 @@ import os
 import xarray as xr 
 import numpy as np 
 import pandas as pd
-
+import time 
 ## Weighting for equiangular 
 # weights_lat = np.cos(np.deg2rad(lat))
 # weights_lat /= weights_lat.sum()  
@@ -69,12 +69,17 @@ def deterministic(pred, obs,
     if forecast_type not in ["continuous", "categorical"]:
         raise ValueError("'forecast_type' must be either 'continuous' or 'categorical'.") 
     if forecast_type == 'continuous':
-        return _deterministic_continuous_metrics(pred = pred,
+        t_i = time.time()
+        ds_skill = _deterministic_continuous_metrics(pred = pred,
                                                  obs = obs, 
                                                  aggregating_dims=aggregating_dims,
                                                  exclude_dim=exclude_dim)
+        print("- Continuous deterministic verification: {:.2f} minutes".format((time.time() - t_i)/60))
+        return ds_skill
     else: 
+        t_i = time.time()
         raise NotImplementedError('Categorical forecast skill metrics are not yet implemented.')
+        print("- Categorical deterministic verification: {:.2f} minutes".format((time.time() - t_i)/60))
         
 def _deterministic_continuous_metrics(pred, obs, 
                                       aggregating_dims = None, 
@@ -91,7 +96,11 @@ def _deterministic_continuous_metrics(pred, obs,
          Gupta, Kling, Yilmaz, Martinez, 2009, Decomposition of the mean squared error and NSE performance criteria: Implications for improving hydrological modelling
     """
     # TODO robust with median and IQR / MAD 
+    # exclude_dim: 'member'? 
     ##----------------------------------------------------------------------------.
+    # - Remove NaN (in aggregating_dims (i.e. time) dimension)
+    pred = pred.dropna(dim=aggregating_dims)
+    obs = obs.dropna(dim=aggregating_dims)
     # - Align datasets 
     pred, obs = xr.align(pred, obs, join="inner", exclude=exclude_dim)
     ##----------------------------------------------------------------------------.
@@ -121,10 +130,10 @@ def _deterministic_continuous_metrics(pred, obs,
     MAE = np.abs(error).mean(aggregating_dims).compute()
     MSE = error_squared.mean(aggregating_dims).compute()
     RMSE = np.sqrt(MSE)
-    
+
     percBIAS = error_perc.mean(aggregating_dims).compute()*100
     percMAE = np.abs(error_perc).mean(aggregating_dims).compute()*100  
-    
+
     relBIAS = BIAS / (obs_mean + thr)
     relMAE = MAE / (obs_mean + thr)
     relMSE = MSE / (obs_mean + thr)
@@ -147,7 +156,7 @@ def _deterministic_continuous_metrics(pred, obs,
                                         aggregating_dims=aggregating_dims, 
                                         thr=thr).compute()
     pearson_R2 = pearson_R**2
-    
+
     # spearman_R = _xr_spearman_correlation(pred, obs,
     #                                       aggregating_dims=aggregating_dims,
     #                                       thr=thr).compute()
@@ -162,39 +171,39 @@ def _deterministic_continuous_metrics(pred, obs,
     # - Create dictionary skill 
     # If dimension is provided as a DataArray or Index
     skill_dict = {"error_CoV": error_CoV,
-                  "obs_CoV": obs_CoV,
-                  "pred_CoV": pred_CoV,
-                  # Magnitude 
-                  "BIAS": BIAS,
-                  "relBIAS": relBIAS,
-                  "percBIAS": percBIAS,
-                  "MAE": MAE,
-                  "relMAE": relMAE,
-                  "percMAE": percMAE,
-                  "MSE": MSE,
-                  "relMSE": relMSE,
-                  "RMSE": RMSE,
-                  "relRMSE": relRMSE,
-                  # Average
-                  "rMean": rMean,
-                  "diffMean": diffMean,
-                  # Variability 
-                  'rSD': rSD,
-                  'diffSD': diffSD,
-                  "rCoV": rCoV,
-                  "diff_CoV": diff_CoV,
-                  # Correlation 
-                  "pearson_R": pearson_R,
-                  "pearson_R2": pearson_R2,
-                  # "spearman_R": spearman_R,
-                  # "spearman_R2": spearman_R2,
-                  # Overall skills
-                  "NSE": NSE,
-                  "KGE": KGE,
-                  }
+                    "obs_CoV": obs_CoV,
+                    "pred_CoV": pred_CoV,
+                    # Magnitude 
+                    "BIAS": BIAS,
+                    "relBIAS": relBIAS,
+                    "percBIAS": percBIAS,
+                    "MAE": MAE,
+                    "relMAE": relMAE,
+                    "percMAE": percMAE,
+                    "MSE": MSE,
+                    "relMSE": relMSE,
+                    "RMSE": RMSE,
+                    "relRMSE": relRMSE,
+                    # Average
+                    "rMean": rMean,
+                    "diffMean": diffMean,
+                    # Variability 
+                    'rSD': rSD,
+                    'diffSD': diffSD,
+                    "rCoV": rCoV,
+                    "diff_CoV": diff_CoV,
+                    # Correlation 
+                    "pearson_R": pearson_R,
+                    "pearson_R2": pearson_R2,
+                    # "spearman_R": spearman_R,
+                    # "spearman_R2": spearman_R2,
+                    # Overall skills
+                    "NSE": NSE,
+                    "KGE": KGE,
+                    }
     # Create skill Dataset 
     skill_index = pd.Index(skill_dict.keys())
-    ds_skill = xr.concat(skill_dict.values(), dim=skill_index)
+    ds_skill = xr.concat(skill_dict.values(), dim=skill_index, coords="all")
     ds_skill = ds_skill.rename({'concat_dim':'skill'})
     # Return the skill Dataset
     return ds_skill
