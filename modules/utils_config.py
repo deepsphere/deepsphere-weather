@@ -377,7 +377,7 @@ def get_model_name(cfg):
         resolution = cfg['model_settings']["resolution"]
         knn = cfg['model_settings']["knn"]
         pool_method = cfg['model_settings']["pool_method"]
-        AR_training_strategy = cfg['training_settings']["AR_training_strategy"],
+        AR_training_strategy = cfg['training_settings']["AR_training_strategy"]
         numeric_precision = cfg['training_settings']["numeric_precision"]
         AR_iterations = cfg['AR_settings']["AR_iterations"]
         # Create model name 
