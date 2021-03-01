@@ -6,7 +6,7 @@ Autoregressive (AR) weights scheduler to adapt loss weight at each AR iteration 
 
 * ``` dataloader_autoregressive.py``` 
 
-Autoregressive (AR) pyTorch DataLoader for nowcasting / forecasting problems.
+pyTorch Autoregressive (AR) DataLoader for nowcasting / forecasting problems.
 It allow for multiprocess-based prefetching in CPU and GPU, with asynchronous trasfer.
 It expects xarray DataArrays in memory or lazy-loaded from a zarr store. 
 
@@ -19,23 +19,26 @@ pyTorch utils for early stopping training and controlling AR weight updates.
 
 pyTorch layers to perform convolutions and pooling operations on spherical unstructured grids.
 
+* ``` models.py```
 
+pyTorch architecture general structures
 
+* ``` predictions_autoregressive.py```
 
-Allows to to train and test a model  
-with a loss function that includes multiple steps that can be defined by the user. It saves the model after every epoch
-but does not generate the predictions (to save time since it can be done in parallel using the notebook 
-```generate_evaluate_predictions.ipynb ```). The parameters are defined inside the main function, although it can be 
-adapted to use a config file as in ```full_pipeline_evalution.py```
+pyTorch code to generate autoregressive (AR) predictions 
 
-It is important to remark that the update function that takes care of the weight's update is defined on top
-of the file and should be adapted to the number of lead steps taken into account in the loss function.
+* ``` remap.py```
+Functions to remap between spherical unstructured grids. 
+It use CDO > 1.9.8 as a back-end 
 
-* ```architecture.py```
+* ``` training_autoregressive.py```
 
-Contains pytorch models used for both ``` full_pipeline_multiple_steps.py``` and ``` full_pipeline_evaluation.py``` 
-Previous architectures used can be found in the folder ``` modules/old_architectures/```
+pyTorch functions for training autoregressive (AR) models using recurrent or AR strategies.
 
-* ``` plotting.py```
+* ``` xscalers.py```
 
-Contains different functions to generate evaluation plots. 
+Implements pre-processing scalers à la scikit-learn for multidimensional xarray tensors.
+
+* ``` xsphere.py```
+Implement the ```sphere``` accesor to xarray for plotting spherical unstructured grids with FacetGrid capability.  
+
