@@ -17,7 +17,7 @@
 
 ``` layers.py```
 
-*pyTorch layers to perform convolutions and pooling operations on spherical unstructured grids.
+* pyTorch layers to perform convolutions and pooling operations on spherical unstructured grids.
 
 ``` models.py```
 
