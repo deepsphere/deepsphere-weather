@@ -1,44 +1,47 @@
 ## Modules
 
-* ```AR_Scheduler.py.py``` 
+```AR_Scheduler.py.py``` 
 
-Autoregressive (AR) weights scheduler to adapt loss weight at each AR iteration during training. 
+* Autoregressive (AR) weights scheduler to adapt loss weight at each AR iteration during training. 
 
-* ``` dataloader_autoregressive.py``` 
+``` dataloader_autoregressive.py``` 
 
-pyTorch Autoregressive (AR) DataLoader for nowcasting / forecasting problems.
-It allow for multiprocess-based prefetching in CPU and GPU, with asynchronous GPU data trasfer.
-It expects xarray DataArrays in memory or lazy-loaded from a zarr store. 
+* pyTorch Autoregressive (AR) DataLoader for nowcasting / forecasting problems.
+* It allow for multiprocess-based prefetching in CPU and GPU, with asynchronous GPU data trasfer.
+* It expects xarray DataArrays in memory or lazy-loaded from a zarr store. 
 
-* ``` early_stopping.py.py``` 
+``` early_stopping.py.py``` 
 
-pyTorch utils for early stopping training and controlling AR weights updates. 
+* pyTorch utils for early stopping training and controlling AR weights updates. 
 
 
-* ``` layers.py```
+``` layers.py```
 
-pyTorch layers to perform convolutions and pooling operations on spherical unstructured grids.
+*pyTorch layers to perform convolutions and pooling operations on spherical unstructured grids.
 
-* ``` models.py```
+``` models.py```
 
-pyTorch architecture general structures
+* pyTorch architecture general structures
 
-* ``` predictions_autoregressive.py```
+``` predictions_autoregressive.py```
 
-pyTorch code to generate autoregressive (AR) predictions 
+* pyTorch code to generate autoregressive (AR) predictions 
 
-* ``` remap.py```
-Functions to remap between spherical unstructured grids. 
-It use CDO > 1.9.8 as a back-end 
+``` remap.py```
 
-* ``` training_autoregressive.py```
+* Functions to remap between spherical unstructured grids. 
+* It requires CDO > 1.9.8  
 
-pyTorch functions for training autoregressive (AR) models using recurrent or AR strategies.
+``` training_autoregressive.py```
 
-* ``` xscalers.py```
+* pyTorch functions for training autoregressive (AR) models using recurrent or AR strategies.
 
-Implements pre-processing scalers à la scikit-learn for multidimensional xarray tensors.
+``` xscalers.py```
 
-* ``` xsphere.py```
-Implement the ```sphere``` accesor to xarray for plotting spherical unstructured grids with FacetGrid capability.  
+* Implements MinMaxScaler and StandardScaler à la scikit-learn for multidimensional xarray tensors.
+* Implements Climatology, Anomaly, Trend scalers
+
+``` xsphere.py```
+
+* Implement the ```sphere``` accessor to xarray for plotting spherical unstructured grids with FacetGrid capability.  
 
