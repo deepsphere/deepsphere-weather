@@ -7,12 +7,12 @@ Autoregressive (AR) weights scheduler to adapt loss weight at each AR iteration 
 * ``` dataloader_autoregressive.py``` 
 
 pyTorch Autoregressive (AR) DataLoader for nowcasting / forecasting problems.
-It allow for multiprocess-based prefetching in CPU and GPU, with asynchronous trasfer.
+It allow for multiprocess-based prefetching in CPU and GPU, with asynchronous GPU data trasfer.
 It expects xarray DataArrays in memory or lazy-loaded from a zarr store. 
 
 * ``` early_stopping.py.py``` 
 
-pyTorch utils for early stopping training and controlling AR weight updates. 
+pyTorch utils for early stopping training and controlling AR weights updates. 
 
 
 * ``` layers.py```
