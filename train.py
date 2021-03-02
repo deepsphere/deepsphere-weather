@@ -11,6 +11,7 @@ import time
 import dask
 import argparse
 import torch
+import cartopy.crs as ccrs
 import pickle
 import numpy as np
 import pygsp as pg
@@ -34,6 +35,7 @@ from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_dim_info
+from modules.utils_models import get_pygsp_graph
 from modules.utils_io import get_AR_model_diminfo
 from modules.utils_io import check_AR_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
@@ -55,7 +57,11 @@ from modules.my_io import reformat_Datasets
 import modules.my_models_graph as my_architectures
 from modules.loss import WeightedMSELoss, compute_error_weight
 
+# - Plotting functions
 from modules.my_plotting import plot_skill_maps
+from modules.my_plotting import plot_global_skill
+from modules.my_plotting import plot_global_skills
+from modules.my_plotting import plot_skills_distribution
 
 # For plotting 
 import matplotlib
@@ -105,6 +111,7 @@ warnings.filterwarnings("ignore")
 def main(cfg_path, exp_dir, data_dir):
     """General function for training DeepSphere4Earth models."""
     ##------------------------------------------------------------------------.
+    t_start = time.time()
     ### Read experiment configuration settings 
     cfg = read_config_file(fpath=cfg_path)
     
@@ -115,10 +122,10 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-    cfg['model_settings']["model_name_suffix"] = "LinearStep"
-    cfg['training_settings']["AR_training_strategy"] = "AR"
+    cfg['model_settings']["model_name_suffix"] = "LinearStep_weight_corrected"
+    cfg['training_settings']["AR_training_strategy"] = "RNN" # "AR" # "RNN"
     cfg['training_settings']['epochs'] = 12
-    cfg['AR_settings']["AR_iterations"] = 6
+    cfg['AR_settings']["AR_iterations"] = 4
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
@@ -299,14 +306,15 @@ def main(cfg_path, exp_dir, data_dir):
       
     ##------------------------------------------------------------------------.
     # ### - Define AR_Weights_Scheduler 
-    ar_scheduler = AR_Scheduler(method = "Constant",
-                                # factor = 0.0005,
-                                initial_AR_absolute_weights = [0.8, 0.2, 0.2, 0.2, 0.2, 1]) 
-
+    # wORKS 
+    # ar_scheduler = AR_Scheduler(method = "Constant",
+    #                             # factor = 0.0005,
+    #                             initial_AR_absolute_weights = [0.8, 0.4, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2]) 
+    # DO NOT WORKS
     ar_scheduler = AR_Scheduler(method = "LinearStep",
                                 factor = 0.0005,
                                 fixed_AR_weights = [0,4],
-                                initial_AR_absolute_weights = [1,1])   
+                                initial_AR_absolute_weights = [1])   
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
@@ -476,7 +484,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              scaler = scaler,
                                              # Dataloader options
                                              device = device,
-                                             batch_size = 25,  # number of forecasts per batch
+                                             batch_size = 50,  # number of forecasts per batch
                                              num_workers = dataloader_settings['num_workers'], 
                                             #  tune_num_workers = False, 
                                              prefetch_factor = dataloader_settings['prefetch_factor'], 
@@ -489,7 +497,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              output_k = AR_settings['output_k'], 
                                              forecast_cycle = AR_settings['forecast_cycle'],                         
                                              stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                             AR_iterations = 20,        # How many time to autoregressive iterate
+                                             AR_iterations = 40,        # How many time to autoregressive iterate
                                              # Save options 
                                              zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 
@@ -520,12 +528,15 @@ def main(cfg_path, exp_dir, data_dir):
     print("========================================================================================")
     print("- Run deterministic verification")
     # dask.config.set(scheduler='processes')
-    ds_skill = xverif.deterministic(pred = ds_verification_format.load(),
-                                    obs = da_test_dynamic.to_dataset('feature'), 
+    # - Compute skills
+    ds_obs_test = da_test_dynamic.to_dataset('feature')
+    ds_obs_test = ds_obs_test.chunk({'time': -1,'node': 1})
+    ds_skill = xverif.deterministic(pred = ds_verification_format,
+                                    obs = ds_obs_test, 
                                     forecast_type="continuous",
-                                    aggregating_dims='time')
-
-    ds_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_skill.nc"))
+                                    aggregating_dim='time')
+    # - Save sptial skills 
+    ds_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_spatial_skill.nc"))
     
     ##------------------------------------------------------------------------.
     ### - Create verification summary plots and maps
@@ -533,7 +544,10 @@ def main(cfg_path, exp_dir, data_dir):
     print("- Create verification summary plots and maps")
     # - Add mesh information 
     # ---> TODO: To generalize based on cfg sampling !!!
-    ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
+    pygsp_graph = get_pygsp_graph(sampling = model_settings['sampling'], 
+                                  resolution = model_settings['resolution'],
+                                  knn = model_settings['knn'])
+    ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
     
     # - Compute global and latitudinal skill summary statistics    
@@ -541,23 +555,33 @@ def main(cfg_path, exp_dir, data_dir):
     ds_latitudinal_skill = xverif.latitudinal_summary(ds_skill, lat_dim='lat', lon_dim='lon', lat_res=5) 
     ds_longitudinal_skill = xverif.longitudinal_summary(ds_skill, lat_dim='lat', lon_dim='lon', lon_res=5) 
     
+    # - Save global skills
+    ds_global_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_global_skill.nc"))
+
     # - Create spatial maps 
     plot_skill_maps(ds_skill = ds_skill,  
                     figs_dir = os.path.join(exp_dir, "figs/skills/SpatialSkill"),
                     crs_proj = ccrs.Robinson(),
+                    skills = ['BIAS','RMSE','rSD', 'pearson_R2', 'error_CoV'],
+                    # skills = ['percBIAS','percMAE','rSD', 'pearson_R2', 'KGE'],
                     suffix="",
                     prefix="")
-    
+
     # - Create skill vs. leadtime plots 
-    # TODO:
-        
-        
+    plot_global_skill(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/RMSE_skill.png"))
+    plot_global_skills(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_global.png"))
+    plot_skills_distribution(ds_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_distribution.png"))
         
     ##------------------------------------------------------------------------.
     ### - Create animations 
+    print("========================================================================================")
+    print("- Create error animations")
+    # TODO
     # - Obs      , Forecast,       Error  
     # - Obs Anom , Forecast Anom , Error Anom 
 
+    print("- Model training and verification terminated. Elapsed time: {:.1f} hours ".format((time.time() - t_start)/60/60))  
+    print("========================================================================================")
     
     ##-------------------------------------------------------------------------.
 
