@@ -432,7 +432,7 @@ class AR_TrainingInfo():
             return ax
         ##--------------------------------------------------------------------.
 
-    def plot_AR_weights(self, normalized=True, xlim=None, ylim=(0,1), ax=None):
+    def plot_AR_weights(self, normalized=True, xlim=None, ylim=(0,1.05), ax=None):
         """
         Plot the autoregressive weights evolution.
 
