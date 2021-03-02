@@ -9,11 +9,65 @@ import os
 import xarray as xr 
 import numpy as np 
 import pandas as pd
+import scipy.stats
+import time
+from dask.diagnostics import ProgressBar
 
+# https://xskillscore.readthedocs.io/en/stable/api/xskillscore.pearson_r_eff_p_value.html
+##----------------------------------------------------------------------------.
 ## Weighting for equiangular 
 # weights_lat = np.cos(np.deg2rad(lat))
 # weights_lat /= weights_lat.sum()  
 # error * weights_lat 
+
+##----------------------------------------------------------------------------.
+def _match_nans(a, b, weights=None):
+    """
+    Considers missing values pairwise. 
+    If a value is missing in a, the corresponding value in b is turned to nan, and
+    vice versa.
+    
+    Code source: https://github.com/xarray-contrib/xskillscore
+     
+    Returns
+    -------
+    a, b, weights : ndarray
+        a, b, and weights (if not None) with nans placed at pairwise locations.
+    """
+    if np.isnan(a).any() or np.isnan(b).any():
+        # Avoids mutating original arrays and bypasses read-only issue.
+        a, b = a.copy(), b.copy()
+        # Find pairwise indices in a and b that have nans.
+        idx = np.logical_or(np.isnan(a), np.isnan(b))
+        a[idx], b[idx] = np.nan, np.nan
+        if isinstance(weights, np.ndarray):
+            if weights.shape:  # not None
+                weights = weights.copy()
+                weights[idx] = np.nan
+    return a, b, weights
+
+def _drop_nans(a, b, weights=None):
+    """
+    Considers missing values pairwise. 
+    If a value is missing in a or b, the corresponding indices are dropped.
+         
+    Returns
+    -------
+    a, b, weights : ndarray
+        a, b, and weights (if not None) with nans placed at pairwise locations.
+    """
+    if np.isnan(a).any() or np.isnan(b).any():
+        # Avoids mutating original arrays and bypasses read-only issue.
+        a, b = a.copy(), b.copy()
+        # Find pairwise indices in a and b that have nans.
+        idx = np.logical_or(np.isnan(a), np.isnan(b))
+        a = np.delete(a, idx)
+        b = np.delete(b, idx)
+        if isinstance(weights, np.ndarray):
+            if weights.shape:  # not None
+                weights = weights.copy()
+                weights = np.delete(weights, idx)
+    return a, b, weights
  
 ##----------------------------------------------------------------------------.
 # Covariance/Correlation functions for xarray 
@@ -59,147 +113,180 @@ def _xr_pearson_correlation(x, y, aggregating_dims=None, thr=0.0000001):
 #     y_rank = y.rank(dim=aggregating_dims)
 #     return _xr_pearson_correlation(x_rank,y_rank, aggregating_dims=aggregating_dims, thr=thr)
 ##----------------------------------------------------------------------------.
+def _det_cont_metrics(pred, obs, thr=0.000001, skip_na=True):
+    """Deterministic metrics for continuous predictions forecasts.
+
+    This function expects pred and obs to be 1D vector of same size
+    """   
+    # TODO robust with median and IQR / MAD 
+    ##------------------------------------------------------------------------.
+    # Preprocess data (remove NaN if asked)
+    if skip_na: 
+        pred, obs, _ = _drop_nans(pred, obs)
+        # If not non-NaN data, return a vector of nan data
+        if len(pred) == 0:
+            return np.ones(27)*np.nan
+    ##------------------------------------------------------------------------.
+    # - Error 
+    error = pred - obs
+    error_abs = np.abs(error)
+    error_squared = error**2
+    error_perc = error_abs/(obs + thr)
+    ##------------------------------------------------------------------------.
+    # - Mean 
+    pred_mean = pred.mean() 
+    obs_mean = obs.mean() 
+    error_mean = error.mean() 
+    ##------------------------------------------------------------------------. 
+    # - Standard deviation
+    pred_std = pred.std() 
+    obs_std = obs.std() 
+    error_std = error.std() 
+    ##------------------------------------------------------------------------.
+    # - Coefficient of variability
+    pred_CoV = pred_std / (pred_mean + thr) 
+    obs_CoV = obs_std / (obs_mean + thr)
+    error_CoV = error_std / (error_mean + thr)
+    ##------------------------------------------------------------------------.
+    # - Magnitude metrics
+    BIAS = error_mean
+    MAE = np.abs(error).mean() 
+    MSE = error_squared.mean() 
+    RMSE = np.sqrt(MSE)
+    
+    percBIAS = error_perc.mean()*100
+    percMAE = np.abs(error_perc).mean()*100  
+    
+    relBIAS = BIAS / (obs_mean + thr)
+    relMAE = MAE / (obs_mean + thr)
+    relMSE = MSE / (obs_mean + thr)
+    relRMSE = RMSE / (obs_mean + thr)
+    ##------------------------------------------------------------------------.
+    # - Average metrics 
+    rMean = pred_mean / (obs_mean + thr)
+    diffMean = pred_mean - obs_mean
+    ##------------------------------------------------------------------------.
+    # - Variability metrics 
+    rSD = pred_std / (obs_std + thr)
+    diffSD = pred_std - obs_std  
+    rCoV = pred_CoV / obs_CoV
+    diff_CoV = pred_CoV - obs_CoV
+    ##------------------------------------------------------------------------.
+    # - Correlation metrics 
+    pearson_R, pearson_R_p_value = scipy.stats.pearsonr(pred, obs)                                  
+    pearson_R2 = pearson_R**2
+
+    spearman_R, spearman_R_p_value = scipy.stats.spearmanr(pred, obs)
+    spearman_R2 = spearman_R**2
+    ##------------------------------------------------------------------------.
+    # - Overall skill metrics 
+    LTM_forecast_error = ((obs_mean - obs)**2).sum() # Long-term mean as prediction
+    NSE = 1 - ( error_squared.sum()/ (LTM_forecast_error + thr) )
+    KGE = 1 - ( np.sqrt((pearson_R - 1)**2 + (rSD - 1)**2 + (rMean - 1)**2) )
+    ##------------------------------------------------------------------------.
+    skills = np.array([pred_CoV,
+                       obs_CoV,
+                       error_CoV,
+                       # Magnitude
+                       BIAS,
+                       MAE,
+                       MSE,
+                       RMSE,
+                       percBIAS,
+                       percMAE,
+                       relBIAS,
+                       relMAE,
+                       relMSE,
+                       relRMSE,
+                       # Average
+                       rMean,
+                       diffMean,
+                       # Variability
+                       rSD,
+                       diffSD,
+                       rCoV,                    
+                       diff_CoV,
+                       # Correlation
+                       pearson_R, 
+                       pearson_R_p_value,
+                       pearson_R2,
+                       spearman_R,
+                       spearman_R_p_value,
+                       spearman_R2,
+                       # Overall skill 
+                       NSE,
+                       KGE])
+    return skills 
+##----------------------------------------------------------------------------.
+def _deterministic_continuous_metrics(pred, obs, 
+                                      dim = "time", 
+                                      skip_na = True,
+                                      thr=0.000001):                 
+    ds_skill = xr.apply_ufunc(_det_cont_metrics,
+                              pred,
+                              obs,
+                              kwargs = {'thr': thr, 'skip_na': skip_na}, 
+                              input_core_dims=[[dim], [dim]],  
+                              output_core_dims=[["skill"]],  # returned data has one dimension
+                              vectorize=True,
+                              dask="parallelized",
+                              dask_gufunc_kwargs = {'output_sizes': {'skill': 27,}},                         
+                              output_dtypes=['float64'])  # dtype  
+    # Compute the skills
+    with ProgressBar():                        
+        ds_skill = ds_skill.compute()
+    # Add skill coordinates
+    skill_str = ["pred_CoV", "obs_CoV", "error_CoV",
+            # Magnitude
+            "BIAS", "MAE", "MSE", "RMSE",
+            "percBIAS", "percMAE",
+            "relBIAS", "relMAE", "relMSE", "relRMSE",
+            # Average
+            "rMean", "diffMean",
+            # Variability
+            "rSD", "diffSD", "rCoV", "diff_CoV",
+            # Correlation
+            "pearson_R", "pearson_R_p_value", "pearson_R2",
+            "spearman_R", "spearman_R_p_value", "spearman_R2",
+            # Overall skill 
+            "NSE", "KGE"]         
+    ds_skill = ds_skill.assign_coords({"skill": skill_str})    
+    ##------------------------------------------------------------------------.
+    # Return the skill Dataset
+    return ds_skill
+
+#-----------------------------------------------------------------------------.
+# #############################
+#### Verification Wrappers ####
+# #############################
 def deterministic(pred, obs, 
                   forecast_type="continuous",
-                  aggregating_dims=None,
-                  exclude_dim=frozenset({})):
+                  aggregating_dim=None,
+                  skip_na=True, 
+                  thr=0.000001):
     """Compute deterministic skill metrics."""
     if not isinstance(forecast_type, str): 
         raise TypeError("'forecast_type' must be a string specifying the forecast type.")
     if forecast_type not in ["continuous", "categorical"]:
         raise ValueError("'forecast_type' must be either 'continuous' or 'categorical'.") 
     if forecast_type == 'continuous':
-        return _deterministic_continuous_metrics(pred = pred,
-                                                 obs = obs, 
-                                                 aggregating_dims=aggregating_dims,
-                                                 exclude_dim=exclude_dim)
+        t_i = time.time()
+        ds_skill = _deterministic_continuous_metrics(pred = pred,
+                                                     obs = obs, 
+                                                     dim = aggregating_dim,
+                                                     skip_na = skip_na,
+                                                     thr = thr)
+        print("- Elapsed time for forecast deterministic verification: {:.2f} minutes.".format((time.time() - t_i)/60))
+        return ds_skill
     else: 
         raise NotImplementedError('Categorical forecast skill metrics are not yet implemented.')
-        
-def _deterministic_continuous_metrics(pred, obs, 
-                                      aggregating_dims = None, 
-                                      exclude_dim=frozenset({}),
-                                      thr=0.000001):
-    """Deterministic metrics for continuous predictions forecasts.
-    
-    percMAE : also known as MAPE 
-    pearson_R2 : also known as coefficient of determination 
-    
-    References
-    ----------
-    KGE:
-         Gupta, Kling, Yilmaz, Martinez, 2009, Decomposition of the mean squared error and NSE performance criteria: Implications for improving hydrological modelling
-    """
-    # TODO robust with median and IQR / MAD 
-    ##----------------------------------------------------------------------------.
-    # - Align datasets 
-    pred, obs = xr.align(pred, obs, join="inner", exclude=exclude_dim)
-    ##----------------------------------------------------------------------------.
-    # - Error 
-    error = pred - obs
-    error_abs = np.abs(error)
-    error_squared = error**2
-    error_perc = error_abs/(obs + thr)
-    ##----------------------------------------------------------------------------.
-    # - Mean 
-    pred_mean = pred.mean(aggregating_dims).compute()
-    obs_mean = obs.mean(aggregating_dims).compute()
-    error_mean = error.mean(aggregating_dims).compute()
-    ##----------------------------------------------------------------------------. 
-    # - Standard deviation
-    pred_std = pred.std(aggregating_dims).compute()
-    obs_std = obs.std(aggregating_dims).compute()
-    error_std = error.std(aggregating_dims).compute()
-    ##----------------------------------------------------------------------------.
-    # - Coefficient of variability
-    pred_CoV = pred_std / (pred_mean + thr) 
-    obs_CoV = obs_std / (obs_mean + thr)
-    error_CoV = error_std / (error_mean + thr)
-    ##----------------------------------------------------------------------------.
-    # - Magnitude metrics
-    BIAS = error_mean
-    MAE = np.abs(error).mean(aggregating_dims).compute()
-    MSE = error_squared.mean(aggregating_dims).compute()
-    RMSE = np.sqrt(MSE)
-    
-    percBIAS = error_perc.mean(aggregating_dims).compute()*100
-    percMAE = np.abs(error_perc).mean(aggregating_dims).compute()*100  
-    
-    relBIAS = BIAS / (obs_mean + thr)
-    relMAE = MAE / (obs_mean + thr)
-    relMSE = MSE / (obs_mean + thr)
-    relRMSE = RMSE / (obs_mean + thr)
-    ##----------------------------------------------------------------------------.
-    # - Average metrics 
-    rMean = pred_mean / (obs_mean + thr)
-    diffMean = pred_mean - obs_mean
-    ##----------------------------------------------------------------------------.
-    # - Variability metrics 
-    rSD = pred_std / (obs_std + thr)
-    diffSD = pred_std - obs_std  
-    rCoV = pred_CoV / obs_CoV
-    diff_CoV = pred_CoV - obs_CoV
-    ##----------------------------------------------------------------------------.
-    # - Correlation metrics 
-    # --> TODO: only works when len(aggregating_dims) == 1
-    # --> If > 1 ... reshape data of aggregating_dims into 1D dimension
-    pearson_R = _xr_pearson_correlation(pred, obs, 
-                                        aggregating_dims=aggregating_dims, 
-                                        thr=thr).compute()
-    pearson_R2 = pearson_R**2
-    
-    # spearman_R = _xr_spearman_correlation(pred, obs,
-    #                                       aggregating_dims=aggregating_dims,
-    #                                       thr=thr).compute()
-    # spearman_R2 = spearman_R**2
-    ##----------------------------------------------------------------------------.
-    # - Overall skill metrics 
-    LTM_forecast_error = ((obs_mean - obs)**2).sum(aggregating_dims) # Long-term mean as prediction
-    NSE = 1 - ( error_squared.sum(aggregating_dims)/ (LTM_forecast_error + thr) )
-    NSE = NSE.compute()
-    KGE = 1 - ( np.sqrt((pearson_R - 1)**2 + (rSD - 1)**2 + (rMean - 1)**2) )
-    ##----------------------------------------------------------------------------.
-    # - Create dictionary skill 
-    # If dimension is provided as a DataArray or Index
-    skill_dict = {"error_CoV": error_CoV,
-                  "obs_CoV": obs_CoV,
-                  "pred_CoV": pred_CoV,
-                  # Magnitude 
-                  "BIAS": BIAS,
-                  "relBIAS": relBIAS,
-                  "percBIAS": percBIAS,
-                  "MAE": MAE,
-                  "relMAE": relMAE,
-                  "percMAE": percMAE,
-                  "MSE": MSE,
-                  "relMSE": relMSE,
-                  "RMSE": RMSE,
-                  "relRMSE": relRMSE,
-                  # Average
-                  "rMean": rMean,
-                  "diffMean": diffMean,
-                  # Variability 
-                  'rSD': rSD,
-                  'diffSD': diffSD,
-                  "rCoV": rCoV,
-                  "diff_CoV": diff_CoV,
-                  # Correlation 
-                  "pearson_R": pearson_R,
-                  "pearson_R2": pearson_R2,
-                  # "spearman_R": spearman_R,
-                  # "spearman_R2": spearman_R2,
-                  # Overall skills
-                  "NSE": NSE,
-                  "KGE": KGE,
-                  }
-    # Create skill Dataset 
-    skill_index = pd.Index(skill_dict.keys())
-    ds_skill = xr.concat(skill_dict.values(), dim=skill_index)
-    ds_skill = ds_skill.rename({'concat_dim':'skill'})
-    # Return the skill Dataset
-    return ds_skill
 
+#-----------------------------------------------------------------------------.
+# #############################
+#### Spatial Summaries     ####
+# #############################
 def global_summary(ds, area_coords="area"):
+    """Compute global statistics weighted by grid cell area."""
     # Check area_coords
     area_weights = ds[area_coords]/ds[area_coords].values.sum()
     aggregating_dims = list(area_weights.dims)
@@ -207,6 +294,7 @@ def global_summary(ds, area_coords="area"):
     return ds_weighted.mean(aggregating_dims)
 
 def latitudinal_summary(ds, lat_dim='lat', lon_dim='lon', lat_res=5):
+    """Compute latitudinal (bin) statistics, averaging over longitude."""
     # Check lat_dim and lon_dim 
     # Check lat_res < 90 
     # TODO: lon between -180 and 180 , lat between -90 and 90 
@@ -216,6 +304,7 @@ def latitudinal_summary(ds, lat_dim='lat', lon_dim='lon', lat_res=5):
     return ds.groupby_bins(lat_dim, bins, labels=labels).mean(aggregating_dims) 
     
 def longitudinal_summary(ds, lat_dim='lat', lon_dim='lon', lon_res=5):
+    """Compute longitudinal (bin) statistics, averaging over latitude."""
     # Check lat_dim and lon_dim 
     # Check lon_res < 180 
     # TODO: lon between -180 and 180 , lat between -90 and 90 
@@ -224,7 +313,7 @@ def longitudinal_summary(ds, lat_dim='lat', lon_dim='lon', lon_res=5):
     labels= bins[:-1] + lon_res/2
     return ds.groupby_bins(lon_dim, bins, labels=labels).mean(aggregating_dims) 
 
-
+#-----------------------------------------------------------------------------.
 
 
 
