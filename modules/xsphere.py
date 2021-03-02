@@ -653,11 +653,12 @@ def _contour(darray,
     ##------------------------------------------------------------------------.      
     # Add colorbar
     if add_colorbar:
-        if add_labels and "label" not in cbar_kwargs:
+        if "label" not in cbar_kwargs and add_labels:
             cbar_kwargs["label"] = label_from_attrs(darray)
-            cbar = _add_colorbar(primitive, ax, cbar_ax, cbar_kwargs, cmap_params)
-        elif cbar_ax is not None or cbar_kwargs:
-            # inform the user about keywords which aren't used
+        cbar = _add_colorbar(primitive, ax, cbar_ax, cbar_kwargs, cmap_params)
+    else: 
+        # Inform the user about keywords which aren't used
+        if cbar_ax is not None or cbar_kwargs:
             raise ValueError("cbar_ax and cbar_kwargs can't be used with add_colorbar=False.")
  
     ##------------------------------------------------------------------------. 
@@ -894,11 +895,12 @@ def _contourf(darray,
     ##------------------------------------------------------------------------.      
     # Add colorbar
     if add_colorbar:
-        if add_labels and "label" not in cbar_kwargs:
+        if "label" not in cbar_kwargs and add_labels:
             cbar_kwargs["label"] = label_from_attrs(darray)
-            cbar = _add_colorbar(primitive, ax, cbar_ax, cbar_kwargs, cmap_params)
-        elif cbar_ax is not None or cbar_kwargs:
-            # inform the user about keywords which aren't used
+        cbar = _add_colorbar(primitive, ax, cbar_ax, cbar_kwargs, cmap_params)
+    else: 
+        # Inform the user about keywords which aren't used
+        if cbar_ax is not None or cbar_kwargs:
             raise ValueError("cbar_ax and cbar_kwargs can't be used with add_colorbar=False.")
  
     ##------------------------------------------------------------------------. 
@@ -1085,12 +1087,12 @@ def _plot(darray,
     ##------------------------------------------------------------------------.      
     # Add colorbar
     if add_colorbar:
-        if add_labels: 
-            if "label" not in cbar_kwargs:
-                cbar_kwargs["label"] = label_from_attrs(darray)
-            cbar = _add_colorbar(primitive, ax, cbar_ax, cbar_kwargs, cmap_params)
-        elif cbar_ax is not None or cbar_kwargs:
-            # inform the user about keywords which aren't used
+        if "label" not in cbar_kwargs and add_labels:
+            cbar_kwargs["label"] = label_from_attrs(darray)
+        cbar = _add_colorbar(primitive, ax, cbar_ax, cbar_kwargs, cmap_params)
+    else: 
+        # Inform the user about keywords which aren't used
+        if cbar_ax is not None or cbar_kwargs:
             raise ValueError("cbar_ax and cbar_kwargs can't be used with add_colorbar=False.")
  
     ##------------------------------------------------------------------------. 

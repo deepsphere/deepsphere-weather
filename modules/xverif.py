@@ -9,6 +9,7 @@ import os
 import xarray as xr 
 import numpy as np 
 import pandas as pd
+import time 
 import scipy.stats
 import time
 from dask.diagnostics import ProgressBar
@@ -89,18 +90,19 @@ def _xr_inner_product(x, y, dim, dask="parallelized"):
         raise ValueError("Requiring a dimension...")
     return xr.apply_ufunc(_inner, x, y, 
                           input_core_dims=input_core_dims,
-                          dask="parallelized")
+                          dask="parallelized",
+                          output_dtypes=[float])
 
-def _xr_covariance(x, y, aggregating_dims=None):
+def _xr_covariance(x, y, aggregating_dims=None, dask="parallelized"):
     x_mean = x.mean(aggregating_dims)
     y_mean = y.mean(aggregating_dims)
     N = x.count(aggregating_dims)
-    return _xr_inner_product(x - x_mean, y - y_mean, dim=aggregating_dims) / N
+    return _xr_inner_product(x - x_mean, y - y_mean, dim=aggregating_dims, dask=dask) / N
     
-def _xr_pearson_correlation(x, y, aggregating_dims=None, thr=0.0000001):
+def _xr_pearson_correlation(x, y, aggregating_dims=None, thr=0.0000001, dask="parallelized"):
     x_std = x.std(aggregating_dims) + thr
     y_std = y.std(aggregating_dims) + thr
-    return _xr_covariance(x, y, aggregating_dims=aggregating_dims)/(x_std*y_std)
+    return _xr_covariance(x, y, aggregating_dims=aggregating_dims, dask=dask)/(x_std*y_std)
 
 # import bottleneck
 # def _xr_rank(x, dim, dask="parallelized"): 
@@ -171,11 +173,10 @@ def _det_cont_metrics(pred, obs, thr=0.000001, skip_na=True):
     diffSD = pred_std - obs_std  
     rCoV = pred_CoV / obs_CoV
     diff_CoV = pred_CoV - obs_CoV
-    ##------------------------------------------------------------------------.
     # - Correlation metrics 
     pearson_R, pearson_R_p_value = scipy.stats.pearsonr(pred, obs)                                  
     pearson_R2 = pearson_R**2
-
+    
     spearman_R, spearman_R_p_value = scipy.stats.spearmanr(pred, obs)
     spearman_R2 = spearman_R**2
     ##------------------------------------------------------------------------.
@@ -279,7 +280,9 @@ def deterministic(pred, obs,
         print("- Elapsed time for forecast deterministic verification: {:.2f} minutes.".format((time.time() - t_i)/60))
         return ds_skill
     else: 
+        t_i = time.time()
         raise NotImplementedError('Categorical forecast skill metrics are not yet implemented.')
+        print("- Elapsed time for forecast deterministic verification: {:.2f} minutes.".format((time.time() - t_i)/60))
 
 #-----------------------------------------------------------------------------.
 # #############################

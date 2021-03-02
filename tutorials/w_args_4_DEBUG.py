@@ -36,6 +36,7 @@ from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_GPU_transfer
 from modules.utils_torch import check_prefetch_in_GPU
 from modules.utils_torch import check_prefetch_factor
+from modules.utils_torch import check_AR_training_strategy
 from modules.utils_torch import get_time_function
 
 from modules.dataloader_autoregressive import AutoregressiveDataset
@@ -119,7 +120,7 @@ training_mode = True
 
 device = 'cpu'
 num_workers = 1 
-
+AR_training_strategy = "AR"
 
 # zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
  

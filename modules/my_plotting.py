@@ -6,8 +6,10 @@ Created on Sat Feb 27 21:39:12 2021
 @author: ghiggi
 """
 import os
+import numpy as np
 import matplotlib.pyplot as plt 
 import cartopy.crs as ccrs
+import modules.xsphere as xsphere
 
 def get_skill_vmin_vmax(skill):
     skill_dict = {"error_CoV": (None,None),
@@ -164,7 +166,7 @@ def plot_skill_maps(ds_skill,
         ##--------------------------------------------------------------------.
         # Define super title 
         # - TODO maybe need to convert leadtime in hour if it's not 
-        suptitle = 'Forecast skill at lead time: {} h'.format(leadtime)
+        suptitle = 'Forecast skill at lead time: {}'.format(str(leadtime.astype('timedelta64[h]')))
         ##--------------------------------------------------------------------.
         # Create figure 
         fig, axs = plt.subplots(len(skills), len(variables), 
@@ -188,15 +190,29 @@ def plot_skill_maps(ds_skill,
                 cbar_kwargs = {'pad': 0.03, 
                                'shrink': 0.7,
                                'label': skill}
-                ds[var].sel(skill=skill).sphere.plot(ax=axs[ax_count],
-                                                    transform=ccrs.Geodetic(), 
-                                                    cmap=plot_options[skill]['cmap'],
-                                                    vmin=plot_options[skill]['vmin'],
-                                                    vmax=plot_options[skill]['vmax'],
-                                                    extend=plot_options[skill]['extend'], 
-                                                    add_colorbar=True,
-                                                    cbar_kwargs=cbar_kwargs)                   
+                # xsphere._contourf(ds[var].sel(skill=skill),
+                #                   ax=axs[ax_count],
+                #                   transform=ccrs.PlateCarree(), 
+                #                   cmap=plot_options[skill]['cmap'],
+                #                   vmin=plot_options[skill]['vmin'],
+                #                   vmax=plot_options[skill]['vmax'],
+                #                   extend=plot_options[skill]['extend'], 
+                #                   add_colorbar=True,
+                #                   add_labels=False,
+                #                   cbar_kwargs=cbar_kwargs)
+                xsphere._plot(ds[var].sel(skill=skill),
+                              ax=axs[ax_count],
+                              transform=ccrs.Geodetic(), 
+                              edgecolors=None,
+                              cmap=plot_options[skill]['cmap'],
+                              vmin=plot_options[skill]['vmin'],
+                              vmax=plot_options[skill]['vmax'],
+                              extend=plot_options[skill]['extend'], 
+                              add_colorbar=True,
+                              add_labels=False,
+                              cbar_kwargs=cbar_kwargs)                
                 axs[ax_count].coastlines()
+                axs[ax_count].outline_patch.set_linewidth(5)
                 ax_count += 1
         ##--------------------------------------------------------------------.         
         # Figure tight layout 
@@ -204,16 +220,17 @@ def plot_skill_maps(ds_skill,
         plt.show()
         ##--------------------------------------------------------------------.    
         # Define figure filename 
-        if prefix == "": 
+        if prefix != "": 
             prefix = prefix + "_"
-        if suffix == "":
+        if suffix != "":
             suffix = "_" + suffix 
-        fname = prefix + "L" + str(leadtime) + suffix + '.png'
+        leadtime_str = str(int(leadtime/np.timedelta64(1,'h')))
+        fname = prefix + "L" + leadtime_str + suffix + '.png'
         ##--------------------------------------------------------------------.    
         # Save figure 
         fig.savefig(os.path.join(figs_dir, fname), bbox_inches='tight')
         ##--------------------------------------------------------------------.    
-
+    return 
 ##----------------------------------------------------------------------------.
        
 

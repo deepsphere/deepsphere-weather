@@ -1,27 +1,47 @@
 ## Modules
 
-* ```full_pipeline_evaluation.py``` 
+```AR_Scheduler.py.py``` 
 
-Allows to train, test, generate predictions and evaluate them for a model trained 
-with a loss function that includes 2 steps. All parameters, except GPU configuration, are defined in a config
-file such as the ones stored on the folder ```configs/``` .
+* Autoregressive (AR) weights scheduler to adapt loss weight at each AR iteration during training. 
 
-* ``` full_pipeline_multiple_steps.py``` 
+``` dataloader_autoregressive.py``` 
 
-Allows to to train and test a model  
-with a loss function that includes multiple steps that can be defined by the user. It saves the model after every epoch
-but does not generate the predictions (to save time since it can be done in parallel using the notebook 
-```generate_evaluate_predictions.ipynb ```). The parameters are defined inside the main function, although it can be 
-adapted to use a config file as in ```full_pipeline_evalution.py```
+* pyTorch Autoregressive (AR) DataLoader for nowcasting / forecasting problems.
+* It allow for multiprocess-based prefetching in CPU and GPU, with asynchronous GPU data trasfer.
+* It expects xarray DataArrays in memory or lazy-loaded from a zarr store. 
 
-It is important to remark that the update function that takes care of the weight's update is defined on top
-of the file and should be adapted to the number of lead steps taken into account in the loss function.
+``` early_stopping.py.py``` 
 
-* ```architecture.py```
+* pyTorch utils for early stopping training and controlling AR weights updates. 
 
-Contains pytorch models used for both ``` full_pipeline_multiple_steps.py``` and ``` full_pipeline_evaluation.py``` 
-Previous architectures used can be found in the folder ``` modules/old_architectures/```
 
-* ``` plotting.py```
+``` layers.py```
 
-Contains different functions to generate evaluation plots. 
+* pyTorch layers to perform convolutions and pooling operations on spherical unstructured grids.
+
+``` models.py```
+
+* pyTorch architecture general structures
+
+``` predictions_autoregressive.py```
+
+* pyTorch code to generate autoregressive (AR) predictions 
+
+``` remap.py```
+
+* Functions to remap between spherical unstructured grids. 
+* It requires CDO > 1.9.8  
+
+``` training_autoregressive.py```
+
+* pyTorch functions for training autoregressive (AR) models using recurrent or AR strategies.
+
+``` xscalers.py```
+
+* Implements MinMaxScaler and StandardScaler à la scikit-learn for multidimensional xarray tensors.
+* Implements Climatology, Anomaly, Trend scalers
+
+``` xsphere.py```
+
+* Implement the ```sphere``` accessor to xarray for plotting spherical unstructured grids with FacetGrid capability.  
+

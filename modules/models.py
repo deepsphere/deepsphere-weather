@@ -95,7 +95,7 @@ class UNet(ABC):
         # Define resolutions 
         coarsening = int(np.sqrt(kernel_size_pooling))
         resolutions = [resolution]
-        for i in range(1, UNet_depth+1):
+        for i in range(1, UNet_depth):
             resolutions.append(resolutions[i-1] // coarsening)
             
         # Initialize graph and laplacians 
