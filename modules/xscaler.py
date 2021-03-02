@@ -12,6 +12,7 @@ import os
 # xscaler.GlobalScaler.MinMaxScaler
 # xscaler.GlobalScaler.StandardScaler  
 # xscaler.GlobalScaler.TrendScaler
+# -- xr_linregress https://github.com/jbusecke/xarrayutils/blob/7b09a2bdc70f035e290e75419c2d025b7267adf4/xarrayutils/utils.py#L52
 
 ##----------------------------------------------------------------------------.
 ## TODO 
