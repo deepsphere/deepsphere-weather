@@ -426,16 +426,16 @@ custom_clim.forecast(ds_dynamic['time'].values)
 
 ##----------------------------------------------------------------------------.
 # ############### 
-#### Anomaly ####
+#### AnomalyScaler ####
 # ############### 
-from modules.xscaler import Anomaly
-from modules.xscaler import LoadAnomaly
+from modules.xscaler import AnomalyScaler
+from modules.xscaler import LoadScaler
 
 reference_period = np.array(['1980-01-01T00:00','2010-12-31T23:00'], dtype='M8') 
 reference_period = ('1980-01-01T00:00','2010-12-31T23:00')
 
 ### Daily anomalies
-daily_anom = Anomaly(data = ds_dynamic,
+daily_anom = AnomalyScaler(data = ds_dynamic,
                      time_dim = 'time',
                      time_groups= ['day', 'month'],  # dayofyear
                      groupby_dims = "node",  
@@ -455,7 +455,7 @@ fpath = "/home/ghiggi/anom_test.nc"
 daily_anom.save(fpath)
 
 # - Reload
-daily_anom1 = LoadAnomaly(fpath) 
+daily_anom1 = LoadScaler(fpath) 
 ds_anom = daily_anom1.transform(ds_dynamic, standardize=False).compute()  
 ds1 = daily_anom1.inverse_transform(ds_anom).compute()
 xr.testing.assert_equal(ds, ds1)

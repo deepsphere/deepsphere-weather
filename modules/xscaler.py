@@ -129,6 +129,7 @@ def get_xarray_variables(data, variable_dim = None):
         if variable_dim is None:
             return data.name 
         else: 
+            variable_dim = check_variable_dim(variable_dim = variable_dim, data = data)
             return data[variable_dim].values.tolist()
     else: 
         raise TypeError("Provide an xarray Dataset or DataArray")
@@ -515,6 +516,18 @@ class GlobalStandardScaler():
         ##--------------------------------------------------------------------.
         if not self.fitted: 
             raise ValueError("The GlobalStandardScaler need to be first fit() !.")
+        
+        ##--------------------------------------------------------------------.   
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        if self.center:
+            transform_vars = get_xarray_variables(self.mean_)
+        else:
+            transform_vars = get_xarray_variables(self.std_)    
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data         
+        
         ##--------------------------------------------------------------------.
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
@@ -536,16 +549,7 @@ class GlobalStandardScaler():
             inv_rename_dict = {v: k for k,v in rename_dict.items()}
             # Rename dimensions 
             new_data = new_data.rename(rename_dict)
-            
-        ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        if self.center:
-            transform_vars = get_xarray_variables(self.mean_)
-        else:
-            transform_vars = get_xarray_variables(self.std_)    
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
-        
+
         ##--------------------------------------------------------------------.
         # Check dimension name coincides 
         new_data_dims = list(new_data.dims)
@@ -561,14 +565,13 @@ class GlobalStandardScaler():
             
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars:
-                if self.center: 
-                    new_data[var] = new_data[var] - self.mean_[var] 
-                if self.standardize: 
-                    new_data[var] = new_data[var] / (self.std_[var] + self.eps)    
-                    
+        new_data = new_data.copy()
+        for var in transform_vars:
+            if self.center: 
+                new_data[var] = new_data[var] - self.mean_[var] 
+            if self.standardize: 
+                new_data[var] = new_data[var] / (self.std_[var] + self.eps)    
+                
         ##--------------------------------------------------------------------.   
         # Rename dimension as new_data (if necessary)
         if flag_dim_renamed: 
@@ -590,6 +593,18 @@ class GlobalStandardScaler():
         ##--------------------------------------------------------------------.
         if not self.fitted: 
             raise ValueError("The GlobalStandardScaler need to be first fit() !.")
+               
+        ##--------------------------------------------------------------------.   
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        if self.center:
+            transform_vars = get_xarray_variables(self.mean_)
+        else:
+            transform_vars = get_xarray_variables(self.std_)    
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data         
+        
         ##--------------------------------------------------------------------.    
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
@@ -613,15 +628,6 @@ class GlobalStandardScaler():
             new_data = new_data.rename(rename_dict)
             
         ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        if self.center:
-            transform_vars = get_xarray_variables(self.mean_)
-        else:
-            transform_vars = get_xarray_variables(self.std_)    
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
-        
-        ##--------------------------------------------------------------------.
         # Check dimension name coincides 
         new_data_dims = list(new_data.dims)
         if self.center: 
@@ -636,15 +642,14 @@ class GlobalStandardScaler():
                     
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars:
-                if self.standardize: 
-                    new_data[var] = new_data[var] * (self.std_[var] + self.eps)  
-                    
-                if self.center: 
-                    new_data[var] = new_data[var] + self.mean_[var] 
-        
+        new_data = new_data.copy()
+        for var in transform_vars:
+            if self.standardize: 
+                new_data[var] = new_data[var] * (self.std_[var] + self.eps)  
+                
+            if self.center: 
+                new_data[var] = new_data[var] + self.mean_[var] 
+    
         ##--------------------------------------------------------------------.   
         # Rename dimension as new_data (if necessary)
         if flag_dim_renamed: 
@@ -806,6 +811,15 @@ class GlobalMinMaxScaler():
         ##--------------------------------------------------------------------.
         if not self.fitted: 
             raise ValueError("The GlobalStandardScaler need to be first fit() !.")
+        
+        ##--------------------------------------------------------------------.
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        transform_vars = get_xarray_variables(self.min_)
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data  
+        
         ##--------------------------------------------------------------------.
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
@@ -827,13 +841,7 @@ class GlobalMinMaxScaler():
             inv_rename_dict = {v: k for k,v in rename_dict.items()}
             # Rename dimensions 
             new_data = new_data.rename(rename_dict)
-            
-        ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        transform_vars = get_xarray_variables(self.min_)    
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
-        
+                    
         ##--------------------------------------------------------------------.
         # Check dimension name coincides 
         new_data_dims = list(new_data.dims)
@@ -845,10 +853,9 @@ class GlobalMinMaxScaler():
             
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars:
-                new_data[var] = (new_data[var] - self.min_[var]) / self.range_[var] * self.scaling + self.feature_min
+        new_data = new_data.copy()
+        for var in transform_vars:
+            new_data[var] = (new_data[var] - self.min_[var]) / self.range_[var] * self.scaling + self.feature_min
 
         ##--------------------------------------------------------------------.   
         # Rename dimension as new_data (if necessary)
@@ -871,6 +878,15 @@ class GlobalMinMaxScaler():
         ##--------------------------------------------------------------------.
         if not self.fitted: 
             raise ValueError("The GlobalMinMaxScaler need to be first fit() !.")
+        
+        ##--------------------------------------------------------------------.
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        transform_vars = get_xarray_variables(self.min_)
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data  
+        
         ##--------------------------------------------------------------------.    
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
@@ -892,12 +908,6 @@ class GlobalMinMaxScaler():
             inv_rename_dict = {v: k for k,v in rename_dict.items()}
             # Rename dimensions 
             new_data = new_data.rename(rename_dict)
-            
-        ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        transform_vars = get_xarray_variables(self.min_)  
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
         
         ##--------------------------------------------------------------------.
         # Check dimension name coincides 
@@ -910,11 +920,10 @@ class GlobalMinMaxScaler():
                     
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars: 
-                new_data[var] = (new_data[var] - self.feature_min) * self.range_[var] / self.scaling + self.min_[var]  
-        
+        new_data = new_data.copy()
+        for var in transform_vars: 
+            new_data[var] = (new_data[var] - self.feature_min) * self.range_[var] / self.scaling + self.min_[var]  
+    
         ##--------------------------------------------------------------------.   
         # Rename dimension as new_data (if necessary)
         if flag_dim_renamed: 
@@ -1128,6 +1137,18 @@ class TemporalStandardScaler():
         ##--------------------------------------------------------------------.
         if not self.fitted: 
             raise ValueError("The TemporalStandardScaler need to be first fit() !")
+            
+        ##--------------------------------------------------------------------.   
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        if self.center:
+            transform_vars = get_xarray_variables(self.mean_)
+        else:
+            transform_vars = get_xarray_variables(self.std_)    
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data         
+        
         ##--------------------------------------------------------------------.
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
@@ -1165,16 +1186,7 @@ class TemporalStandardScaler():
         idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
         if np.any(idx_missing_dims):
             raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
-                    
-        ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        if self.center:
-            transform_vars = get_xarray_variables(self.mean_)
-        else:
-            transform_vars = get_xarray_variables(self.std_)    
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
-                
+                                    
         ##--------------------------------------------------------------------.
         # Get time grouby indices
         time_groupby_info = get_time_groupby_idx(data=new_data,
@@ -1189,16 +1201,16 @@ class TemporalStandardScaler():
             check_new_time_groupby_idx(time_groupby_idx, scaler_stat = self.std_)    
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars:
-                if self.center: 
-                    new_data[var] = new_data[var].groupby(time_groupby_idx) - self.mean_[var] 
-                if self.standardize: 
-                    new_data[var] = new_data[var].groupby(time_groupby_idx) / (self.std_[var] + self.eps)    
-            ##----------------------------------------------------------------.
-            ## Remove non-dimension (time groupby) coordinate      
-            new_data = new_data.drop(time_groupby_idx.name)
+        new_data = new_data.copy()
+        for var in transform_vars:
+            if self.center: 
+                new_data[var] = new_data[var].groupby(time_groupby_idx) - self.mean_[var] 
+            if self.standardize: 
+                new_data[var] = new_data[var].groupby(time_groupby_idx) / (self.std_[var] + self.eps)    
+                
+        ##----------------------------------------------------------------.
+        ## Remove non-dimension (time groupby) coordinate      
+        new_data = new_data.drop(time_groupby_idx.name)
             
         ##--------------------------------------------------------------------.      
         # Rename dimension as new_data (if necessary)
@@ -1221,6 +1233,17 @@ class TemporalStandardScaler():
         ##--------------------------------------------------------------------.
         if not self.fitted: 
             raise ValueError("The TemporalStandardScaler need to be first fit() !")
+        ##--------------------------------------------------------------------.    
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        if self.center:
+            transform_vars = get_xarray_variables(self.mean_)
+        else:
+            transform_vars = get_xarray_variables(self.std_)    
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data    
+        
         ##--------------------------------------------------------------------.    
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
@@ -1258,16 +1281,7 @@ class TemporalStandardScaler():
         idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
         if np.any(idx_missing_dims):
             raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
-          
-        ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        if self.center:
-            transform_vars = get_xarray_variables(self.mean_)
-        else:
-            transform_vars = get_xarray_variables(self.std_) 
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
-        
+                  
         ##--------------------------------------------------------------------.
         # Get time grouby indices
         time_groupby_info = get_time_groupby_idx(data=new_data,
@@ -1283,17 +1297,16 @@ class TemporalStandardScaler():
 
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars:
-                if self.standardize: 
-                    new_data[var] = new_data[var].groupby(time_groupby_idx) * (self.std_[var] + self.eps)  
-                    
-                if self.center: 
-                    new_data[var] = new_data[var].groupby(time_groupby_idx) + self.mean_[var] 
-            ##----------------------------------------------------------------.
-            ## Remove non-dimension (time groupby) coordinate      
-            new_data = new_data.drop(time_groupby_idx.name)
+        new_data = new_data.copy()
+        for var in transform_vars:
+            if self.standardize: 
+                new_data[var] = new_data[var].groupby(time_groupby_idx) * (self.std_[var] + self.eps)  
+                
+            if self.center: 
+                new_data[var] = new_data[var].groupby(time_groupby_idx) + self.mean_[var] 
+        ##----------------------------------------------------------------.
+        ## Remove non-dimension (time groupby) coordinate      
+        new_data = new_data.drop(time_groupby_idx.name)
         
         ##--------------------------------------------------------------------.      
         # Rename dimension as new_data (if necessary)
@@ -1494,6 +1507,14 @@ class TemporalMinMaxScaler():
         if not self.fitted: 
             raise ValueError("The TemporalMinMaxScaler need to be first fit() !")
         ##--------------------------------------------------------------------.
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        transform_vars = get_xarray_variables(self.min_)
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data   
+        
+        ##--------------------------------------------------------------------.
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
         if isinstance(new_data, xr.DataArray):
@@ -1526,13 +1547,7 @@ class TemporalMinMaxScaler():
         idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
         if np.any(idx_missing_dims):
             raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
-                    
-        ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        transform_vars = get_xarray_variables(self.min_)
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
-                
+                      
         ##--------------------------------------------------------------------.
         # Get time grouby indices
         time_groupby_info = get_time_groupby_idx(data=new_data,
@@ -1545,23 +1560,22 @@ class TemporalMinMaxScaler():
   
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars:
-                new_data[var] = xr.apply_ufunc(lambda x, min_, range_, scaling_, feature_min: (x - min_)/range_*scaling_ + feature_min, 
-                                               # Args
-                                               new_data[var].groupby(time_groupby_idx),
-                                               self.min_[var],
-                                               self.range_[var],
-                                               self.scaling,
-                                               self.feature_min,
-                                               dask="allowed", # "parallelized", # 
-                                               output_dtypes=[float],
-                                               keep_attrs=True)
-                                
-            ##----------------------------------------------------------------.
-            ## Remove non-dimension (time groupby) coordinate      
-            new_data = new_data.drop(time_groupby_idx.name)
+        new_data = new_data.copy()
+        for var in transform_vars:
+            new_data[var] = xr.apply_ufunc(lambda x, min_, range_, scaling_, feature_min: (x - min_)/range_*scaling_ + feature_min, 
+                                           # Args
+                                           new_data[var].groupby(time_groupby_idx),
+                                           self.min_[var],
+                                           self.range_[var],
+                                           self.scaling,
+                                           self.feature_min,
+                                           dask="allowed", # "parallelized", # 
+                                           output_dtypes=[float],
+                                           keep_attrs=True)
+                            
+        ##----------------------------------------------------------------.
+        ## Remove non-dimension (time groupby) coordinate      
+        new_data = new_data.drop(time_groupby_idx.name)
             
         ##--------------------------------------------------------------------.      
         # Rename dimension as new_data (if necessary)
@@ -1584,6 +1598,14 @@ class TemporalMinMaxScaler():
         ##--------------------------------------------------------------------.
         if not self.fitted: 
             raise ValueError("The TemporalMinMaxScaler need to be first fit() !")
+        ##--------------------------------------------------------------------.
+        # Get variables to transform 
+        data_vars = get_xarray_variables(new_data)
+        transform_vars = get_xarray_variables(self.min_)
+        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
+        if len(transform_vars) == 0:
+            return new_data   
+
         ##--------------------------------------------------------------------.    
         # If input is DataArray --> Convert to Dataset
         flag_DataArray = False
@@ -1617,13 +1639,7 @@ class TemporalMinMaxScaler():
         idx_missing_dims = np.isin(required_dims, new_data_dims, invert=True)
         if np.any(idx_missing_dims):
             raise ValueError("Missing {} dimensions in new_data. You might want to specify the 'rename_dict' argument.".format(np.array(required_dims)[idx_missing_dims]))
-          
-        ##--------------------------------------------------------------------.
-        # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
-        transform_vars = get_xarray_variables(self.min_) 
-        transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
-        
+                  
         ##--------------------------------------------------------------------.
         # Get time grouby indices
         time_groupby_info = get_time_groupby_idx(data=new_data,
@@ -1636,23 +1652,22 @@ class TemporalMinMaxScaler():
 
         ##--------------------------------------------------------------------.
         ## Transform variables 
-        if len(transform_vars) > 0: 
-            new_data = new_data.copy()
-            for var in transform_vars:
-                new_data[var] = xr.apply_ufunc(lambda x, min_, range_, scaling_, feature_min: (x - feature_min) * range_ / scaling_ + min_, 
-                                               # Args
-                                               new_data[var].groupby(time_groupby_idx),
-                                               self.min_[var],
-                                               self.range_[var],
-                                               self.scaling,
-                                               self.feature_min,
-                                               dask="allowed", # "parallelized", # 
-                                               output_dtypes=[float],
-                                               keep_attrs=True)
-                
-            ##----------------------------------------------------------------.
-            ## Remove non-dimension (time groupby) coordinate  
-            new_data = new_data.drop(time_groupby_idx.name)
+        new_data = new_data.copy()
+        for var in transform_vars:
+            new_data[var] = xr.apply_ufunc(lambda x, min_, range_, scaling_, feature_min: (x - feature_min) * range_ / scaling_ + min_, 
+                                           # Args
+                                           new_data[var].groupby(time_groupby_idx),
+                                           self.min_[var],
+                                           self.range_[var],
+                                           self.scaling,
+                                           self.feature_min,
+                                           dask="allowed", # "parallelized", # 
+                                           output_dtypes=[float],
+                                           keep_attrs=True)
+            
+        ##----------------------------------------------------------------.
+        ## Remove non-dimension (time groupby) coordinate  
+        new_data = new_data.drop(time_groupby_idx.name)
             
         ##--------------------------------------------------------------------.      
         # Rename dimension as new_data (if necessary)
@@ -1977,16 +1992,16 @@ def LoadClimatology(fpath):
 
 #-----------------------------------------------------------------------------.
 # ############### 
-#### Anomaly ####
+#### AnomalyScaler ####
 # ############### 
-class Anomaly(TemporalStandardScaler):
+class AnomalyScaler(TemporalStandardScaler):
     """Class object to transform data into anomalies (and back)."""
     
     def __init__(self, 
                  data,
                  time_dim, time_groups=None,
                  variable_dim=None, groupby_dims=None, 
-                 reference_period=None, 
+                 reference_period=None, standardized=True, 
                  eps=0.0001, ds_anomaly = None):
         super().__init__(data = data, 
                          time_dim = time_dim,
@@ -1995,25 +2010,39 @@ class Anomaly(TemporalStandardScaler):
                          reference_period=reference_period,
                          center=True, standardize=True, 
                          eps=eps, ds_scaler=ds_anomaly)
+        # Set default method
+        self.standardize = standardized
     
-    def transform(self, new_data, standardize=False, variable_dim=None, rename_dict=None):
+    def transform(self, new_data, standardized=None, variable_dim=None, rename_dict=None):
         """Transform new_data to anomalies."""
-        # Introduce option to get standardized anomalies  
-        self.standardize = standardize 
+        # Standardize option
+        standardize_default = self.standardize
+        if standardized is not None:
+            self.standardize = standardized 
+        # Get anomalies 
         anom = TemporalStandardScaler.transform(self, new_data=new_data, variable_dim=variable_dim, rename_dict=rename_dict)
-        self.standardize = True 
+        # Reset default 
+        self.standardize = standardize_default 
         return anom
     
-    def inverse_transform(self, new_data, standardized=False, variable_dim=None, rename_dict=None):
+    def inverse_transform(self, new_data, standardized=None, variable_dim=None, rename_dict=None):
         """Retrieve original values from anomalies."""
-        # Introduce option to invert standardized anomalies  
-        self.standardize = standardized 
+        # Standardize option
+        standardize_default = self.standardize
+        if standardized is not None:
+            self.standardize = standardized 
+        # Inverse
         x = TemporalStandardScaler.inverse_transform(self, new_data=new_data, variable_dim=variable_dim, rename_dict=rename_dict)
-        self.standardize = True 
+        # Reset default 
+        self.standardize = standardize_default 
         return x
 
 def LoadAnomaly(fpath):
-    """Load xarray scalers."""
+    """Load xarray scalers.
+    
+    Useful because return an AnomalyScaler class... which allows to choose 
+    between anomalies and std anomalies.
+    """
     # Check .nc 
     if fpath[-3:] != ".nc":
         fpath = fpath + ".nc"
@@ -2023,7 +2052,6 @@ def LoadAnomaly(fpath):
     # Create scaler 
     ds_anomaly = xr.open_dataset(fpath)
     return Anomaly(data=None, time_dim=None, ds_anomaly=ds_anomaly)
-
 #-----------------------------------------------------------------------------.
 # ################### 
 #### Persistence ####
