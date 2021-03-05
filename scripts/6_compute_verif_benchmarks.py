@@ -7,12 +7,13 @@ Created on Fri Mar  5 19:16:10 2021
 """
 import os
 import sys
+import numpy as np
 import xarray as xr
 sys.path.append('../')
-
+from modules.my_io import readDatasets   
 from modules.xscaler import Climatology
 from modules.xscaler import LoadClimatology
-import modules.xverif
+import modules.xverif as xverif
 ##----------------------------------------------------------------------------.
 # - Define sampling data directory
 base_data_dir = "/data/weather_prediction/data"
@@ -40,7 +41,7 @@ for sampling_name in sampling_name_list:
     ds_test_dynamic = ds_dynamic.sel(time=slice(test_years[0], test_years[-1]))
     ds_test_dynamic = ds_test_dynamic.load()
     ##------------------------------------------------------------------------.
-    # Compute climatology forecast skils 
+    #### Compute climatology forecast skils 
     for clim_name in list_climatologies:
         print("- Computing forecast skill of", clim_name)
         # - Load Climatology 
@@ -55,14 +56,27 @@ for sampling_name in sampling_name_list:
         ds_skill = xverif.deterministic(pred = ds_clim_forecast,
                                         obs = ds_test_dynamic, 
                                         forecast_type="continuous",
-                                        aggregating_dims='time')
-        ds_skill.to_netcdf(os.path.join(data_dir, "Benchmarks",  clim_name + "_Spatial_Skills.nc"))
+                                        aggregating_dim='time')
+        # - Save spatial skills
+        if not os.path.exists(os.path.join(data_dir, "Benchmarks")):
+            os.makedirs(os.path.join(data_dir, "Benchmarks"))
+        ds_skill.to_netcdf(os.path.join(data_dir, "Benchmarks", clim_name + "_Spatial_Skills.nc"))
         # - Compute deterministic global skills 
         # TODO: 
-        ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=True))
+        # pygsp_graph = get_pygsp_graph(sampling = model_settings['sampling'], 
+        #                               resolution = model_settings['resolution'],
+        #                               knn = model_settings['knn'])
+        # ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
         ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
         ds_global_skill = xverif.global_summary(ds_skill, area_coords="area")
-        ds_global_skill.to_netcdf(os.path.join(data_dir, "Benchmarks",  clim_name + "_Global_Skills.nc"))
-     ##------------------------------------------------------------------------.
-     # Compute persistence forecast skils 
+        ds_global_skill.to_netcdf(os.path.join(data_dir, "Benchmarks", clim_name + "_Global_Skills.nc"))
      
+    ##------------------------------------------------------------------------.
+    #### Compute persistence forecast skils 
+    forecast_cycle = 6 
+    AR_iterations = 20
+    leadtimes = np.arange(1, AR_iterations)*np.timedelta64(forecast_cycle, 'h')
+    
+    dt * timedelta(milliseconds=1)
+     ds_test_dynamic
+    
