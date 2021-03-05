@@ -751,12 +751,7 @@ def AutoregressiveTraining(model,
                     # - Backpropagate to compute gradients (the derivative of the loss w.r.t. the parameters)
                     current_AR_loss.backward()
                     del current_AR_loss
-                    # - Update the total (AR weighted) loss
-                    if i == 0:
-                        training_total_loss = dict_training_loss_per_AR_iteration[i] 
-                    else: 
-                        training_total_loss += dict_training_loss_per_AR_iteration[i]
-            
+                 
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
                 remove_unused_Y(AR_iteration = i, 
@@ -772,25 +767,29 @@ def AutoregressiveTraining(model,
                 # if device.type != 'cpu':
                 #     torch.cuda.synchronize()
                 #     print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
-                 
+            ##----------------------------------------------------------------.
+            # - Compute total (AR weighted) loss 
+            for i, (AR_iteration, loss) in enumerate(dict_training_loss_per_AR_iteration.items()):
+                if i == 0:
+                        training_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
+                else: 
+                        training_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
+
             ##----------------------------------------------------------------.       
-            # If AR_training_strategy is RNN, perform backward pass after all AR iterations            
+            # - If AR_training_strategy is RNN, perform backward pass after all AR iterations            
             if AR_training_strategy == "RNN":
-                # - Compute total (AR weighted) loss 
-                for i, (AR_iteration, loss) in enumerate(dict_training_loss_per_AR_iteration.items()):
-                    if i == 0:
-                         training_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
-                    else: 
-                         training_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
-                # - Perform backward pass 
+                # - Perform backward pass using training_total_loss (after all AR iterations)
                 training_total_loss.backward()
+
             ##----------------------------------------------------------------.     
             # - Update the network weights 
             optimizer.step()  
+
             ##----------------------------------------------------------------.
             # Zeros all the gradients for the next batch training 
             # - By default gradients are accumulated in buffers (and not overwritten)
             optimizer.zero_grad()  
+            
             ##----------------------------------------------------------------. 
             # - Update training statistics
             if training_info.iteration_from_last_scoring == scoring_interval:

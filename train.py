@@ -123,9 +123,9 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
     cfg['model_settings']["model_name_suffix"] = "LinearStep_weight_corrected"
-    cfg['training_settings']["AR_training_strategy"] = "RNN" # "AR" # "RNN"
-    cfg['training_settings']['epochs'] = 12
-    cfg['AR_settings']["AR_iterations"] = 4
+    cfg['training_settings']["AR_training_strategy"] = "AR" # "RNN" # "AR" # "RNN"
+    cfg['training_settings']['epochs'] = 30
+    cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
@@ -313,7 +313,7 @@ def main(cfg_path, exp_dir, data_dir):
     # DO NOT WORKS
     ar_scheduler = AR_Scheduler(method = "LinearStep",
                                 factor = 0.0005,
-                                fixed_AR_weights = [0,4],
+                                fixed_AR_weights = [0,4,6],
                                 initial_AR_absolute_weights = [1])   
     
     ### - Define Early Stopping 
