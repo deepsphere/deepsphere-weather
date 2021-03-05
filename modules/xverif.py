@@ -131,9 +131,8 @@ def _det_cont_metrics(pred, obs, thr=0.000001, skip_na=True):
     ##------------------------------------------------------------------------.
     # - Error 
     error = pred - obs
-    error_abs = np.abs(error)
     error_squared = error**2
-    error_perc = error_abs/(obs + thr)
+    error_perc = error/(obs + thr)
     ##------------------------------------------------------------------------.
     # - Mean 
     pred_mean = pred.mean() 
@@ -172,12 +171,12 @@ def _det_cont_metrics(pred, obs, thr=0.000001, skip_na=True):
     rSD = pred_std / (obs_std + thr)
     diffSD = pred_std - obs_std  
     rCoV = pred_CoV / obs_CoV
-    diff_CoV = pred_CoV - obs_CoV
+    diffCoV = pred_CoV - obs_CoV
     # - Correlation metrics 
-    pearson_R, pearson_R_p_value = scipy.stats.pearsonr(pred, obs)                                  
+    pearson_R, pearson_R_pvalue = scipy.stats.pearsonr(pred, obs)                                  
     pearson_R2 = pearson_R**2
     
-    spearman_R, spearman_R_p_value = scipy.stats.spearmanr(pred, obs)
+    spearman_R, spearman_R_pvalue = scipy.stats.spearmanr(pred, obs)
     spearman_R2 = spearman_R**2
     ##------------------------------------------------------------------------.
     # - Overall skill metrics 
@@ -206,13 +205,13 @@ def _det_cont_metrics(pred, obs, thr=0.000001, skip_na=True):
                        rSD,
                        diffSD,
                        rCoV,                    
-                       diff_CoV,
+                       diffCoV,
                        # Correlation
                        pearson_R, 
-                       pearson_R_p_value,
+                       pearson_R_pvalue,
                        pearson_R2,
                        spearman_R,
-                       spearman_R_p_value,
+                       spearman_R_pvalue,
                        spearman_R2,
                        # Overall skill 
                        NSE,
@@ -245,10 +244,10 @@ def _deterministic_continuous_metrics(pred, obs,
             # Average
             "rMean", "diffMean",
             # Variability
-            "rSD", "diffSD", "rCoV", "diff_CoV",
+            "rSD", "diffSD", "rCoV", "diffCoV",
             # Correlation
-            "pearson_R", "pearson_R_p_value", "pearson_R2",
-            "spearman_R", "spearman_R_p_value", "spearman_R2",
+            "pearson_R", "pearson_R_pvalue", "pearson_R2",
+            "spearman_R", "spearman_R_pvalue", "spearman_R2",
             # Overall skill 
             "NSE", "KGE"]         
     ds_skill = ds_skill.assign_coords({"skill": skill_str})    
@@ -266,10 +265,16 @@ def deterministic(pred, obs,
                   skip_na=True, 
                   thr=0.000001):
     """Compute deterministic skill metrics."""
+    # Check
     if not isinstance(forecast_type, str): 
         raise TypeError("'forecast_type' must be a string specifying the forecast type.")
     if forecast_type not in ["continuous", "categorical"]:
         raise ValueError("'forecast_type' must be either 'continuous' or 'categorical'.") 
+    #------------------------------------------------------------------------.
+    # Align dataset
+    pred, obs = xr.align(pred, obs, join="inner")
+    #------------------------------------------------------------------------.
+    # Run deterministic verification
     if forecast_type == 'continuous':
         t_i = time.time()
         ds_skill = _deterministic_continuous_metrics(pred = pred,

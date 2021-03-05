@@ -11,42 +11,82 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import modules.xsphere as xsphere
 
-def get_skill_vmin_vmax(skill):
-    skill_dict = {"error_CoV": (None,None),
-                  "obs_CoV": (None,None),
-                  "pred_CoV": (None,None),
-                  # Magnitude 
-                  "BIAS": (None,None),
-                  "relBIAS": (None,None),
-                  "percBIAS": (-100, 100),
-                  "MAE": (0, None),
-                  "relMAE": (0, None),
-                  "percMAE": (0, 100),
-                  "MSE": (0, None),
-                  "relMSE": (0, None),
-                  "RMSE": (0, None),
-                  "relRMSE": (0, None),
-                  # Average
-                  "rMean": (0, 2),
-                  "diffMean": (None,None),
-                  # Variability 
-                  'rSD': (0, 2),
-                  'diffSD': (None,None),
-                  "rCoV": (0, 2),
-                  "diff_CoV": (None,None),
-                  # Correlation 
-                  "pearson_R": (-1, 1),
-                  "pearson_R2": (0, 1),
-                  # "spearman_R": spearman_R,
-                  # "spearman_R2": spearman_R2,
-                  # Overall skills
-                  "NSE": (-1, 1),
-                  "KGE": (0, 1),
-                  }
-    return skill_dict[skill]
+# TODO: ylabels add unit
+# 'RMSE [$m^2 s^{−2}$]'
 
+def get_global_ylim(skill, var): 
+    ylim_dict = {'RMSE': {'z500': (100, 700),
+                          't850': (0.5, 4)},
+                 'rSD':  {'z500': (0.9, 1.1),
+                          't850': (0.9, 1.1)},
+                 'relBIAS': {'z500': (-0.002, 0.002),
+                             't850': (-0.002, 0.002)},
+                 'pearson_R2': {'z500': (0.5, 1),
+                                't850': (0.5, 1)},
+                 'KGE': {'z500': (0.4, 1),
+                          't850': (0.4, 1)},
+                 'NSE': {'z500': (0.4, 1),
+                         't850': (0.4, 1)},
+                 'percBIAS': {'z500': (-1, 1),
+                          't850': (-2, 2)},
+                 'percMAE': {'z500': (0, 2),
+                          't850': (0, 2)},
+                 'error_CoV': {'z500': (-40,40),
+                          't850': (-40, 40)},
+                 'MAE': {'z500': (50, 700),
+                         't850': (0.5, 2.5)},
+                 'BIAS': {'z500': (-100, 100),
+                          't850': (-1, 1)},
+                 'diffSD': {'z500': (-60, 60),
+                           't850': (-0.2, 0.2)},
+    }
+    if skill in list(ylim_dict.keys()):
+        if var in list(ylim_dict[skill].keys()):
+            ylim = ylim_dict[skill][var]
+        else: 
+            ylim = (None, None)
+    else: 
+        ylim = (None, None)
+    return ylim
 
-def get_skill_cbar_extent(skill):
+def get_spatial_ylim(skill, var): 
+    ylim_dict = {'BIAS': {'z500': (-400, 400),
+                          't850': (-4, 4)},
+                 'RMSE': {'z500': (0, 2000),
+                          't850': (0, 8)},
+                 'rSD':  {'z500': (0.6, 1.4),
+                          't850': (0.6, 1.4)},
+                 'pearson_R2': {'z500': (0, 1),
+                                't850': (0, 1)},
+                 'KGE': {'z500': (0, 1),
+                          't850': (0, 1)},
+                 'NSE': {'z500': (0, 1),
+                         't850': (0, 1)},
+
+                 'relBIAS': {'z500': (-0.006, 0.006),
+                             't850': (-0.01, 0.01)},
+                 'percBIAS': {'z500': (-2.5, 2.5),
+                              't850': (-2.5, 2.5)},
+                 'percMAE': {'z500': (0, 2.5),
+                          't850': (0, 2.5)},
+                 'error_CoV': {'z500': (-40,40),
+                          't850': (-40, 40)},
+                 'MAE': {'z500': (50, 700),
+                         't850': (0.5, 2.5)},
+                
+                 'diffSD': {'z500': (-300, 300),
+                           't850': (-1,1)},
+    }
+    if skill in list(ylim_dict.keys()):
+        if var in list(ylim_dict[skill].keys()):
+            ylim = ylim_dict[skill][var]
+        else: 
+            ylim = (None, None)
+    else: 
+        ylim = (None, None)
+    return ylim
+
+def get_skill_cbar_extend(skill):
     skill_dict = {"error_CoV": 'both',
                   "obs_CoV": 'both',
                   "pred_CoV": 'both',
@@ -62,21 +102,59 @@ def get_skill_cbar_extent(skill):
                   "RMSE": 'max',
                   "relRMSE": 'max',
                   # Average
-                  "rMean": 'max',
+                  "rMean": 'both',
                   "diffMean": 'both',
                   # Variability 
-                  'rSD': 'max',
+                  'rSD': 'both',
                   'diffSD': 'both',
                   "rCoV": 'max',
-                  "diff_CoV": 'both',
+                  "diffCoV": 'both',
                   # Correlation 
                   "pearson_R": 'neither',
                   "pearson_R2": 'neither',
-                  # "spearman_R": spearman_R,
-                  # "spearman_R2": spearman_R2,
+                  "spearman_R": "neither",
+                  "spearman_R2": "neither",
+                  "pearson_R2_pvalue": 'neither',
+                  "spearman_R2_pvalue": "max",
                   # Overall skills
                   "NSE": 'min',
                   "KGE": 'neither',
+                  }
+    return skill_dict[skill]
+
+def get_skill_cmap(skill):
+    skill_dict = {"error_CoV": plt.get_cmap('RdYlBu'),
+                  "obs_CoV": plt.get_cmap('YlOrRd'),
+                  "pred_CoV": plt.get_cmap('YlOrRd'),
+                  # Magnitude 
+                  "BIAS": plt.get_cmap('BrBG'),
+                  "relBIAS": plt.get_cmap('BrBG'),
+                  "percBIAS": plt.get_cmap('BrBG'),
+                  "MAE": plt.get_cmap('Reds'),
+                  "relMAE": plt.get_cmap('Reds'),
+                  "percMAE": plt.get_cmap('Reds'),
+                  "MSE": plt.get_cmap('Reds'),
+                  "relMSE": plt.get_cmap('Reds'),
+                  "RMSE": plt.get_cmap('Reds'),
+                  "relRMSE": plt.get_cmap('Reds'),
+                  # Average
+                  "rMean": plt.get_cmap('BrBG'),
+                  "diffMean": plt.get_cmap('BrBG'),
+                  # Variability 
+                  'rSD': plt.get_cmap('PRGn'),
+                  'diffSD': plt.get_cmap('PRGn'),
+                  "rCoV": plt.get_cmap('PRGn'),
+                  "diffCoV": plt.get_cmap('PRGn'),
+                  # Correlation 
+                  "pearson_R": plt.get_cmap('Greens'),
+                  "pearson_R2": plt.get_cmap('Greens'),
+                  "spearman_R": plt.get_cmap('Greens'),
+                  "spearman_R2": plt.get_cmap('Greens'),
+                  "pearson_R_pvalue": plt.get_cmap('Purples'),
+                  "spearman_R_pvalue": plt.get_cmap('Purples'),
+                  # Overall skills
+                  "NSE": plt.get_cmap('Spectral'),
+                  "KGE": plt.get_cmap('Spectral'),
                   }
     return skill_dict[skill]
 
@@ -135,29 +213,14 @@ def plot_map(da, ax,
 def plot_skill_maps(ds_skill,  
                     figs_dir,
                     crs_proj = ccrs.Robinson(),
+                    variables = ['z500', 't850'],
+                    skills = ['BIAS','RMSE','rSD', 'pearson_R2', 'error_CoV'],
                     suffix="",
                     prefix=""):
     ##------------------------------------------------------------------------.
     # Check figs_dir 
     if not os.path.exists(figs_dir):
         os.makedirs(figs_dir)
-    ##------------------------------------------------------------------------.
-    # Define plot options
-    plot_options = {'relBIAS': {'vmin': -0.02, 'vmax': 0.02,
-                                "extend": 'both', 
-                                "cmap": plt.get_cmap('BrBG')},
-                    'relRMSE': {'vmin': 0, 'vmax': 0.04,
-                                "extend": 'max',
-                                "cmap": plt.get_cmap('Reds')},
-                    'rSD': {'vmin': 0.2, 'vmax': 1.8, 
-                            "extend": 'both',
-                            "cmap": plt.get_cmap('PRGn')},
-                    'pearson_R2': {'vmin': 0, 'vmax': 1, 
-                                   "extend": 'neither',
-                                   "cmap": plt.get_cmap('Greens')},
-                    }
-    variables = ['z500', 't850']
-    skills = ['relBIAS','relRMSE','rSD', 'pearson_R2']
     ##------------------------------------------------------------------------.
     # Create a figure for each leadtime 
     for i, leadtime in enumerate(ds_skill.leadtime.values):  
@@ -170,7 +233,7 @@ def plot_skill_maps(ds_skill,
         ##--------------------------------------------------------------------.
         # Create figure 
         fig, axs = plt.subplots(len(skills), len(variables), 
-                                figsize=(15, 15), 
+                                figsize=(15, 20), 
                                 subplot_kw=dict(projection=crs_proj))
         ##--------------------------------------------------------------------.
         # Add supertitle
@@ -193,7 +256,7 @@ def plot_skill_maps(ds_skill,
                 # xsphere._contourf(ds[var].sel(skill=skill),
                 #                   ax=axs[ax_count],
                 #                   transform=ccrs.PlateCarree(), 
-                #                   cmap=plot_options[skill]['cmap'],
+                #                   cmap=get_skill_cmap[skill],
                 #                   vmin=plot_options[skill]['vmin'],
                 #                   vmax=plot_options[skill]['vmax'],
                 #                   extend=plot_options[skill]['extend'], 
@@ -204,10 +267,10 @@ def plot_skill_maps(ds_skill,
                               ax=axs[ax_count],
                               transform=ccrs.Geodetic(), 
                               edgecolors=None,
-                              cmap=plot_options[skill]['cmap'],
-                              vmin=plot_options[skill]['vmin'],
-                              vmax=plot_options[skill]['vmax'],
-                              extend=plot_options[skill]['extend'], 
+                              cmap=get_skill_cmap(skill),
+                              vmin=get_spatial_ylim(skill, var)[0],
+                              vmax=get_spatial_ylim(skill, var)[1],
+                              extend=get_skill_cbar_extend(skill), 
                               add_colorbar=True,
                               add_labels=False,
                               cbar_kwargs=cbar_kwargs)                
@@ -231,9 +294,90 @@ def plot_skill_maps(ds_skill,
         fig.savefig(os.path.join(figs_dir, fname), bbox_inches='tight')
         ##--------------------------------------------------------------------.    
     return 
+    
 ##----------------------------------------------------------------------------.
-       
+def plot_global_skill(ds_global_skill, skill="RMSE", variables=['z500','t850']): 
+    # Retrieve leadtime
+    leadtimes = ds_global_skill['leadtime'].values
+    leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
+    # Create figure
+    fig, axs = plt.subplots(1, len(variables), figsize=(15, 4))
+    for ax, var in zip(axs.flatten(), variables):
+        ax.plot(leadtimes, ds_global_skill[var].sel(skill=skill).values)
+        ax.set_ylim(get_global_ylim(skill, var))
+        ax.set_xlabel('Leadtime (h)')  
+        ax.set_ylabel(skill)
+        ax.set_title(var.upper())
+    fig.tight_layout()
+    return fig 
+ 
+def plot_global_skills(ds_global_skill, 
+                       skills=['BIAS','RMSE','rSD','pearson_R2','KGE','error_CoV'],
+                       variables=['z500','t850']):
+    # Retrieve leadtime
+    leadtimes = ds_global_skill['leadtime'].values
+    leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
+    # Create figure
+    fig, axs = plt.subplots(len(skills), len(variables), figsize=(17, 18))
+    # Initialize axes
+    ax_i = 0
+    axs = axs.flatten()
+    for skill in skills: 
+        for var in variables:
+            axs[ax_i].plot(leadtimes, ds_global_skill[var].sel(skill=skill).values)
+            if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
+                axs[ax_i].axhline(y=0, linestyle='dashed', color="gray")
+            elif skill in ['rSD','rMean','rCoV']:
+                axs[ax_i].axhline(y=1, linestyle='dashed', color="gray")
+            axs[ax_i].set_ylim(get_global_ylim(skill, var))
+            axs[ax_i].set_xlabel('Leadtime (h)')  
+            axs[ax_i].set_ylabel(skill)
+            if ax_i <= 1:
+                axs[ax_i].set_title(var.upper())
+            # Update ax count 
+            ax_i += 1
+    # Figure tight layout
+    fig.tight_layout()
+    return fig
 
+def plot_skills_distribution(ds_skill, 
+                             skills=['BIAS','RMSE','rSD','pearson_R2','KGE','error_CoV'],
+                             variables=['z500','t850']):           
+    # Retrieve leadtime
+    leadtimes = ds_skill['leadtime'].values
+    leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
+    # Create figure
+    fig, axs = plt.subplots(len(skills), len(variables), figsize=(17, 18))
+    # Initialize axes
+    ax_i = 0
+    axs = axs.flatten()
+    for skill in skills: 
+        for var in variables:
+            tmp_boxes = [ds_skill[var].sel(skill=skill).values[i, :] for i in range(len(ds_skill[var].sel(skill=skill).values))]
+            axs[ax_i].boxplot(tmp_boxes, showfliers=False)
+            if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
+                axs[ax_i].axhline(y=0, linestyle='dashed', color="gray")
+            elif skill in ['rSD','rMean','rCoV']:
+                axs[ax_i].axhline(y=1, linestyle='dashed', color="gray")
+            axs[ax_i].set_ylim(get_spatial_ylim(skill, var))
+            axs[ax_i].set_xlabel('Leadtime (h)')  
+            axs[ax_i].set_ylabel(skill)
+            axs[ax_i].set_xticklabels(leadtimes)
+            axs[ax_i].tick_params(axis='both', which='major', labelsize=14)
+            ##------------------------------------------------------------------.
+            # Violin plots
+            # import seaborn as sns
+            # da = ds_skill[var].sel(skill=skill)
+            # da.to_dataframe().reset_index()
+            # ax = sns.boxplot(x=df.time.dt.hour, y=name, data=df)
+            ##------------------------------------------------------------------.
+            if ax_i <= 1:
+                axs[ax_i].set_title(var.upper())
+            # Update ax count 
+            ax_i += 1
+    # Figure tight layout
+    fig.tight_layout()
+    return fig 
 
  
     

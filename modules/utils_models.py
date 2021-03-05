@@ -22,19 +22,6 @@ def get_valid_pygsp_graph():
     """Return the spherical samplings implemented in pygsp."""
     return list(get_pygsp_graph_dict().keys())
 
-def get_pygsp_graph_fun(sampling):
-    """Return the pygsp function to generate the spherical graph."""
-    return get_pygsp_graph_dict()[sampling]
-    
-def get_pygsp_graph_params(sampling):
-    """Return the graph parameters to generate the spherical graph."""
-    ALL_GRAPH_PARAMS = {'healpix': {'nest': True},
-                        'equiangular': {'poles': 0},
-                        'icosahedral': {},
-                        'cubed': {},
-                        'gauss': {'nlon': 'ecmwf-octahedral'}}
-    return ALL_GRAPH_PARAMS[sampling]
-
 def check_sampling(sampling):
     """Check valid sampling name."""
     if not isinstance(sampling, str):
@@ -72,3 +59,25 @@ def check_resolution(resolution):
         resolution = [resolution]
     resolution = np.array(resolution) 
     return resolution
+
+def get_pygsp_graph_fun(sampling):
+    """Return the pygsp function to generate the spherical graph."""
+    return get_pygsp_graph_dict()[sampling]
+    
+def get_pygsp_graph_params(sampling):
+    """Return the graph parameters to generate the spherical graph."""
+    ALL_GRAPH_PARAMS = {'healpix': {'nest': True},
+                        'equiangular': {'poles': 0},
+                        'icosahedral': {},
+                        'cubed': {},
+                        'gauss': {'nlon': 'ecmwf-octahedral'}}
+    return ALL_GRAPH_PARAMS[sampling]
+
+def get_pygsp_graph(sampling, resolution,  knn):
+    """Return the pygsp graph for a specific spherical sampling."""
+    check_sampling(sampling)
+    graph_initializer = get_pygsp_graph_fun(sampling)
+    params = get_pygsp_graph_params(sampling)
+    params['k'] = knn
+    pygsp_graph = graph_initializer(resolution, **params)
+    return pygsp_graph
