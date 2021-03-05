@@ -546,8 +546,8 @@ def _contour(darray,
     # Handle facetgrids first
     if row or col:
         if subplot_kws is None:
-            print("Tip: If you want to plot a map, you need to specify the projection \
-                   using the argument subplot_kws={'projection': crs.Robinson()}")
+            print("Tip: If you want to plot a map, you need to specify a projection \
+                   using the argument subplot_kws={'projection': cartopy.crs.Robinson()}")
         allargs = locals().copy()
         del allargs["darray"]
         allargs.update(allargs.pop("kwargs"))
@@ -814,7 +814,7 @@ def _contourf(darray,
     if row or col:
         if subplot_kws is None:
             print("Tip: If you want to plot a map, you need to specify the projection \
-                   using the argument subplot_kws={'projection': crs.Robinson()}")
+                   using the argument subplot_kws={'projection': cartopy.crs.Robinson()}")
         allargs = locals().copy()
         del allargs["darray"]
         allargs.update(allargs.pop("kwargs"))
@@ -1036,7 +1036,7 @@ def _plot(darray,
     if row or col:
         if subplot_kws is None:
             print("Tip: If you want to plot a map, you need to specify the projection \
-                   using the argument subplot_kws={'projection': crs.Robinson()}")
+                   using the argument subplot_kws={'projection': cartopy.crs.Robinson()}")
         allargs = locals().copy()
         del allargs["darray"]
         allargs.update(allargs.pop("kwargs"))
@@ -1498,7 +1498,7 @@ class SphereDatasetAccessor:
         if col is not None and row is not None: 
             raise ValueError("When plotting a Dataset, you must specify either 'row' or 'col'.")
         if col is None and row is None: 
-            raise NotImplementedError("When 'col' and 'row' are both None.")
+            raise NotImplementedError("Specify 'col' or 'row'.")
         # Squeeze the dataset (to drop dim with 1)
         ds = ds.squeeze()
         # Check remaining dimension
@@ -1528,7 +1528,7 @@ class SphereDatasetAccessor:
         if col is not None and row is not None: 
             raise ValueError("When contourting a Dataset, you must specify either 'row' or 'col'.")
         if col is None and row is None: 
-            raise NotImplementedError("When 'col' and 'row' are both None.")
+            raise NotImplementedError("Specify 'col' or 'row'.")
         # Squeeze the dataset (to drop dim with 1)
         ds = self.ds.squeeze()
         # Check remaining dimension
@@ -1558,7 +1558,7 @@ class SphereDatasetAccessor:
         if col is not None and row is not None: 
             raise ValueError("When contourfting a Dataset, you must specify either 'row' or 'col'.")
         if col is None and row is None: 
-            raise NotImplementedError("When 'col' and 'row' are both None.")
+            raise NotImplementedError("Specify 'col' or 'row'.")
         # Squeeze the dataset (to drop dim with 1)
         ds = self.ds.squeeze()
         # Check remaining dimension
