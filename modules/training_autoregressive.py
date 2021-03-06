@@ -529,7 +529,9 @@ def AutoregressiveTraining(model,
     prefetch_in_GPU = check_prefetch_in_GPU(prefetch_in_GPU=prefetch_in_GPU, num_workers=num_workers, device=device) 
     prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
     AR_training_strategy = check_AR_training_strategy(AR_training_strategy)
-
+    # Check AR_scheduler 
+    if len(AR_scheduler.AR_weights) >= AR_iterations:
+        raise ValueError("The AR scheduler has {} AR weights, but AR_iterations is specified to be {}".format(len(AR_scheduler.AR_weights), AR_iterations))
     ##------------------------------------------------------------------------.   
     # Check that autoregressive settings are valid 
     # - input_k and output_k must be numpy arrays hereafter ! 
@@ -715,9 +717,9 @@ def AutoregressiveTraining(model,
             #   --> Autoregress model predictions just N times to save computing time
             dict_training_Y_predicted = {}
             dict_training_loss_per_AR_iteration = {}
-            for i in range(AR_scheduler.current_AR_iterations+1):
+            for AR_iteration in range(AR_scheduler.current_AR_iterations+1):
                 # Retrieve X and Y for current AR iteration
-                torch_X, torch_Y = get_AR_batch(AR_iteration = i, 
+                torch_X, torch_Y = get_AR_batch(AR_iteration = AR_iteration, 
                                                 batch_dict = training_batch_dict, 
                                                 dict_Y_predicted = dict_training_Y_predicted,
                                                 asyncronous_GPU_transfer = asyncronous_GPU_transfer,
@@ -729,37 +731,37 @@ def AutoregressiveTraining(model,
                 #     print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
                 ##-------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
-                dict_training_Y_predicted[i] = model(torch_X)
+                dict_training_Y_predicted[AR_iteration] = model(torch_X)
                 
                 ##-------------------------------------------------------------.
                 # Compute loss for current forecast iteration 
                 # - The criterion expects [data_points, nodes, features]
                 # - Collapse all other dimensions to a 'data_points' dimension  
-                Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[i],
+                Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[AR_iteration],
                                                         Y_obs = torch_Y,
                                                         dim_names = dim_names)
-                dict_training_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
+                dict_training_loss_per_AR_iteration[AR_iteration] = criterion(Y_obs, Y_pred)
                 
                 ##-------------------------------------------------------------.
                 # If AR_training_strategy is "AR", perform backward pass at each AR iteration 
                 if AR_training_strategy == "AR":
                     # - Detach gradient of Y_pred (to avoid RNN-style optimization)
-                    dict_training_Y_predicted[i] = dict_training_Y_predicted[i].detach()
+                    dict_training_Y_predicted[AR_iteration] = dict_training_Y_predicted[AR_iteration].detach()
                     # - AR weight the loss (aka weight sum the gradients ...)
-                    current_AR_loss = dict_training_loss_per_AR_iteration[i]
-                    current_AR_loss = current_AR_loss*AR_scheduler.AR_weights[i]
+                    current_AR_loss = dict_training_loss_per_AR_iteration[AR_iteration]
+                    current_AR_loss = current_AR_loss*AR_scheduler.AR_weights[AR_iteration]
                     # - Backpropagate to compute gradients (the derivative of the loss w.r.t. the parameters)
                     current_AR_loss.backward()
                     del current_AR_loss
                  
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
-                remove_unused_Y(AR_iteration = i, 
+                remove_unused_Y(AR_iteration = AR_iteration, 
                                 dict_Y_predicted = dict_training_Y_predicted,
                                 dict_Y_to_remove = training_batch_dict['dict_Y_to_remove'])
                 
                 del Y_pred, Y_obs, torch_X, torch_Y
-                if i == AR_scheduler.current_AR_iterations:
+                if AR_iteration == AR_scheduler.current_AR_iterations:
                     del dict_training_Y_predicted
 
                 ##------------------------------------------------------------.
@@ -816,9 +818,9 @@ def AutoregressiveTraining(model,
                     # - And do not update network weights  
                     with torch.set_grad_enabled(False): 
                         # Autoregressive loop 
-                        for i in range(AR_scheduler.current_AR_iterations+1):
+                        for AR_iteration in range(AR_scheduler.current_AR_iterations+1):
                             # Retrieve X and Y for current AR iteration
-                            torch_X, torch_Y = get_AR_batch(AR_iteration = i, 
+                            torch_X, torch_Y = get_AR_batch(AR_iteration = AR_iteration, 
                                                             batch_dict = validation_batch_dict, 
                                                             dict_Y_predicted = dict_validation_Y_predicted,
                                                             asyncronous_GPU_transfer = asyncronous_GPU_transfer,
@@ -826,23 +828,23 @@ def AutoregressiveTraining(model,
                         
                             ##------------------------------------------------.
                             # Forward pass and store output for stacking into next AR iterations
-                            dict_validation_Y_predicted[i] = model(torch_X)
+                            dict_validation_Y_predicted[AR_iteration] = model(torch_X)
                 
                             ##------------------------------------------------.
                             # Compute loss for current forecast iteration 
                             # - The criterion expects [data_points, nodes, features] 
-                            Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_validation_Y_predicted[i],
+                            Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_validation_Y_predicted[AR_iteration],
                                                                    Y_obs = torch_Y,
                                                                    dim_names = dim_names)
-                            dict_validation_loss_per_AR_iteration[i] = criterion(Y_obs, Y_pred)
+                            dict_validation_loss_per_AR_iteration[AR_iteration] = criterion(Y_obs, Y_pred)
                             
                             ##------------------------------------------------.
                             # Remove unnecessary stored Y predictions 
-                            remove_unused_Y(AR_iteration = i, 
+                            remove_unused_Y(AR_iteration = AR_iteration, 
                                             dict_Y_predicted = dict_validation_Y_predicted,
                                             dict_Y_to_remove = validation_batch_dict['dict_Y_to_remove'])
                             del Y_pred, Y_obs, torch_X, torch_Y
-                            if i == AR_scheduler.current_AR_iterations:
+                            if AR_iteration == AR_scheduler.current_AR_iterations:
                                 del dict_validation_Y_predicted
 
                     ##--------------------------------------------------------.    
