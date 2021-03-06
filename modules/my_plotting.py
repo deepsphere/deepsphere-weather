@@ -296,7 +296,11 @@ def plot_skill_maps(ds_skill,
     return 
     
 ##----------------------------------------------------------------------------.
-def plot_global_skill(ds_global_skill, skill="RMSE", variables=['z500','t850']): 
+def plot_global_skill(ds_global_skill, skill="RMSE", 
+                      variables=['z500','t850'],
+                      n_leadtimes=20): 
+    # Plot first n_leadtimes
+    ds_global_skill = ds_global_skill.isel(leadtime=slice(0, n_leadtimes))
     # Retrieve leadtime
     leadtimes = ds_global_skill['leadtime'].values
     leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
@@ -313,7 +317,10 @@ def plot_global_skill(ds_global_skill, skill="RMSE", variables=['z500','t850']):
  
 def plot_global_skills(ds_global_skill, 
                        skills=['BIAS','RMSE','rSD','pearson_R2','KGE','error_CoV'],
-                       variables=['z500','t850']):
+                       variables=['z500','t850'],
+                       n_leadtimes=20):
+    # Plot first n_leadtimes
+    ds_global_skill = ds_global_skill.isel(leadtime=slice(0, n_leadtimes))
     # Retrieve leadtime
     leadtimes = ds_global_skill['leadtime'].values
     leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
@@ -342,7 +349,10 @@ def plot_global_skills(ds_global_skill,
 
 def plot_skills_distribution(ds_skill, 
                              skills=['BIAS','RMSE','rSD','pearson_R2','KGE','error_CoV'],
-                             variables=['z500','t850']):           
+                             variables=['z500','t850'],
+                             n_leadtimes=20):
+    # Plot first n_leadtimes
+    ds_skill = ds_skill.isel(leadtime=slice(0, n_leadtimes))           
     # Retrieve leadtime
     leadtimes = ds_skill['leadtime'].values
     leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
