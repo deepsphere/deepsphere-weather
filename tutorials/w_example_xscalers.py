@@ -25,7 +25,7 @@ ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
 # - Boundary conditions data (i.e. TOA)
 ds_bc = readDatasets(data_dir=data_dir, feature_type='bc')
 
-ds_dynamic = ds_dynamic.drop(["level","lat","lon"])
+ds_dynamic = ds_dynamic.drop(["level"])
 ds_bc = ds_bc.drop(["lat","lon"])
 
 da_static = xr.open_zarr(os.path.join(data_dir,"DataArray","static.zarr"))['Data']

@@ -30,6 +30,9 @@ import os
 #     in mean_, std_  for the missing time_groupby values
 
 # xr.ALL_DIMS # ...  
+
+# - Add lw and up bounds to std scalers (avoid outliers alter the distribution)
+
 ##----------------------------------------------------------------------------.
 # # Loop over each variable (for Datasets)
 # gs = GlobalStandardScaler(data=ds)
@@ -679,7 +682,6 @@ class GlobalStandardScaler():
 class GlobalMinMaxScaler():
     """MinMaxScaler aggregating over all dimensions (except variable_dim and groupby_dims)."""
     # TODO: feature_min, feature_max as dictionary per variable ... 
-    
     def __init__(self,
                  data,
                  variable_dim=None, groupby_dims=None, 
@@ -955,7 +957,7 @@ class GlobalMinMaxScaler():
 # #######################
 class TemporalStandardScaler():
     """TemporalStandardScaler aggregating over all dimensions (except variable_dim and groupby_dims)."""
-    
+    # TODO: - Add option to bound values to i.e. -5, 5 std devs.
     def __init__(self, 
                  data,
                  time_dim, time_groups=None,
@@ -1712,11 +1714,11 @@ def LoadScaler(fpath):
     if scaler_class == "GlobalStandardScaler":
         return GlobalStandardScaler(data=None, ds_scaler=ds_scaler)
     if scaler_class == "GlobalMinMaxScaler":
-       return GlobalMinMaxScaler(data=None, ds_scaler=ds_scaler)
+        return GlobalMinMaxScaler(data=None, ds_scaler=ds_scaler)
     if scaler_class == "TemporalStandardScaler":
         return TemporalStandardScaler(data=None, time_dim=None, ds_scaler=ds_scaler)
     if scaler_class == "TemporalMinMaxScaler":
-       return TemporalMinMaxScaler(data=None, time_dim=None, ds_scaler=ds_scaler)
+        return TemporalMinMaxScaler(data=None, time_dim=None, ds_scaler=ds_scaler)
 
 #-----------------------------------------------------------------------------.
 # ######################### 
@@ -2051,11 +2053,7 @@ def LoadAnomaly(fpath):
         raise ValueError("{} does not exist on disk.".format(fpath))
     # Create scaler 
     ds_anomaly = xr.open_dataset(fpath)
-    return Anomaly(data=None, time_dim=None, ds_anomaly=ds_anomaly)
-#-----------------------------------------------------------------------------.
-# ################### 
-#### Persistence ####
-# ################### 
+    return AnomalyScaler(data=None, time_dim=None, ds_anomaly=ds_anomaly)
 
 #-----------------------------------------------------------------------------.
 # ###################### 
