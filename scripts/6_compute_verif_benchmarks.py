@@ -11,25 +11,38 @@ import numpy as np
 import xarray as xr
 sys.path.append('../')
 from modules.my_io import readDatasets   
-from modules.xscaler import Climatology
 from modules.xscaler import LoadClimatology
+from modules.utils_models import get_pygsp_graph
+import modules.xsphere as xsphere #  it load the xarray sphere accessor ! 
 import modules.xverif as xverif
 ##----------------------------------------------------------------------------.
 # - Define sampling data directory
 base_data_dir = "/data/weather_prediction/data"
 # - Define samplings
-sampling_name_list = ['Healpix_400km','Equiangular_400km','Equiangular_400km_tropics',
-                      'Icosahedral_400km','O24','Cubed_400km']
-# - Define climatologies to analyze
+sampling_infos = {'Healpix_400km': {'sampling': 'healpix', 
+                                    'resolution': 16},                     
+                  'Equiangular_400km': {'sampling': 'equiangular',
+                                        'resolution': [36,72]},         
+                  'Equiangular_400km_tropics': {'sampling': 'equiangular',
+                                                'resolution': [46,92]},    
+                  'Icosahedral_400km': {'sampling': 'icosahedral', 
+                                        'resolution': 16},                      
+                  'O24': {'sampling': 'gauss', 
+                          'resolution': 48},  
+                  'Cubed_400km': {'sampling': 'cubed', 
+                                  'resolution': 24}
+                  }
+sampling_name_list = list(sampling_infos.keys())
+
+# - Define climatology forecasts to analyze
 list_climatologies = ["MonthlyClimatology", "WeeklyClimatology", "DailyClimatology", 
                       "HourlyMonthlyClimatology", "HourlyWeeklyClimatology"]
     
 #### Compute climatology and persistence skills  
 for sampling_name in sampling_name_list:
-    
+    print("- Computing climatology forecasts skills for {} sampling".format(sampling_name))
     ### Define the sampling-specific folder 
     data_dir = os.path.join(base_data_dir, sampling_name)
-    print(data_dir)
     ##------------------------------------------------------------------------.
     ### Load netCDF4 Dataset 
     # - Dynamic data (i.e. pressure and surface levels variables)
@@ -62,10 +75,9 @@ for sampling_name in sampling_name_list:
             os.makedirs(os.path.join(data_dir, "Benchmarks"))
         ds_skill.to_netcdf(os.path.join(data_dir, "Benchmarks", clim_name + "_Spatial_Skills.nc"))
         # - Compute deterministic global skills 
-        # TODO: 
-        # pygsp_graph = get_pygsp_graph(sampling = model_settings['sampling'], 
-        #                               resolution = model_settings['resolution'],
-        #                               knn = model_settings['knn'])
+        pygsp_graph = get_pygsp_graph(sampling = sampling_infos[sampling_name]['sampling'], 
+                                      resolution = sampling_infos[sampling_name]['resolution'])
+                                
         # ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
         ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
         ds_global_skill = xverif.global_summary(ds_skill, area_coords="area")
@@ -73,10 +85,34 @@ for sampling_name in sampling_name_list:
      
     ##------------------------------------------------------------------------.
     #### Compute persistence forecast skils 
+    print("- Computing persistence forecasts skills for {} sampling".format(sampling_name))
+    # - Rechunk dataset
+    ds_test_dynamic = ds_test_dynamic.chunk({'time': -1, 'node': 1})
+    # - Define leadtimes 
     forecast_cycle = 6 
-    AR_iterations = 20
+    AR_iterations = 40
     leadtimes = np.arange(1, AR_iterations)*np.timedelta64(forecast_cycle, 'h')
-    
-    dt * timedelta(milliseconds=1)
-     ds_test_dynamic
-    
+    # - Compute persistence forecast at each leadtime
+    list_skills = []
+    for leadtime in leadtimes:
+        lagged_ds = ds_test_dynamic.copy()
+        lagged_ds['time'] = lagged_ds['time'] + leadtime
+        ds_skill = xverif.deterministic(pred = lagged_ds,
+                                        obs = ds_test_dynamic, 
+                                        forecast_type="continuous",
+                                        aggregating_dim='time')
+        ds_skill = ds_skill.assign_coords({'leadtime': np.array(leadtime)})
+        ds_skill = ds_skill.expand_dims("leadtime")
+        list_skills.append(ds_skill)
+    # - Combine peristence forecast skill at all leadtimes 
+    ds_persistence_skill = xr.merge(list_skills)
+    ds_persistence_skill.to_netcdf(os.path.join(data_dir, "Benchmarks", "Persistence_Spatial_Skills.nc"))
+    # - Compute peristence forecast deterministic global skills 
+    pygsp_graph = get_pygsp_graph(sampling = sampling_infos[sampling_name]['sampling'], 
+                                  resolution = sampling_infos[sampling_name]['resolution'])
+    # ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
+    ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
+    ds_global_skill = xverif.global_summary(ds_skill, area_coords="area")
+    ds_global_skill.to_netcdf(os.path.join(data_dir, "Benchmarks", "Persistence_Global_Skills.nc"))
+    ##------------------------------------------------------------------------.    
+##----------------------------------------------------------------------------.  
