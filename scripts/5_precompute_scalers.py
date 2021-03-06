@@ -42,6 +42,9 @@ for sampling_name in sampling_name_list:
     ds_bc = ds_bc.drop(["lat","lon"])
     ds_static = ds_static.drop(["lat","lon"])
   
+    ds_dynamic = ds_dynamic.load()
+    ds_bc = ds_bc.load()
+    ds_static = ds_static.load()
     ##------------------------------------------------------------------------.
     #### Define Global Standard Scaler
     dynamic_scaler = GlobalStandardScaler(data=ds_dynamic)
@@ -105,14 +108,14 @@ for sampling_name in sampling_name_list:
     
     ##------------------------------------------------------------------------.
     #### Define Weekly Standard Anomaly Scaler  
-    dynamic_scaler = AnomalyScaler(ds_dynamic, time_dim = "time", time_groups = "week", 
+    dynamic_scaler = AnomalyScaler(ds_dynamic, time_dim = "time", time_groups = "weekofyear", 
                                    groupby_dims = 'node',
                                    standardized = True,
                                    reference_period = reference_period)
     dynamic_scaler.fit()
     dynamic_scaler.save(os.path.join(data_dir, "Scalers", "WeeklyStdAnomalyScaler_dynamic.nc"))
     
-    bc_scaler = AnomalyScaler(ds_bc, time_dim = "time", time_groups = "week", 
+    bc_scaler = AnomalyScaler(ds_bc, time_dim = "time", time_groups = "weekofyear", 
                               groupby_dims = 'node',
                               standardized = True,
                               reference_period = reference_period)
