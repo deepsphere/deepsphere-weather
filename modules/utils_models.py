@@ -73,7 +73,7 @@ def get_pygsp_graph_params(sampling):
                         'gauss': {'nlon': 'ecmwf-octahedral'}}
     return ALL_GRAPH_PARAMS[sampling]
 
-def get_pygsp_graph(sampling, resolution,  knn):
+def get_pygsp_graph(sampling, resolution,  knn=20):
     """Return the pygsp graph for a specific spherical sampling."""
     check_sampling(sampling)
     graph_initializer = get_pygsp_graph_fun(sampling)
