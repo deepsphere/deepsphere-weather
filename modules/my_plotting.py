@@ -14,6 +14,44 @@ import modules.xsphere as xsphere
 # TODO: ylabels add unit
 # 'RMSE [$m^2 s^{−2}$]'
 
+def get_var_cmap(var, arg): 
+    cmap_dict = {'t850': {'state': plt.get_cmap('RdYlBu_r'),
+                          'error': plt.get_cmap('RdBu')
+                          },
+                 'z500': {'state': plt.get_cmap('BuPu'),
+                          'error': plt.get_cmap('RdBu')
+                          },      
+                 'q500': {'state': plt.get_cmap('GnBu'),
+                          'error': plt.get_cmap('RdBu'),       
+                          }
+                 }
+    if var in list(cmap_dict.keys()):
+        if arg in list(cmap_dict[var].keys()):
+            cmap = cmap_dict[var][arg]
+        else: 
+            cmap = plt.get_cmap('RdYlBu')
+    else: 
+        cmap = plt.get_cmap('RdYlBu')
+    return cmap
+
+def get_var_clim(var, arg): 
+    clim_dict = {'t850': {'state': (225, 310),
+                          'error': (-10, 10)
+                          },
+                 'z500': {'state': (44000, 59000),
+                          'error': (-5000, 5000)
+                          },        
+                 }
+    if var in list(clim_dict.keys()):
+        if arg in list(clim_dict[var].keys()):
+            clim = clim_dict[var][arg]
+        else: 
+            clim = (None, None)
+    else: 
+        clim = (None, None)
+    return clim
+
+##----------------------------------------------------------------------------.
 def get_global_ylim(skill, var): 
     ylim_dict = {'RMSE': {'z500': (100, 700),
                           't850': (0.5, 4)},
