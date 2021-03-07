@@ -62,6 +62,7 @@ from modules.my_plotting import plot_skill_maps
 from modules.my_plotting import plot_global_skill
 from modules.my_plotting import plot_global_skills
 from modules.my_plotting import plot_skills_distribution
+from modules.my_plotting import create_GIF_forecast_error
 
 # For plotting 
 import matplotlib
@@ -306,14 +307,20 @@ def main(cfg_path, exp_dir, data_dir):
       
     ##------------------------------------------------------------------------.
     # ### - Define AR_Weights_Scheduler 
-    # wORKS 
+    # WORKS 
     # ar_scheduler = AR_Scheduler(method = "Constant",
     #                             # factor = 0.0005,
+    # 
     #                             initial_AR_absolute_weights = [0.8, 0.4, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2]) 
-    # DO NOT WORKS
+    # For RNN: growth and decay works weel (fix the first)
     ar_scheduler = AR_Scheduler(method = "LinearStep",
                                 factor = 0.0005,
-                                fixed_AR_weights = [0,4,6],
+                                fixed_AR_weights = [0],
+                                initial_AR_absolute_weights = [1]) 
+    # FOR AR : Need to fix weights once growthed?
+    ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                factor = 0.0005,
+                                fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
                                 initial_AR_absolute_weights = [1])   
     
     ### - Define Early Stopping 
@@ -576,9 +583,25 @@ def main(cfg_path, exp_dir, data_dir):
     ### - Create animations 
     print("========================================================================================")
     print("- Create error animations")
-    # TODO
-    # - Obs      , Forecast,       Error  
-    # - Obs Anom , Forecast Anom , Error Anom 
+    # - Add information related to mesh area
+    ds_forecasts = ds_forecasts.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
+    ds_forecasts = ds_forecasts.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
+    ds_obs_test = ds_obs_test.chunk({'time': 100,'node': -1})
+    ds_obs = ds_obs_test.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
+    ds_obs = ds_obs.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
+    # - Plot GIF for different months (variable states)
+    for month in range(1,13):
+        idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
+        ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
+        create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
+                                ds_forecast = ds_forecast,
+                                ds_obs = ds_obs,
+                                aspect_cbar = 40,
+                                antialiased = False,
+                                edgecolors = None)
+    # - Plot GIF for different months (variable anomalies)
+    # TODO 
+ 
 
     print("- Model training and verification terminated. Elapsed time: {:.1f} hours ".format((time.time() - t_start)/60/60))  
     print("========================================================================================")
