@@ -54,7 +54,7 @@
             0
         ],
         "forecast_cycle": 6,
-        "AR_iterations": 8,
+        "AR_iterations": 2,
         "stack_most_recent_prediction": true
     }
 }
