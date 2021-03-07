@@ -5,8 +5,6 @@ Created on Sat Feb 27 23:28:58 2021
 
 @author: ghiggi
 """
-# https://github.com/jbusecke/xarrayutils/blob/7b09a2bdc70f035e290e75419c2d025b7267adf4/xarrayutils/visualization.py 
-# Animation ! https://github.com/jbusecke/xmovie
 ##----------------------------------------------------------------------------.
 import os
 import xarray as xr
@@ -58,10 +56,6 @@ plot_skill_maps(ds_skill,
                 crs_proj = ccrs.Robinson(),
                 suffix="",
                 prefix="")
-
-## TODO: 
-# - Add for the other skills too ... skills as function argument ... 
-# - MonthlySkills 
 
 ##----------------------------------------------------------------------------.
 ## Global skill stats vs. leadtime 
