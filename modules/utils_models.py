@@ -15,7 +15,8 @@ def get_pygsp_graph_dict():
                  'equiangular': pygsp.graphs.SphereEquiangular,
                  'icosahedral': pygsp.graphs.SphereIcosahedral,
                  'cubed': pygsp.graphs.SphereCubed,
-                 'gauss': pygsp.graphs.SphereGaussLegendre}
+                 'gauss': pygsp.graphs.SphereGaussLegendre
+                 }
     return ALL_GRAPH
 
 def get_valid_pygsp_graph():
@@ -78,6 +79,10 @@ def get_pygsp_graph(sampling, resolution,  knn=20):
     check_sampling(sampling)
     graph_initializer = get_pygsp_graph_fun(sampling)
     params = get_pygsp_graph_params(sampling)
-    params['k'] = knn
-    pygsp_graph = graph_initializer(resolution, **params)
+    if sampling.lower() == "equiangular":
+        # TODO: update pgsp.SphereEquiangular to accept k ... 
+        pygsp_graph = graph_initializer(resolution[0], resolution[1], **params)
+    else:
+        params['k'] = knn
+        pygsp_graph = graph_initializer(resolution, **params)
     return pygsp_graph
