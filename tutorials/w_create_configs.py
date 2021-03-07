@@ -44,8 +44,8 @@ cfg['training_settings']['GPU_devices_ids'] = [0]
 cfg['dataloader_settings']["prefetch_in_GPU"] = False
 cfg['dataloader_settings']["prefetch_factor"] = 2
 cfg['dataloader_settings']["num_workers"] = 8 
-cfg['dataloader_settings']["pin_memory"] = True
-cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
+cfg['dataloader_settings']["pin_memory"] = False
+cfg['dataloader_settings']["asyncronous_GPU_transfer"] = False
 cfg['dataloader_settings']["autotune_num_workers"] = False 
 cfg['dataloader_settings']["drop_last_batch"] = False  
 
@@ -56,7 +56,7 @@ dict_samplings = {'Healpix_400km': {'sampling': 'healpix',
                                     'resolution': 16},                     
                   'Equiangular_400km': {'sampling': 'equiangular',
                                         'resolution': [36,72]},         
-                  'Equiangular_400_km_tropics': {'sampling': 'equiangular',
+                  'Equiangular_400km_tropics': {'sampling': 'equiangular',
                                                  'resolution': [46,92]},    
                   'Icosahedral_400km': {'sampling': 'icosahedral', 
                                         'resolution': 16},                      

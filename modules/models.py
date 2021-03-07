@@ -11,6 +11,7 @@ from typing import List
 from abc import ABC, abstractmethod
 from modules.layers import compute_torch_laplacian
 from modules.utils_models import check_sampling
+# from modules.utils_models import get_pygsp_graph
 from modules.utils_models import get_pygsp_graph_fun
 from modules.utils_models import get_pygsp_graph_params
 from modules.utils_models import check_conv_type
@@ -41,6 +42,9 @@ class UNet(ABC):
                     sampling: str = 'healpix', 
                     knn: int = 10) -> List["pygsp.graphs"]:
         """Build the graph for each specified resolution."""
+        # Create a list of pygsp graph 
+        # pygsp_graphs_list = [get_pygsp_graph(sampling=sampling, resolution=*res, knn=knn) for res in resolutions]
+
         # Check sampling 
         check_sampling(sampling)
         # Retrieve pygsp function to create the spherical graph
@@ -50,6 +54,7 @@ class UNet(ABC):
         params['k'] = knn
         # Create a list of pygsp graph 
         pygsp_graphs_list = [graph_initializer(*res, **params) for res in resolutions]
+ 
         return pygsp_graphs_list
     
     @staticmethod

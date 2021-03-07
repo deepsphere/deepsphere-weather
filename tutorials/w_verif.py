@@ -6,31 +6,33 @@ Created on Sat Feb 27 23:28:58 2021
 @author: ghiggi
 """
 ##----------------------------------------------------------------------------.
+import os
+import xarray as xr
 import pygsp as pg
 import cartopy.crs as ccrs
 data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km"
 
 ds = xr.open_zarr(os.path.join(data_dir,"Dataset","dynamic.zarr"))
-ds = ds.isel(time=slice(0,10))
+# ds = ds.isel(time=slice(0,10))
 ds = ds.load()
 
 ds1 = ds.copy()
 ds1 = ds + 0.15
+ds1 = xr.concat((ds1,ds1), dim="leadtime")
+ds1 = ds1.assign_coords({'leadtime': [1,2]})
+
+ds = ds.chunk({'time':-1, 'node':30})
+ds1 = ds1.chunk({'time':-1, 'node':300})
 
 pred = ds1
 obs = ds
-# check when same ... 0 issues 
-exclude_dim = "leadtime"
-exclude_dim = frozenset({})
-aggregating_dims = ('time')
-thr = 0.0000001
- 
+  
 ##----------------------------------------------------------------------------.
 # Compute deterministic metric (at each node, each leadtime)
 ds_skill = deterministic(pred, obs, 
                          forecast_type="continuous",
-                         aggregating_dims=aggregating_dims,
-                         exclude_dim=exclude_dim)
+                         aggregating_dim="time",
+                         skip_na = True)
 
 # Add information related to mesh area
 ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pg.graphs.SphereHealpix(subdivisions=16, k=20, nest=False))
@@ -54,10 +56,6 @@ plot_skill_maps(ds_skill,
                 crs_proj = ccrs.Robinson(),
                 suffix="",
                 prefix="")
-
-## TODO: 
-# - Add for the other skills too ... skills as function argument ... 
-# - MonthlySkills 
 
 ##----------------------------------------------------------------------------.
 ## Global skill stats vs. leadtime 

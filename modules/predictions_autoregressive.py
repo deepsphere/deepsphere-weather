@@ -313,7 +313,15 @@ def AutoregressivePredictions(model,
                               compressor = "auto",
                               chunks = "auto",
                               timedelta_unit='hour'):
-    """AutoregressivePredictions."""
+    """AutoregressivePredictions.
+    
+    leadtime_idx = 0 correspond to the first forecast timestep
+    leadtime = 0 correspond to the ground truth 
+    leadtime = forecast_cycle correspond to the first forecast timestep
+    forecast_reference_time = time at 'leadtime = 0' 
+    
+    Currently works only if the model predict on timestep at each forecast cycle ! (no multi-temporal output)
+    """
     ##------------------------------------------------------------------------.
     # Work only if output_k are not replicated and are already time-ordered  !
     ##------------------------------------------------------------------------.
@@ -458,7 +466,7 @@ def AutoregressivePredictions(model,
             dim_info = batch_dict['dim_info'] 
             forecast_time_info = batch_dict['forecast_time_info']
             
-            forecast_reference_time = forecast_time_info["forecast_reference_time"]
+            forecast_reference_time = forecast_time_info["forecast_reference_time"] - t_res_timedelta
             
             ##----------------------------------------------------------------.
             ### Select needed leadtime 
@@ -488,8 +496,9 @@ def AutoregressivePredictions(model,
             ##----------------------------------------------------------------.
             ### Create xarray Dataset of forecasts
             # - Retrieve coords 
+            # - TODO currently works only if predict on timestep at each forecast cycle !
             leadtime_idx = np.arange(Y_forecasts.shape[1]) # TODO generalize position
-            leadtime = leadtime_idx * t_res_timedelta    
+            leadtime = (leadtime_idx + 1) * t_res_timedelta # start at 'forecast_cycle' hours
 
             # - Create xarray DataArray 
             da=xr.DataArray(Y_forecasts,           
@@ -555,7 +564,7 @@ def AutoregressivePredictions(model,
         ds_forecasts = xr.merge(list_ds)
         
     ##------------------------------------------------------------------------.    
-    print("- Elapsed time for forecast generation: {:.0f}s".format(time.time()-t_i))
+    print("- Elapsed time for forecast generation: {:.2f} minutes".format((time.time()-t_i)/60))
     ##------------------------------------------------------------------------.    
     return ds_forecasts  
  

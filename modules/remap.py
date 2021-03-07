@@ -822,12 +822,12 @@ def pygsp_to_CDO_grid(graph, CDO_grid_fpath, rounding=4):
     # Consider it as cell centers and infer it vertex
     list_polygons_lonlat = SphericalVoronoiMesh_from_pygsp(graph) # PolygonArrayList
     # Approximate to 2 decimal digits to reduce the number of mesh vertices (if > 8)   
-    max_n_vertices = max([len(x) for x in list_polygons_lonlat])
-    if max_n_vertices > 8:
-        list_polygons_lonlat1 = []
-        for i, p in enumerate(list_polygons_lonlat):
-            list_polygons_lonlat1.append(np.unique(np.round(p,rounding), axis = 0))  
-        list_polygons_lonlat = list_polygons_lonlat1
+    # max_n_vertices = max([len(x) for x in list_polygons_lonlat])
+    # if max_n_vertices > 8:
+    #     list_polygons_lonlat1 = []
+    #     for i, p in enumerate(list_polygons_lonlat):
+    #         list_polygons_lonlat1.append(np.unique(np.round(p,rounding), axis = 0))  
+    #     list_polygons_lonlat = list_polygons_lonlat1
         
     # Reformat polygon vertices array to have all same number of vertices
     lon_vertices, lat_vertices = get_lat_lon_bnds(list_polygons_lonlat)
