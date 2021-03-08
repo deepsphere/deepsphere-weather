@@ -522,7 +522,7 @@ class GlobalStandardScaler():
         
         ##--------------------------------------------------------------------.   
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         if self.center:
             transform_vars = get_xarray_variables(self.mean_)
         else:
@@ -599,7 +599,7 @@ class GlobalStandardScaler():
                
         ##--------------------------------------------------------------------.   
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         if self.center:
             transform_vars = get_xarray_variables(self.mean_)
         else:
@@ -816,7 +816,7 @@ class GlobalMinMaxScaler():
         
         ##--------------------------------------------------------------------.
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         transform_vars = get_xarray_variables(self.min_)
         transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
         if len(transform_vars) == 0:
@@ -883,7 +883,7 @@ class GlobalMinMaxScaler():
         
         ##--------------------------------------------------------------------.
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         transform_vars = get_xarray_variables(self.min_)
         transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
         if len(transform_vars) == 0:
@@ -1142,7 +1142,7 @@ class TemporalStandardScaler():
             
         ##--------------------------------------------------------------------.   
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         if self.center:
             transform_vars = get_xarray_variables(self.mean_)
         else:
@@ -1237,7 +1237,7 @@ class TemporalStandardScaler():
             raise ValueError("The TemporalStandardScaler need to be first fit() !")
         ##--------------------------------------------------------------------.    
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         if self.center:
             transform_vars = get_xarray_variables(self.mean_)
         else:
@@ -1510,7 +1510,7 @@ class TemporalMinMaxScaler():
             raise ValueError("The TemporalMinMaxScaler need to be first fit() !")
         ##--------------------------------------------------------------------.
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         transform_vars = get_xarray_variables(self.min_)
         transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
         if len(transform_vars) == 0:
@@ -1602,7 +1602,7 @@ class TemporalMinMaxScaler():
             raise ValueError("The TemporalMinMaxScaler need to be first fit() !")
         ##--------------------------------------------------------------------.
         # Get variables to transform 
-        data_vars = get_xarray_variables(new_data)
+        data_vars = get_xarray_variables(new_data, variable_dim=variable_dim)
         transform_vars = get_xarray_variables(self.min_)
         transform_vars = np.array(transform_vars)[np.isin(transform_vars, data_vars)]
         if len(transform_vars) == 0:
