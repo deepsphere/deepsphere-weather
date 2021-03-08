@@ -230,13 +230,5 @@ for sampling_name in sampling_name_list:
     ##------------------------------------------------------------------------.
 
 
-### Example scaler for dataloader     
-# scaler = SequentialScaler(LoadScaler(os.path.join(data_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc")),
-#                           LoadScaler(os.path.join(data_dir, "Scalers", "MonthlyStdAnomalyScaler_bc.nc")),
-#                           LoadScaler(os.path.join(data_dir, "Scalers", "MinMaxScaler_MonthlyStdAnomaly_dynamic.nc")),
-#                           LoadScaler(os.path.join(data_dir, "Scalers", "MinMaxScaler_MonthlyStdAnomaly_bc.nc")),
-#                           LoadScaler(os.path.join(data_dir, "Scalers", "GlobalStandardScaler_static.nc"))
-#                          )
-
 
     
