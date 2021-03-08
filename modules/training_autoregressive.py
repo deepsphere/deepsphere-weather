@@ -517,6 +517,10 @@ def AutoregressiveTraining(model,
                            numeric_precision = "float64",
                            scoring_interval = 10, 
                            save_model_each_epoch = False,
+                           # SWAG settings
+                           swag=False,
+                           swag_freq=10,
+                           swa_start=8,
                            # GPU settings 
                            device = 'cpu'):
     """AutoregressiveTraining."""
@@ -705,7 +709,15 @@ def AutoregressiveTraining(model,
         ##--------------------------------------------------------------------.
         # Iterate along training batches 
         trainingDataLoader_iter = iter(trainingDataLoader)
-        for batch_count in range(len(trainingDataLoader_iter)):
+        ##--------------------------------------------------------------------.
+        # Compute collection points for SWAG training
+        num_batches = len(trainingDataLoader_iter)
+        batch_indices = range(num_batches)
+        if swag and epoch >= swa_start:
+            freq = int(num_batches/(swag_freq-1))
+            collection_indices = list(range(0, num_batches, freq))
+            
+        for batch_count in batch_indices:
             ##----------------------------------------------------------------.   
             # Retrieve the training batch
             training_batch_dict = next(trainingDataLoader_iter)
@@ -797,7 +809,8 @@ def AutoregressiveTraining(model,
                                                     dict_loss_per_AR_iteration = dict_training_loss_per_AR_iteration, 
                                                     AR_scheduler = AR_scheduler, 
                                                     LR_scheduler = LR_scheduler) 
-    
+            if swag and batch_count in collection_indices:
+                model.collect_model(model)
             ##----------------------------------------------------------------. 
             ### Run validation 
             if validationDataset is not None:
