@@ -49,6 +49,7 @@ from modules.early_stopping import EarlyStopping
 ## Project specific functions
 from modules.xscaler import LoadScaler
 from modules.xscaler import SequentialScaler
+from modules.xscaler import LoadAnomaly
 import modules.xsphere  # required for xarray 'sphere' accessor 
 import modules.xverif as xverif
 
@@ -63,6 +64,7 @@ from modules.my_plotting import plot_global_skill
 from modules.my_plotting import plot_global_skills
 from modules.my_plotting import plot_skills_distribution
 from modules.my_plotting import create_GIF_forecast_error
+from modules.my_plotting import create_GIF_forecast_anom_error
 
 # For plotting 
 import matplotlib
@@ -582,7 +584,8 @@ def main(cfg_path, exp_dir, data_dir):
     ##------------------------------------------------------------------------.
     ### - Create animations 
     print("========================================================================================")
-    print("- Create error animations")
+    print("- Create forecast error animations")
+    t_i = time.time()
     # - Add information related to mesh area
     ds_forecasts = ds_forecasts.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_forecasts = ds_forecasts.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
@@ -594,18 +597,30 @@ def main(cfg_path, exp_dir, data_dir):
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
         create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
-                                ds_forecast = ds_forecast,
-                                ds_obs = ds_obs,
-                                aspect_cbar = 40,
-                                antialiased = False,
-                                edgecolors = None)
+                                  ds_forecast = ds_forecast,
+                                  ds_obs = ds_obs,
+                                  aspect_cbar = 40,
+                                  antialiased = False,
+                                  edgecolors = None)
     # - Plot GIF for different months (variable anomalies)
-    # TODO 
- 
-
+    hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
+    for month in range(1,13):
+        idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
+        ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
+        create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
+                                       ds_forecast = ds_forecast,
+                                       ds_obs = ds_obs,
+                                       scaler = hourly_weekly_anomaly_scaler,
+                                       anom_title = "Hourly-Weekly Std. Anomaly",
+                                       aspect_cbar = 40,
+                                       antialiased = True,
+                                       edgecolors = None)
+    ##-------------------------------------------------------------------------.                                     
+    print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
+    ##-------------------------------------------------------------------------.                            
+    print("========================================================================================")
     print("- Model training and verification terminated. Elapsed time: {:.1f} hours ".format((time.time() - t_start)/60/60))  
     print("========================================================================================")
-    
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
