@@ -125,6 +125,8 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
+    cfg['model_settings']["architecture_name"] = 'UNetDiffSpherical'
+    cfg['model_settings']["model_name_prefix"] = "Anom"  
     cfg['model_settings']["model_name_suffix"] = "LinearStep"    
     cfg['training_settings']["AR_training_strategy"] = "AR" # "RNN" # "AR" # "RNN"
     cfg['training_settings']['epochs'] = 15
@@ -153,13 +155,14 @@ def main(cfg_path, exp_dir, data_dir):
     
     ##-----------------------------------------------------------------------------.
     #### Define scaler to apply on the fly within DataLoader 
-    # - Load scalers
-    dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
-    bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
-    static_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
-    # # - Create single scaler 
-    scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
-    
+    scaler = SequentialScaler(LoadScaler(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc")),
+                              LoadScaler(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_bc.nc")),
+                              # Normalize std anomalies between 0 and 1
+                              LoadScaler(os.path.join(data_sampling_dir, "Scalers", "MinMaxScaler_MonthlyStdAnomaly_dynamic.nc")),
+                              LoadScaler(os.path.join(data_sampling_dir, "Scalers", "MinMaxScaler_MonthlyStdAnomaly_bc.nc")),
+                              # Static data scaler 
+                              LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
+                              )    
     ##-----------------------------------------------------------------------------.
     #### Split data into train, test and validation set 
     # - Defining time split for training 
@@ -308,23 +311,24 @@ def main(cfg_path, exp_dir, data_dir):
                            weight_decay=0, amsgrad=False)
       
     ##------------------------------------------------------------------------.
-    # ### - Define AR_Weights_Scheduler 
-    # WORKS 
-    # ar_scheduler = AR_Scheduler(method = "Constant",
-    #                             # factor = 0.0005,
-    # 
-    #                             initial_AR_absolute_weights = [0.8, 0.4, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2]) 
-    # For RNN: growth and decay works weel (fix the first)
-    ar_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.0005,
-                                fixed_AR_weights = [0],
-                                initial_AR_absolute_weights = [1]) 
-    # FOR AR : Need to fix weights once growthed?
-    ar_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.0005,
-                                fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
-                                initial_AR_absolute_weights = [1, 1])   
-    
+    ## - Define AR_Weights_Scheduler 
+    # - For RNN: growth and decay works well (fix the first)
+    if training_settings["AR_training_strategy"] == "RNN":
+        ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                    factor = 0.0005,
+                                    fixed_AR_weights = [0],
+
+                                    initial_AR_absolute_weights = [1,1]) 
+    # - FOR AR : Do not decay weights once they growthed
+    elif training_settings["AR_training_strategy"] == "AR":                                
+        ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                    factor = 0.0005,
+                                    fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
+                                    initial_AR_absolute_weights = [1, 1])   
+    else:
+        raise NotImplementedError("'AR_training_strategy' must be either 'AR' or 'RNN'.")
+
+    ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
     patience = 500
@@ -337,24 +341,7 @@ def main(cfg_path, exp_dir, data_dir):
                                    minimum_iterations = minimum_iterations,
                                    stopping_metric = stopping_metric,                                                         
                                    mode = mode)  
-    ##------------------------------------------------------------------------.                              
-    ## - Define AR_Weights_Scheduler                                
-    # ar_scheduler = AR_Scheduler(method = "LinearStep",
-    #                             factor = 0.01, 
-    #                             initial_AR_weights = [1])   
-    
-    # ### - Define Early Stopping 
-    # # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    # patience = 1 #200
-    # minimum_iterations = 2 # 10000
-    # minimum_improvement = 0.001 # 0 to not stop 
-    # stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
-    # mode = "min" # MSE best when low  
-    # early_stopping = EarlyStopping(patience = patience,
-    #                                minimum_improvement = minimum_improvement,
-    #                                minimum_iterations = minimum_iterations,
-    #                                stopping_metric = stopping_metric,                                                         
-    #                                mode = mode)  
+                                   
     ##------------------------------------------------------------------------.
     ### - Defining LR_Scheduler 
     # TODO (@Yasser)
