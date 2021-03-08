@@ -119,15 +119,15 @@ def main(cfg_path, exp_dir, data_dir):
     cfg = read_config_file(fpath=cfg_path)
     
     # Some special stuff you might want to adjust 
-    cfg['dataloader_settings']["prefetch_in_GPU"] = False# True? To test 
-    cfg['dataloader_settings']["prefetch_factor"] = 2     # Maybe increase if only prefetch on CPU? 
+    cfg['dataloader_settings']["prefetch_in_GPU"] = False  
+    cfg['dataloader_settings']["prefetch_factor"] = 2      
     cfg['dataloader_settings']["num_workers"] = 8
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-    cfg['model_settings']["model_name_suffix"] = "LinearStep_weight_corrected"
+    cfg['model_settings']["model_name_suffix"] = "LinearStep"    
     cfg['training_settings']["AR_training_strategy"] = "AR" # "RNN" # "AR" # "RNN"
-    cfg['training_settings']['epochs'] = 30
+    cfg['training_settings']['epochs'] = 15
     cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
@@ -323,7 +323,7 @@ def main(cfg_path, exp_dir, data_dir):
     ar_scheduler = AR_Scheduler(method = "LinearStep",
                                 factor = 0.0005,
                                 fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
-                                initial_AR_absolute_weights = [1])   
+                                initial_AR_absolute_weights = [1, 1])   
     
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.

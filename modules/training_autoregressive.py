@@ -530,7 +530,7 @@ def AutoregressiveTraining(model,
     prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
     AR_training_strategy = check_AR_training_strategy(AR_training_strategy)
     # Check AR_scheduler 
-    if len(AR_scheduler.AR_weights) >= AR_iterations:
+    if len(AR_scheduler.AR_weights) > AR_iterations+1:
         raise ValueError("The AR scheduler has {} AR weights, but AR_iterations is specified to be {}".format(len(AR_scheduler.AR_weights), AR_iterations))
     ##------------------------------------------------------------------------.   
     # Check that autoregressive settings are valid 
@@ -738,10 +738,9 @@ def AutoregressiveTraining(model,
                 # - The criterion expects [data_points, nodes, features]
                 # - Collapse all other dimensions to a 'data_points' dimension  
                 Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[AR_iteration],
-                                                        Y_obs = torch_Y,
-                                                        dim_names = dim_names)
+                                                       Y_obs = torch_Y,
+                                                       dim_names = dim_names)
                 dict_training_loss_per_AR_iteration[AR_iteration] = criterion(Y_obs, Y_pred)
-                
                 ##-------------------------------------------------------------.
                 # If AR_training_strategy is "AR", perform backward pass at each AR iteration 
                 if AR_training_strategy == "AR":
@@ -773,10 +772,10 @@ def AutoregressiveTraining(model,
             # - Compute total (AR weighted) loss 
             for i, (AR_iteration, loss) in enumerate(dict_training_loss_per_AR_iteration.items()):
                 if i == 0:
-                        training_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
+                    training_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
                 else: 
-                        training_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
-
+                    training_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
+            print(training_total_loss)
             ##----------------------------------------------------------------.       
             # - If AR_training_strategy is RNN, perform backward pass after all AR iterations            
             if AR_training_strategy == "RNN":

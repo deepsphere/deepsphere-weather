@@ -94,7 +94,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 data_dir = "/data/weather_prediction/data"
 exp_dir = "/data/weather_prediction/experiments"
-cfg_path = "/home/ghiggi/Projects/weather_prediction/configs/UNetSpherical/Healpix_400km/LearnPool-k20.json"
+cfg_path = "/home/ghiggi/Projects/weather_prediction/configs/UNetSpherical/Healpix_400km/MaxAreaPool-k20.json"
 #-----------------------------------------------------------------------------.
 
 """General function for training DeepSphere4Earth models."""
