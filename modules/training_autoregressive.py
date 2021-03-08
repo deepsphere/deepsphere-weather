@@ -775,7 +775,6 @@ def AutoregressiveTraining(model,
                     training_total_loss = AR_scheduler.AR_weights[AR_iteration] * loss 
                 else: 
                     training_total_loss += AR_scheduler.AR_weights[AR_iteration] * loss
-            print(training_total_loss)
             ##----------------------------------------------------------------.       
             # - If AR_training_strategy is RNN, perform backward pass after all AR iterations            
             if AR_training_strategy == "RNN":
