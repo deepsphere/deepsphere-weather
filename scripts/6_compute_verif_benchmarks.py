@@ -20,8 +20,8 @@ import modules.xverif as xverif
 base_data_dir = "/data/weather_prediction/data"
 # - Define samplings
 sampling_infos = {
-                #   'Healpix_400km': {'sampling': 'healpix', 
-                #                     'resolution': 16},                     
+                  'Healpix_400km': {'sampling': 'healpix', 
+                                     'resolution': 16},                     
                   'Equiangular_400km': {'sampling': 'equiangular',
                                         'resolution': [36,72]},         
                   'Equiangular_400km_tropics': {'sampling': 'equiangular',
@@ -110,9 +110,9 @@ for sampling_name in sampling_name_list:
     # - Compute peristence forecast deterministic global skills 
     pygsp_graph = get_pygsp_graph(sampling = sampling_infos[sampling_name]['sampling'], 
                                   resolution = sampling_infos[sampling_name]['resolution'])
-    ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
-    ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
-    ds_global_skill = xverif.global_summary(ds_skill, area_coords="area")
+    ds_persistence_skill = ds_persistence_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
+    ds_persistence_skill = ds_persistence_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
+    ds_global_skill = xverif.global_summary(ds_persistence_skill, area_coords="area")
     ds_global_skill.to_netcdf(os.path.join(data_dir, "Benchmarks", "Persistence_Global_Skills.nc"))
     ##------------------------------------------------------------------------.    
 ##----------------------------------------------------------------------------.  
