@@ -60,18 +60,18 @@ def get_var_clim(var, arg):
 
 ##----------------------------------------------------------------------------.
 def get_global_ylim(skill, var): 
-    ylim_dict = {'RMSE': {'z500': (100, 700),
+    ylim_dict = {'RMSE': {'z500': (50, 700),
                           't850': (0.5, 4)},
-                 'rSD':  {'z500': (0.9, 1.1),
-                          't850': (0.9, 1.1)},
+                 'rSD':  {'z500': (0.6, 1.4),
+                          't850': (0.6, 1.4)},
                  'relBIAS': {'z500': (-0.002, 0.002),
                              't850': (-0.002, 0.002)},
-                 'pearson_R2': {'z500': (0.5, 1),
-                                't850': (0.5, 1)},
+                 'pearson_R2': {'z500': (0.3, 1),
+                                't850': (0.3, 1)},
                  'KGE': {'z500': (0.4, 1),
                           't850': (0.4, 1)},
-                 'NSE': {'z500': (0.4, 1),
-                         't850': (0.4, 1)},
+                 'NSE': {'z500': (0, 1),
+                         't850': (0, 1)},
                  'percBIAS': {'z500': (-1, 1),
                           't850': (-2, 2)},
                  'percMAE': {'z500': (0, 2),
@@ -80,10 +80,10 @@ def get_global_ylim(skill, var):
                           't850': (-40, 40)},
                  'MAE': {'z500': (50, 700),
                          't850': (0.5, 2.5)},
-                 'BIAS': {'z500': (-100, 100),
+                 'BIAS': {'z500': (-110, 110),
                           't850': (-1, 1)},
-                 'diffSD': {'z500': (-60, 60),
-                           't850': (-0.2, 0.2)},
+                 'diffSD': {'z500': (-300, 300),
+                           't850': (-1.5, 1.5)},
     }
     if skill in list(ylim_dict.keys()):
         if var in list(ylim_dict[skill].keys()):
@@ -93,6 +93,28 @@ def get_global_ylim(skill, var):
     else: 
         ylim = (None, None)
     return ylim
+
+def get_legend_loc(skill): 
+    loc_dict = {'RMSE': 'upper left', 
+                 'rSD':  'best',
+                 'relBIAS': 'best',
+                 'pearson_R2': 'upper right',
+                 'KGE': 'upper right',
+                 'NSE': 'upper right',
+                 'percBIAS': 'best',
+                 'percMAE': 'upper left',
+                 'error_CoV': 'best', 
+                 'MAE': 'upper left', 
+                 'BIAS': 'best',
+                 'diffSD': 'best',
+    }
+    if skill in list(loc_dict.keys()):
+        loc = loc_dict[skill] 
+    else: 
+        loc = 'best'
+    return loc
+ 
+
 
 def get_spatial_ylim(skill, var): 
     ylim_dict = {'BIAS': {'z500': (-400, 400),
@@ -352,11 +374,23 @@ def plot_global_skill(ds_global_skill, skill="RMSE",
     # Create figure
     fig, axs = plt.subplots(1, len(variables), figsize=(15, 4))
     for ax, var in zip(axs.flatten(), variables):
+        # Plot global average skill 
         ax.plot(leadtimes, ds_global_skill[var].sel(skill=skill).values)
+        ##------------------------------------------------------------------.
+        # Add best skill line 
+        if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
+            ax.axhline(y=0, linestyle='solid', color="gray", alpha = 0.2)
+        elif skill in ['rSD','rMean','rCoV']:
+            ax.axhline(y=1, linestyle='solid', color="gray", alpha = 0.2)
+        ##------------------------------------------------------------------.
+        # Add labels 
         ax.set_ylim(get_global_ylim(skill, var))
         ax.set_xlabel('Leadtime (h)')  
         ax.set_ylabel(skill)
+        ##------------------------------------------------------------------.
+        # Add title  
         ax.set_title(var.upper())
+        ##------------------------------------------------------------------.
     fig.tight_layout()
     return fig 
  
@@ -376,16 +410,24 @@ def plot_global_skills(ds_global_skill,
     axs = axs.flatten()
     for skill in skills: 
         for var in variables:
+            # Plot global average skill 
             axs[ax_i].plot(leadtimes, ds_global_skill[var].sel(skill=skill).values)
+            ##------------------------------------------------------------------.
+            # Add best skill line 
             if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
-                axs[ax_i].axhline(y=0, linestyle='dashed', color="gray")
+                axs[ax_i].axhline(y=0, linestyle='solid', color="gray", alpha = 0.2)
             elif skill in ['rSD','rMean','rCoV']:
-                axs[ax_i].axhline(y=1, linestyle='dashed', color="gray")
+                axs[ax_i].axhline(y=1, linestyle='solid', color="gray", alpha = 0.2)
+            ##------------------------------------------------------------------.
+            # Add labels 
             axs[ax_i].set_ylim(get_global_ylim(skill, var))
             axs[ax_i].set_xlabel('Leadtime (h)')  
             axs[ax_i].set_ylabel(skill)
-            if ax_i <= 1:
+            ##------------------------------------------------------------------.
+            # Add title 
+            if ax_i < len(variables):
                 axs[ax_i].set_title(var.upper())
+            ##------------------------------------------------------------------.
             # Update ax count 
             ax_i += 1
     # Figure tight layout
@@ -408,12 +450,17 @@ def plot_skills_distribution(ds_skill,
     axs = axs.flatten()
     for skill in skills: 
         for var in variables:
+            # Plot skill distribution 
             tmp_boxes = [ds_skill[var].sel(skill=skill).values[i, :] for i in range(len(ds_skill[var].sel(skill=skill).values))]
             axs[ax_i].boxplot(tmp_boxes, showfliers=False)
+            ##------------------------------------------------------------------.
+            # Add best skill line 
             if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
-                axs[ax_i].axhline(y=0, linestyle='dashed', color="gray")
+                axs[ax_i].axhline(y=0, linestyle='solid', color="gray")
             elif skill in ['rSD','rMean','rCoV']:
-                axs[ax_i].axhline(y=1, linestyle='dashed', color="gray")
+                axs[ax_i].axhline(y=1, linestyle='solid', color="gray")
+            ##------------------------------------------------------------------.
+            # Add labels 
             axs[ax_i].set_ylim(get_spatial_ylim(skill, var))
             axs[ax_i].set_xlabel('Leadtime (h)')  
             axs[ax_i].set_ylabel(skill)
@@ -426,15 +473,129 @@ def plot_skills_distribution(ds_skill,
             # da.to_dataframe().reset_index()
             # ax = sns.boxplot(x=df.time.dt.hour, y=name, data=df)
             ##------------------------------------------------------------------.
-            if ax_i <= 1:
+            # Add title
+            if ax_i < len(variables):
                 axs[ax_i].set_title(var.upper())
+            ##------------------------------------------------------------------.
             # Update ax count 
             ax_i += 1
     # Figure tight layout
     fig.tight_layout()
     return fig 
 
-##------------------------------------------------------------------------------.
+##-----------------------------------------------------------------------------.
+def benchmark_global_skill(skills_dict, skill="RMSE", 
+                           variables=['z500','t850'],
+                           n_leadtimes=20): 
+    # Get model/forecast names 
+    forecast_names = list(skills_dict.keys())
+    # Retrieve leadtimes 
+    leadtimes = skills_dict[forecast_names[0]].isel(leadtime=slice(0, n_leadtimes))['leadtime'].values
+    leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
+    # Create figure
+    fig, axs = plt.subplots(1, len(variables), figsize=(15, 4))
+    # Linestyles for climatology baselines 
+    climatology_linestyles = ['--', ':', '-.']
+    for ax, var in zip(axs.flatten(), variables):
+        clim_i = 0
+        for forecast_name in forecast_names:
+            ## Plot forecast skill 
+            # - Get the skill of the forecast
+            tmp_skill = skills_dict[forecast_name].sel(skill=skill)
+            # - If dynamic or persistence forecast (not climatology forecast)
+            if 'leadtime' in list(tmp_skill.dims):
+                ax.plot(leadtimes,tmp_skill.isel(leadtime=slice(0, n_leadtimes))[var].values)
+            # - If climatology forecast 
+            else: 
+                ax.axhline(y=tmp_skill[var].values, linestyle=climatology_linestyles[clim_i], color="gray") 
+                clim_i += 1
+        ##---------------------------------------------------------------------.
+        # Set axis limit based on skill and model variable        
+        ax.set_ylim(get_global_ylim(skill, var))
+        # Add labels 
+        ax.set_xlabel('Leadtime (h)')  
+        ax.set_ylabel(skill)
+        ax.set_title(var.upper())
+        ##---------------------------------------------------------------------.
+        # Add legend 
+        ax.legend(forecast_names, loc=get_legend_loc(skill), 
+                    frameon = True, fancybox=True, framealpha=1, shadow=False, borderpad=0)
+        ##---------------------------------------------------------------------.
+        # Add best skill line 
+        if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
+            ax.axhline(y=0, linestyle='solid', color="gray", alpha=0.2)
+        elif skill in ['rSD','rMean','rCoV']:
+            ax.axhline(y=1, linestyle='solid', color="gray", alpha=0.2)  
+        ##------------------------------------------------------------------.  
+    fig.tight_layout()
+    return fig 
+
+def benchmark_global_skills(skills_dict, skills=['BIAS','RMSE','rSD','pearson_R2','KGE','error_CoV'],
+                            variables=['z500','t850'],
+                            legend_everywhere = False,
+                            n_leadtimes=20): 
+    # Get model/forecast names 
+    forecast_names = list(skills_dict.keys())
+    # Retrieve leadtimes 
+    leadtimes = skills_dict[forecast_names[0]].isel(leadtime=slice(0, n_leadtimes))['leadtime'].values
+    leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
+     # Create figure
+    fig, axs = plt.subplots(len(skills), len(variables), figsize=(17, 18)) # 19 cm x 23 = (7.4, 9)
+    # Linestyles for climatology baselines 
+    climatology_linestyles = ['--', ':', '-.']
+    # Initialize axes
+    ax_i = 0
+    leg_i = 0
+    axs = axs.flatten()
+    for skill in skills: 
+        for var in variables:
+            clim_i = 0
+            for forecast_name in forecast_names:
+                ## Plot forecast skill 
+                # - Get the skill of the forecast
+                tmp_skill = skills_dict[forecast_name].sel(skill=skill)
+                # - If dynamic or persistence forecast (not climatology forecast)
+                if 'leadtime' in list(tmp_skill.dims):
+                    axs[ax_i].plot(leadtimes,tmp_skill.isel(leadtime=slice(0, n_leadtimes))[var].values)
+                # - If climatology forecast 
+                else: 
+                    axs[ax_i].axhline(y=tmp_skill[var].values, linestyle=climatology_linestyles[clim_i], color="gray") 
+                    clim_i += 1
+            ##-----------------------------------------------------------------.
+            # Set axis limit based on skill and model variable        
+            axs[ax_i].set_ylim(get_global_ylim(skill, var))
+            # Add labels 
+            axs[ax_i].set_xlabel('Leadtime (h)')  
+            axs[ax_i].set_ylabel(skill)
+            ##-----------------------------------------------------------------.
+            # Set title 
+            if ax_i < len(variables):
+                axs[ax_i].set_title(var.upper())
+            ##------------------------------------------------------------------.
+            # Add legend 
+            if not legend_everywhere:
+                if leg_i == 0: 
+                    axs[ax_i].legend(forecast_names, loc=get_legend_loc(skill), 
+                                     frameon = True, fancybox=True, framealpha=1,
+                                     shadow=False, borderpad=0)
+                leg_i += 1
+            else: 
+                axs[ax_i].legend(forecast_names, loc=get_legend_loc(skill), 
+                                 frameon = True, fancybox=True, framealpha=1, 
+                                 shadow=False, borderpad=0) 
+            ##------------------------------------------------------------------.  
+            # Add best skill line 
+            if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
+                axs[ax_i].axhline(y=0, linestyle='solid', color="gray", alpha=0.2)
+            elif skill in ['rSD','rMean','rCoV']:
+                axs[ax_i].axhline(y=1, linestyle='solid', color="gray", alpha=0.2)  
+            ##------------------------------------------------------------------.  
+            # Update ax count 
+            ax_i += 1
+        fig.tight_layout()
+    return fig 
+
+#------------------------------------------------------------------------------.
 def create_GIF_forecast_error(GIF_fpath,
                               ds_forecast,
                               ds_obs, 
