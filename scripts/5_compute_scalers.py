@@ -5,6 +5,8 @@ Created on Fri Feb 12 21:44:06 2021
 """
 import os
 import sys
+from multiprocessing import Pool
+from functools import partial
 import xarray as xr
 sys.path.append('../')
 
@@ -15,17 +17,9 @@ from modules.xscaler import Climatology
 from modules.my_io import readDatasets   
 # Notes: tisr have outliers ...up to 8 std anomaly deviations !!!
 
-##----------------------------------------------------------------------------.
-# - Define sampling data directory
-base_data_dir = "/data/weather_prediction/data"
-# - Define samplings
-sampling_name_list = ['Healpix_400km','Equiangular_400km','Equiangular_400km_tropics',
-                      'Icosahedral_400km','O24','Cubed_400km']
-# - Define reference period (for computing climatological statistics)
-reference_period = ('1980-01-01T00:00','2010-12-31T23:00')
 
 #### Compute scalers and climatology 
-for sampling_name in sampling_name_list:
+def compute_scalers(sampling_name, base_data_dir, reference_period):
     ### Define the sampling-specific folder 
     data_dir = os.path.join(base_data_dir, sampling_name)
     print(data_dir)
@@ -230,5 +224,16 @@ for sampling_name in sampling_name_list:
     ##------------------------------------------------------------------------.
 
 
-
-    
+if __name__ == '__main__':
+    ##----------------------------------------------------------------------------.
+    # - Define sampling data directory
+    base_data_dir = "/nfs_home/wefeng/data"
+    # - Define samplings
+    sampling_name_list = ['Healpix_400km','Equiangular_400km','Equiangular_400km_tropics',
+                        'Icosahedral_400km','O24','Cubed_400km']
+    # - Define reference period (for computing climatological statistics)
+    reference_period = ('1980-01-01T00:00','2010-12-31T23:00')
+    num_workers = min(len(sampling_name_list), os.cpu_count()//2)
+    process_func = partial(compute_scalers, base_data_dir=base_data_dir, reference_period=reference_period)
+    with Pool(num_workers) as p:
+        p.map(process_func, sampling_name_list)
