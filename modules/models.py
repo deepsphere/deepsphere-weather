@@ -117,5 +117,7 @@ class UNet(ABC):
                                                          torch_dtype=torch_dtype)
         # Option for equiangular sampling  
         elif conv_type == 'image':
-            self.graphs = []
+            self.graphs = UNet.build_graph(resolutions=resolutions,
+                                           sampling=sampling,
+                                           knn=knn)
             self.laplacians = [None] * UNet_depth
