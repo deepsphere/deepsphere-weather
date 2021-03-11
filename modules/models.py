@@ -17,6 +17,11 @@ from modules.utils_models import get_pygsp_graph_params
 from modules.utils_models import check_conv_type
 from modules.utils_torch import get_torch_dtype
 
+# TODO 
+# - Add RemappingNet (just pooling)
+# - Add DownscalingNet
+# - Add ResNet (without pooling)
+
 ##----------------------------------------------------------------------------.
 class UNet(ABC):
     """Define general UNet class."""
