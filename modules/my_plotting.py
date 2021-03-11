@@ -387,6 +387,11 @@ def plot_global_skill(ds_global_skill, skill="RMSE",
         ax.set_ylim(get_global_ylim(skill, var))
         ax.set_xlabel('Leadtime (h)')  
         ax.set_ylabel(skill)
+        # Set axis appearance 
+        ax.margins(x=0, y=0)
+        # Set xticks 
+        ax.set_xticks(leadtimes[::2])
+        ax.set_xticklabels(leadtimes[::2])
         ##------------------------------------------------------------------.
         # Add title  
         ax.set_title(var.upper())
@@ -423,6 +428,11 @@ def plot_global_skills(ds_global_skill,
             axs[ax_i].set_ylim(get_global_ylim(skill, var))
             axs[ax_i].set_xlabel('Leadtime (h)')  
             axs[ax_i].set_ylabel(skill)
+            # Set axis appearance 
+            axs[ax_i].margins(x=0, y=0)
+            # Set xticks 
+            axs[ax_i].set_xticks(leadtimes[::2])
+            axs[ax_i].set_xticklabels(leadtimes[::2])
             ##------------------------------------------------------------------.
             # Add title 
             if ax_i < len(variables):
@@ -486,6 +496,7 @@ def plot_skills_distribution(ds_skill,
 ##-----------------------------------------------------------------------------.
 def benchmark_global_skill(skills_dict, skill="RMSE", 
                            variables=['z500','t850'],
+                           ylim = 'fixed', 
                            n_leadtimes=20): 
     # Get model/forecast names 
     forecast_names = list(skills_dict.keys())
@@ -510,16 +521,24 @@ def benchmark_global_skill(skills_dict, skill="RMSE",
                 ax.axhline(y=tmp_skill[var].values, linestyle=climatology_linestyles[clim_i], color="gray") 
                 clim_i += 1
         ##---------------------------------------------------------------------.
-        # Set axis limit based on skill and model variable        
-        ax.set_ylim(get_global_ylim(skill, var))
+        # Set axis limit based on skill and model variable  
+        if isinstance(ylim , str) and ylim == 'fixed':    
+            ax.set_ylim(get_global_ylim(skill, var))
+        elif isinstance(ylim, tuple):
+            ax.set_ylim(ylim)
         # Add labels 
         ax.set_xlabel('Leadtime (h)')  
         ax.set_ylabel(skill)
         ax.set_title(var.upper())
+        # Set axis appearance 
+        ax.margins(x=0, y=0)
+        # Set xticks 
+        ax.set_xticks(leadtimes[::2])
+        ax.set_xticklabels(leadtimes[::2])
         ##---------------------------------------------------------------------.
         # Add legend 
-        ax.legend(forecast_names, loc=get_legend_loc(skill), 
-                    frameon = True, fancybox=True, framealpha=1, shadow=False, borderpad=0)
+        ax.legend(forecast_names, loc='best', # get_legend_loc(skill), 
+                  frameon = True, fancybox=True, framealpha=1, shadow=False, borderpad=0)
         ##---------------------------------------------------------------------.
         # Add best skill line 
         if skill in ['relBIAS','BIAS','percBIAS','diffMean','diffSD','diffCoV','error_CoV']:
@@ -567,6 +586,12 @@ def benchmark_global_skills(skills_dict, skills=['BIAS','RMSE','rSD','pearson_R2
             # Add labels 
             axs[ax_i].set_xlabel('Leadtime (h)')  
             axs[ax_i].set_ylabel(skill)
+            # Set axis appearance 
+            axs[ax_i].margins(x=0, y=0)
+            # Set xticks 
+            axs[ax_i].set_xticks(leadtimes[::2])
+            axs[ax_i].set_xticklabels(leadtimes[::2])
+        
             ##-----------------------------------------------------------------.
             # Set title 
             if ax_i < len(variables):
