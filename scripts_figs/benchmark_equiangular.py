@@ -7,17 +7,23 @@ import xarray as xr
 from modules.my_plotting import benchmark_global_skill
 from modules.my_plotting import benchmark_global_skills
 
-data_dir = "/data/weather_prediction/data"
-exp_dir = "/data/weather_prediction/experiments_equiangular"
+# Plotting options
+import matplotlib
+matplotlib.use('cairo') # Cairo
+matplotlib.rcParams["figure.facecolor"] = "white"
+matplotlib.rcParams["savefig.facecolor"] = "white" # (1,1,1,0)
+matplotlib.rcParams["savefig.edgecolor"] = 'none'
 
+##-----------------------------------------------------------------------------.
+# Define directories
+base_dir = "/data/weather_prediction"
+figs_dir = os.path.join(base_dir, "figs")
+
+##-----------------------------------------------------------------------------.
 # Load planar, cylinder and DeepSphere (Equiangular) skills 
-planar_skills_fpath = os.path.join(exp_dir, "planar", "model_skills/deterministic_global_skill.nc")
-cylinder_skills_fpath = os.path.join(exp_dir, "cylinder", "model_skills/deterministic_global_skill.nc")
-graph_skills_fpath = os.path.join(exp_dir, "graph", "model_skills/deterministic_global_skill.nc")
-
-planar_skills = xr.open_dataset(planar_skills_fpath)
-cylinder_kills = xr.open_dataset(cylinder_skills_fpath)
-graph_skills = xr.open_dataset(graph_skills_fpath)
+planar_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular","planar", "model_skills/deterministic_global_skill.nc"))
+cylinder_kills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "cylinder", "model_skills/deterministic_global_skill.nc"))
+graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "graph", "model_skills/deterministic_global_skill.nc"))
 
 ## Load climatology and persistence baselines 
 sampling_name = "Equiangular_400km"
@@ -45,16 +51,16 @@ skills_dict = {'Planar Projection': planar_skills,
 benchmark_global_skill(skills_dict=skills_dict, 
                        skill="RMSE", 
                        variables=['z500','t850'],
-                       n_leadtimes=20)
+                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Equiangular_RMSE.png"))
 
 benchmark_global_skills(skills_dict=skills_dict, 
                         skills=['BIAS','RMSE','rSD','pearson_R2'],
                         variables=['z500','t850'],
                         legend_everywhere = True,
-                        n_leadtimes=20)
+                        n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Equiangular_Overview.png"))
 
-benchmark_global_skills(skills_dict=skills_dict, 
-                        skills=['relBIAS','MAE','relMAE','diffSD','NSE', 'error_CoV'],
-                        variables=['z500','t850'],
-                        legend_everywhere = True,
-                        n_leadtimes=20)
+# benchmark_global_skills(skills_dict=skills_dict, 
+#                         skills=['relBIAS','MAE','relMAE','diffSD','NSE', 'error_CoV'],
+#                         variables=['z500','t850'],
+#                         legend_everywhere = True,
+#                         n_leadtimes=20)
