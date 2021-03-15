@@ -1,26 +1,26 @@
 # DeepSphere-Earth - Deep Learning on the sphere 
 ![Alt Text](https://github.com/ownzonefeng/weather_prediction/blob/NewPipeLine/figs/Forecast_State_Errors.gif)
+
 The code in this repository provides a scalable and flexible framework to apply convolutions on spherical unstructured grids for weather/climate applications.
+ATTENTION: The code is subject to changes in the coming weeks / months. 
 
 The folder `experiments` provide examples for:
--  Weather forecasting using autoregressive CNN models  
--  Weather field downscaling (aka superesolution)f
--  Classication of atmospheric features (i.e. tropical cyclone and atmospheric rivers).
+-  Weather forecasting using autoregressive CNN models
+-  Weather field downscaling (aka superesolution) [in preparation].
+-  Classication of atmospheric features (i.e. tropical cyclone and atmospheric rivers) [in preparation].
 
-The folder `tutorials` provide jupyter notebooks describing various features of DeepSphere-Earth.
+The folder `tutorials` (will) provide jupyter notebooks describing various features of DeepSphere-Earth.
 
-The folder `docs` contains slides and notebooks explaining the DeepSphere-Earth concept. 
+The folder `docs` (will) contains slides and notebooks explaining the DeepSphere-Earth concept. 
 
 ## Quick start 
-
-TODO : UPDATE 
 
 For a local installation, follow the below instructions.
 
 1. Clone this repository.
    ```sh
-   git clone https://github.com/natbolon/weather_prediction.git
-   cd weather_prediction
+   git clone https://github.com/DeepSphere/DeepSphere-Weather.git
+   cd DeepSphere-Weather
    ```
 
 2. Install the dependencies.
@@ -41,8 +41,6 @@ For a local installation, follow the below instructions.
 - [Yann Yasser Haddad][yyh]
 - [Natalie Bolón Brun][nbolon]
 - [Icíar Lloréns Jover][illorens]
-- [Laure Vancauwenberghe][lv]
-- [Michael Kevin Allemann][ma]
 - [Michaël Defferrard][mdeff]
 
 [gg]: https://people.epfl.ch/gionata.ghiggi
