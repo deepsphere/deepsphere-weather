@@ -38,21 +38,13 @@ For a local installation, follow the below instructions.
    ```
    
 ## Contributors
-- [Gionata Ghiggi][gg]
-- [Wentao Feng][wf]
-- [Yann Yasser Haddad][yyh]
-- [Natalie Bolón Brun][nbolon]
-- [Icíar Lloréns Jover][illorens]
-- [Michaël Defferrard][mdeff]
 
-[gg]: https://people.epfl.ch/gionata.ghiggi
-[wf]: https://github.com/ownzonefeng
-[yyh]: https://www.linkedin.com/in/yann-yasser-haddad/?originalSubdomain=ch
-[nbolon]: https://www.linkedin.com/in/nataliebolonbrun/
-[illorens]: https://www.linkedin.com/in/iciar-llorens-jover/
-[lv]: https://www.linkedin.com/in/laure-vancauwenberghe/
-[ma]: https://www.linkedin.com/in/michael-allemann/
-[mdeff]: http://deff.ch
+* [Gionata Ghiggi](https://people.epfl.ch/gionata.ghiggi)
+* [Michaël Defferrard](https://deff.ch)
+* [Wentao Feng](https://www.linkedin.com/in/wentaofeng) [[code](https://github.com/ownzonefeng/weather_prediction/), [slides](https://infoscience.epfl.ch/record/282437)]
+* [Yann Yasser Haddad](https://www.linkedin.com/in/yann-yasser-haddad) [[code](https://github.com/ownzonefeng/weather_prediction), [slides](https://infoscience.epfl.ch/record/282285)]
+* [Natalie Bolón Brun](https://www.linkedin.com/in/nataliebolonbrun) [[code](https://github.com/natbolon/weather_prediction)]
+* [Icíar Lloréns Jover](https://www.linkedin.com/in/iciar-llorens-jover) [[code](https://github.com/illorens/weather_prediction), [report & slides](https://infoscience.epfl.ch/record/278138)]
 
 ## License
 
