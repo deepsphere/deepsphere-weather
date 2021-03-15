@@ -6,14 +6,14 @@ The code in this repository provides a scalable and flexible framework to apply 
 
 ATTENTION: The code is subject to changes in the coming weeks / months.
 
-The folder `experiments` provide examples for:
+The folder `experiments` (will) provide examples for:
 -  Weather forecasting using autoregressive CNN models
 -  Weather field downscaling (aka superesolution) [in preparation].
 -  Classication of atmospheric features (i.e. tropical cyclone and atmospheric rivers) [in preparation].
 
-The folder `tutorials` (will) provide jupyter notebooks describing various features of DeepSphere-Earth.
+The folder `tutorials` (will) provide jupyter notebooks describing various features of DeepSphere-Weather.
 
-The folder `docs` (will) contains slides and notebooks explaining the DeepSphere-Earth concept.
+The folder `docs` (will) contains slides and notebooks explaining the DeepSphere-Weather concept.
 
 ## Installation
 
