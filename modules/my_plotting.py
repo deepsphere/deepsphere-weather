@@ -494,12 +494,23 @@ def plot_skills_distribution(ds_skill,
     return fig 
 
 ##-----------------------------------------------------------------------------.
-def benchmark_global_skill(skills_dict, skill="RMSE", 
+def benchmark_global_skill(skills_dict, 
+                           skill="RMSE", 
                            variables=['z500','t850'],
+                           colors_dict = None, 
                            ylim = 'fixed', 
                            n_leadtimes=20): 
     # Get model/forecast names 
     forecast_names = list(skills_dict.keys())
+    # Get colors_dict if not specified
+    if colors_dict is None:
+        default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        colors_dict = {k: default_colors[i] for i, (k, v) in enumerate(skills_dict.items())}
+    else: 
+        # Check that a colors for each forecast is specified
+        forecast_without_color = np.array(forecast_names)[np.isin(forecast_names, list(colors_dict.keys()), invert=True)] 
+        if len(forecast_without_color) > 0:
+           raise ValueError("Color must be specified also for {}".format(forecast_without_color))
     # Retrieve leadtimes 
     leadtimes = skills_dict[forecast_names[0]].isel(leadtime=slice(0, n_leadtimes))['leadtime'].values
     leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
@@ -515,10 +526,13 @@ def benchmark_global_skill(skills_dict, skill="RMSE",
             tmp_skill = skills_dict[forecast_name].sel(skill=skill)
             # - If dynamic or persistence forecast (not climatology forecast)
             if 'leadtime' in list(tmp_skill.dims):
-                ax.plot(leadtimes,tmp_skill.isel(leadtime=slice(0, n_leadtimes))[var].values)
+                ax.plot(leadtimes, tmp_skill.isel(leadtime=slice(0, n_leadtimes))[var].values,
+                        color = colors_dict[forecast_name])
             # - If climatology forecast 
             else: 
-                ax.axhline(y=tmp_skill[var].values, linestyle=climatology_linestyles[clim_i], color="gray") 
+                ax.axhline(y = tmp_skill[var].values, 
+                           linestyle = climatology_linestyles[clim_i],
+                           color = colors_dict[forecast_name]) 
                 clim_i += 1
         ##---------------------------------------------------------------------.
         # Set axis limit based on skill and model variable  
@@ -551,10 +565,20 @@ def benchmark_global_skill(skills_dict, skill="RMSE",
 
 def benchmark_global_skills(skills_dict, skills=['BIAS','RMSE','rSD','pearson_R2','KGE','error_CoV'],
                             variables=['z500','t850'],
+                            colors_dict = None, 
                             legend_everywhere = False,
                             n_leadtimes=20): 
     # Get model/forecast names 
     forecast_names = list(skills_dict.keys())
+    # Get colors_dict if not specified
+    if colors_dict is None:
+        default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        colors_dict = {k: default_colors[i] for i, (k, v) in enumerate(skills_dict.items())}
+    else: 
+        # Check that a colors for each forecast is specified
+        forecast_without_color = np.array(forecast_names)[np.isin(forecast_names, list(colors_dict.keys()), invert=True)] 
+        if len(forecast_without_color) > 0:
+           raise ValueError("Color must be specified also for {}".format(forecast_without_color))
     # Retrieve leadtimes 
     leadtimes = skills_dict[forecast_names[0]].isel(leadtime=slice(0, n_leadtimes))['leadtime'].values
     leadtimes = [str(l).split(" ")[0] for l in leadtimes.astype('timedelta64[h]')]
@@ -575,10 +599,13 @@ def benchmark_global_skills(skills_dict, skills=['BIAS','RMSE','rSD','pearson_R2
                 tmp_skill = skills_dict[forecast_name].sel(skill=skill)
                 # - If dynamic or persistence forecast (not climatology forecast)
                 if 'leadtime' in list(tmp_skill.dims):
-                    axs[ax_i].plot(leadtimes,tmp_skill.isel(leadtime=slice(0, n_leadtimes))[var].values)
+                    axs[ax_i].plot(leadtimes,tmp_skill.isel(leadtime=slice(0, n_leadtimes))[var].values,
+                                   color = colors_dict[forecast_name])
                 # - If climatology forecast 
                 else: 
-                    axs[ax_i].axhline(y=tmp_skill[var].values, linestyle=climatology_linestyles[clim_i], color="gray") 
+                    axs[ax_i].axhline(y = tmp_skill[var].values,
+                                     linestyle = climatology_linestyles[clim_i], 
+                                     color = colors_dict[forecast_name]) 
                     clim_i += 1
             ##-----------------------------------------------------------------.
             # Set axis limit based on skill and model variable        
@@ -674,7 +701,6 @@ def create_GIF_forecast_error(GIF_fpath,
 
     ##----------------------------------------------------------------------------.
     # Create GIF image frames for each leadtime 
-    ds_forecast['leadtime'].values
     for i in range(len(ds_forecast['leadtime'])):
         # Select frame super title 
         tmp_leadtime = str(ds_forecast['leadtime'].values[i].astype('timedelta64[h]'))
@@ -838,7 +864,6 @@ def create_GIF_forecast_anom_error(GIF_fpath,
 
     ##----------------------------------------------------------------------------.
     # Create GIF image frames for each leadtime 
-    ds_forecast['leadtime'].values
     for i in range(len(ds_forecast['leadtime'])):
         # Select frame super title 
         tmp_leadtime = str(ds_forecast['leadtime'].values[i].astype('timedelta64[h]'))

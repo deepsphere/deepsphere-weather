@@ -23,8 +23,8 @@ figs_dir = os.path.join(base_dir, "figs")
 # Load planar, cylinder and DeepSphere (Equiangular) skills 
 planar_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular","planar", "model_skills/deterministic_global_skill.nc"))
 cylinder_kills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "cylinder", "model_skills/deterministic_global_skill.nc"))
-graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "graph", "model_skills/deterministic_global_skill.nc"))
-
+# graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "graph", "model_skills/deterministic_global_skill.nc"))
+graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-equiangular-[36, 72]-k20-MaxAreaPooling-float32-AR2-LinearStep", "model_skills/deterministic_global_skill.nc"))
 ## Load climatology and persistence baselines 
 sampling_name = "Equiangular_400km"
 benchmark_dir = os.path.join("/data/weather_prediction/data", sampling_name, "Benchmarks")
@@ -47,20 +47,42 @@ skills_dict = {'Planar Projection': planar_skills,
                #'HourlyMonthly Climatology': HourlyMonthlyClimatology_skills,
                }
 
+colors_dict = {'Planar Projection':  "blue" ,
+               'Cylindrical Projection': "aqua",
+               'DeepSphere - Equiangular': "dodgerblue",
+               'Equiangular': "dodgerblue",
+               'Reduced Gaussian': "forestgreen",
+               'Cubed': "orange",
+               'Icosahedral': "red",
+               'Healpix': "fuchsia",
+               'Weyn et al., 2020': "darkviolet",
+               'Persistence forecast': "gray",
+               'Weekly Climatology': "gray",
+               'HourlyWeekly Climatology': "gray",
+               'Monthly Climatology': "gray",
+               'Daily Climatology': "gray",
+               'HourlyMonthly Climatology': "gray",
+}
+
 # Benchmark skills 
 benchmark_global_skill(skills_dict=skills_dict, 
                        skill="RMSE", 
                        variables=['z500','t850'],
-                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Equiangular_RMSE.png"))
+                       colors_dict = colors_dict,
+                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_RMSE_Equiangular.png"))
 
 benchmark_global_skills(skills_dict=skills_dict, 
                         skills=['BIAS','RMSE','rSD','pearson_R2'],
                         variables=['z500','t850'],
+                        colors_dict = colors_dict,
                         legend_everywhere = True,
-                        n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Equiangular_Overview.png"))
+                        n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Overview_Equiangular.png"))
 
 # benchmark_global_skills(skills_dict=skills_dict, 
 #                         skills=['relBIAS','MAE','relMAE','diffSD','NSE', 'error_CoV'],
 #                         variables=['z500','t850'],
 #                         legend_everywhere = True,
 #                         n_leadtimes=20)
+
+default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+colors_dict = {k: default_colors[i] for i, (k, v) in enumerate(skills_dict.items())}

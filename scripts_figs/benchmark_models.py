@@ -55,14 +55,9 @@ HourlyWeeklyClimatology_skills = xr.open_dataset(os.path.join(benchmark_dir, "Ho
 HourlyMonthlyClimatology_skills = xr.open_dataset(os.path.join(benchmark_dir, "HourlyMonthlyClimatology_Global_Skills.nc"))
 
 ## Define the dictionary of forecast to benchmark 
-skills_dict = {
-                #    'Planar Projection': planar_skills,
-                #    'Cylindrical Projection': cylinder_kills,
-               'DeepSphere - Equiangular': graph_skills,
-               'AR Healpix State': AR_state_skills,
-               'RNN Healpix State': RNN_state_skills,
-               'RNN Healpix Anom': RNN_anom_skills,
-               'RNN Healpix State inc': RNN_state_inc_skills,
+skills_dict = {'State': RNN_state_skills,
+               'State increment': RNN_state_inc_skills,
+               'Anomalies': RNN_anom_skills,
                'Weyn et al., 2020': weyn_skills,
                'Persistence forecast': persistence_skills,
                'Weekly Climatology': WeeklyClimatology_skills,
@@ -73,36 +68,44 @@ skills_dict = {
                }
 
 ## Define the dictionary of forecast to benchmark 
-skills_dict1 = {
-                #    'Planar Projection': planar_skills,
-                #    'Cylindrical Projection': cylinder_kills,
-               'DeepSphere - Equiangular': graph_skills,
-               'AR Healpix State': AR_state_skills,
-               'RNN Healpix State': RNN_state_skills,
-               'RNN Healpix Anom': RNN_anom_skills,
-               'RNN Healpix State inc': RNN_state_inc_skills,
-                # 'Weyn et al., 2020': weyn_skills,
-               'Persistence forecast': persistence_skills,
-               'Weekly Climatology': WeeklyClimatology_skills,
-               'HourlyWeekly Climatology': HourlyWeeklyClimatology_skills,
-               #'Monthly Climatology': MonthlyClimatology_skills,
-               #'Daily Climatology': DailyClimatology_skills,
-               #'HourlyMonthly Climatology': HourlyMonthlyClimatology_skills,
+skills_dict1 = {'State': RNN_state_skills,
+                'State increment': RNN_state_inc_skills,
+                'Anomalies': RNN_anom_skills,
+                 # 'Weyn et al., 2020': weyn_skills,
+                'Persistence forecast': persistence_skills,
+                'Weekly Climatology': WeeklyClimatology_skills,
+                'HourlyWeekly Climatology': HourlyWeeklyClimatology_skills,
+                #'Monthly Climatology': MonthlyClimatology_skills,
+                #'Daily Climatology': DailyClimatology_skills,
+                #'HourlyMonthly Climatology': HourlyMonthlyClimatology_skills,
                }
 
+colors_dict = {'State':  "dodgerblue" ,
+               'State increment': "darkorange",
+               'Anomalies': "forestgreen",
+               'Weyn et al., 2020': "darkviolet",
+               'Persistence forecast': "gray",
+               'Weekly Climatology': "gray",
+               'HourlyWeekly Climatology': "gray",
+               'Monthly Climatology': "gray",
+               'Daily Climatology': "gray",
+               'HourlyMonthly Climatology': "gray",
+}
 # Benchmark skills 
 benchmark_global_skill(skills_dict=skills_dict, 
                        skill="RMSE", 
                        variables=['z500','t850'],
-                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Models_RMSE.png"))
+                       colors_dict = colors_dict,
+                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_RMSE_StrategyModels.png"))
 
 
 
 benchmark_global_skills(skills_dict=skills_dict1, 
                         skills=['BIAS','RMSE','rSD','pearson_R2'],
                         variables=['z500','t850'],
+                        colors_dict = colors_dict, 
                         legend_everywhere = True,
-                        n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Models_Overview.png"))
+                        n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Overview_StrategyModels.png"))
 
 # benchmark_global_skills(skills_dict=skills_dict, 
 #                         skills=['relBIAS','MAE','relMAE','diffSD','NSE', 'error_CoV'],
@@ -112,21 +115,10 @@ benchmark_global_skills(skills_dict=skills_dict1,
 
 
 ## LONG TERM RMSE ... weyn vs ours 
-skills_dict = {'AR Healpix State': AR_state_skills,
-               'RNN Healpix State': RNN_state_skills,
-               'RNN Healpix Anom': RNN_anom_skills,
-               'RNN Healpix State inc': RNN_state_inc_skills,
-               'Weyn et al., 2020': weyn_skills,
-               'Persistence forecast': persistence_skills,
-               'Weekly Climatology': WeeklyClimatology_skills,
-               'HourlyWeekly Climatology': HourlyWeeklyClimatology_skills,
-               #'Monthly Climatology': MonthlyClimatology_skills,
-               #'Daily Climatology': DailyClimatology_skills,
-               #'HourlyMonthly Climatology': HourlyMonthlyClimatology_skills,
-               }
 benchmark_global_skill(skills_dict=skills_dict, 
                        skill="RMSE", 
                        variables=['z500','t850'],
+                       colors_dict = colors_dict, 
                        ylim = None,
-                       n_leadtimes=39).savefig(os.path.join(figs_dir, "Benchmark_Models_LT_RMSE.png"))
+                       n_leadtimes=39).savefig(os.path.join(figs_dir, "Benchmark_LT_RMSE_StrategyModels.png"))
 

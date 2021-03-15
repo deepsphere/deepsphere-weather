@@ -54,12 +54,12 @@ HourlyMonthlyClimatology_skills = xr.open_dataset(os.path.join(benchmark_dir, "H
 
 ## Define the dictionary of forecast to benchmark 
 skills_dict = {
-               #    'Planar Projection': planar_skills,
-               #    'Cylindrical Projection': cylinder_kills,
+               'Planar Projection': planar_skills,
+               'Cylindrical Projection': cylinder_kills,
                # 'DeepSphere - Equiangular': graph_skills,
-               'Cubed': RNN_cubed_skills,
                'Equiangular': RNN_equi_skills,
                'Reduced Gaussian': RNN_gauss_skills,
+               'Cubed': RNN_cubed_skills,
                'Healpix': RNN_healpix_skills,
                'Icosahedral': RNN_icos_skills,
                'Weyn et al., 2020': weyn_skills,
@@ -73,12 +73,12 @@ skills_dict = {
 
 ## Define the dictionary of forecast to benchmark (without Weyn)
 skills_dict1 = {
-               #    'Planar Projection': planar_skills,
-               #    'Cylindrical Projection': cylinder_kills,
+               'Planar Projection': planar_skills,
+               'Cylindrical Projection': cylinder_kills,
                # 'DeepSphere - Equiangular': graph_skills,
-               'Cubed': RNN_cubed_skills,
                'Equiangular': RNN_equi_skills,
                'Reduced Gaussian': RNN_gauss_skills,
+               'Cubed': RNN_cubed_skills,
                'Healpix': RNN_healpix_skills,
                'Icosahedral': RNN_icos_skills,
                # 'Weyn et al., 2020': weyn_skills,
@@ -90,18 +90,37 @@ skills_dict1 = {
                #'HourlyMonthly Climatology': HourlyMonthlyClimatology_skills,
                }
 
+colors_dict = {'Planar Projection':  "blue" ,
+               'Cylindrical Projection': "aqua",
+               'DeepSphere - Equiangular': "dodgerblue",
+               'Equiangular': "dodgerblue",
+               'Reduced Gaussian': "forestgreen",
+               'Cubed': "orange",
+               'Icosahedral': "red",
+               'Healpix': "fuchsia",
+               'Weyn et al., 2020': "darkviolet",
+               'Persistence forecast': "gray",
+               'Weekly Climatology': "gray",
+               'HourlyWeekly Climatology': "gray",
+               'Monthly Climatology': "gray",
+               'Daily Climatology': "gray",
+               'HourlyMonthly Climatology': "gray",
+}
+
 # Benchmark skills 
 benchmark_global_skill(skills_dict=skills_dict, 
                        skill="RMSE", 
                        variables=['z500','t850'],
-                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Samplings_RMSE.png"))
+                       colors_dict = colors_dict,
+                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_RMSE_Samplings.png"))
 
 
 benchmark_global_skills(skills_dict=skills_dict1, 
                         skills=['BIAS','RMSE','rSD','pearson_R2'],
                         variables=['z500','t850'],
+                        colors_dict = colors_dict,
                         legend_everywhere = True,
-                        n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Samplings_RMSE_Overview.png"))
+                        n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Overview_Samplings.png"))
 
 
 # Others skills 
@@ -127,4 +146,5 @@ equi_dict = {'DeepSphere - Equiangular': graph_skills,
 benchmark_global_skill(skills_dict=equi_dict, 
                        skill="RMSE", 
                        variables=['z500','t850'],
+                       colors_dict = colors_dict,
                        n_leadtimes=20) 
