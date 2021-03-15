@@ -200,6 +200,38 @@ def SphericalVoronoiMesh_from_pygsp(graph):
     ##-------------------------------------------------------------------------.
     return list_polygons_lonlat
 
+def SphericalVoronoiMeshArea_from_pygsp(graph):
+    """
+    Compute the mesh of a pygsp spherical graph using Spherical Voronoi.
+
+    Parameters
+    ----------
+    graph : pgysp.graphs.nngraphs.sphere*
+        pgysp graph of a spherical sampling.
+
+    Returns
+    -------
+    area : np.ndarray
+         Numpy array with mesh area (in km²).
+    
+    """
+    # Retrieve lon and lat coordinates
+    graph.set_coordinates('sphere', dim=2)
+    lat = np.rad2deg(graph.coords[:,1])
+    lon = np.rad2deg(graph.coords[:,0])
+    # Ensure lon is between -180 and 180
+    lon[lon > 180] = lon[lon > 180] - 360
+    # Convert to x,y,z geocentric coordinates 
+    radius = 6371 # km
+    x, y, z = lonlat2xyz(lon, lat, radius=radius)
+    coords = np.column_stack((x,y,z))
+    # Apply Spherical Voronoi tesselation
+    sv = SphericalVoronoi(coords,
+                         radius=radius, 
+                         center=[0, 0, 0])
+    area = sv.calculate_areas()
+    return area
+
 #-----------------------------------------------------------------------------.
 ############################
 ### MPAS & ECMWF grids  ####
