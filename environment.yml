@@ -193,4 +193,4 @@ dependencies:
     - sparselinear==0.0.5
     - torch-scatter==2.0.5
     - torch-sparse==0.6.8
-prefix: /nfs_home/wefeng/miniconda3/envs/weather
+#prefix: /nfs_home/wefeng/miniconda3/envs/weather

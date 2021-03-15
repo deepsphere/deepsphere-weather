@@ -519,6 +519,7 @@ def AutoregressiveTraining(model,
                            save_model_each_epoch = False,
                            # SWAG settings
                            swag=False,
+                           swag_model=None,
                            swag_freq=10,
                            swa_start=8,
                            # GPU settings 
@@ -713,7 +714,8 @@ def AutoregressiveTraining(model,
         # Compute collection points for SWAG training
         num_batches = len(trainingDataLoader_iter)
         batch_indices = range(num_batches)
-        if swag and epoch >= swa_start:
+        swag_training = swag and swag_model and epoch >= swa_start
+        if swag_training:
             freq = int(num_batches/(swag_freq-1))
             collection_indices = list(range(0, num_batches, freq))
             
@@ -809,8 +811,9 @@ def AutoregressiveTraining(model,
                                                     dict_loss_per_AR_iteration = dict_training_loss_per_AR_iteration, 
                                                     AR_scheduler = AR_scheduler, 
                                                     LR_scheduler = LR_scheduler) 
-            if swag and batch_count in collection_indices:
-                model.collect_model(model)
+            if swag_training:
+                if batch_count in collection_indices:
+                    swag_model.collect_model(model)
             ##----------------------------------------------------------------. 
             ### Run validation 
             if validationDataset is not None:
@@ -839,7 +842,7 @@ def AutoregressiveTraining(model,
                         
                             ##------------------------------------------------.
                             # Forward pass and store output for stacking into next AR iterations
-                            dict_validation_Y_predicted[AR_iteration] = model(torch_X)
+                            dict_validation_Y_predicted[AR_iteration] = swag_model(torch_X) if swag_training else model(torch_X)
                 
                             ##------------------------------------------------.
                             # Compute loss for current forecast iteration 
@@ -1015,7 +1018,8 @@ def AutoregressiveTraining(model,
         ##--------------------------------------------------------------------. 
         # Option to save the model each epoch
         if save_model_each_epoch:
-            torch.save(model.state_dict(), model_fpath[:-3] + '_epoch_{}'.format(epoch) + '.h5')
+            model_weights = swag_model.state_dict() if swag_training else model.state_dict()
+            torch.save(model_weights, model_fpath[:-3] + '_epoch_{}'.format(epoch) + '.h5')
       
     ##------------------------------------------------------------------------.
     # Save final model
@@ -1023,8 +1027,9 @@ def AutoregressiveTraining(model,
     print("========================================================================================")
     print("- Training ended !")
     print("- Total elapsed time: {:.2f} hours.".format((time.time()-time_start_training)/60/60))
-    print("- Saving model to {}".format(model_fpath)) 
-    torch.save(model.state_dict(), f=model_fpath)    
+    print("- Saving model to {}".format(model_fpath))
+    model_weights = swag_model.state_dict() if (swag and swag_model) else model.state_dict() 
+    torch.save(model_weights, f=model_fpath)    
     ##-------------------------------------------------------------------------.
     # Return training info object 
     return training_info

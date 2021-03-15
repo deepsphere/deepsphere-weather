@@ -74,6 +74,18 @@ def get_default_dataloader_settings():
                            }  
     return dataloader_settings
 
+def get_default_SWAG_settings():
+    """Return some default settings for the SWAG model."""
+    dataloader_settings = {"start_learning_rate": 0.07,
+                            "target_learning_rate": 0.007,
+                            "no_cov_mat": False,
+                            "max_num_models": 40,
+                            "swag_freq": 10,
+                            "swa_start": 10,
+                            "sampling_scale": 0.1,
+                           }  
+    return dataloader_settings
+
 def get_default_settings():
     """Return the default config settings."""
     AR_settings = get_default_AR_settings()
@@ -226,6 +238,28 @@ def get_AR_settings(cfg):
         
     # Return AR settings 
     return AR_settings
+
+def get_SWAG_settings(cfg):
+    """Return SWAG settings from the config file."""
+    # Initialize AR settings
+    SWAG_settings = {}
+    default_SWAG_settings = get_default_SWAG_settings()  
+    available_keys = list(default_SWAG_settings.keys())
+    
+    # Check that only correct keys are specified 
+    cfg_keys = np.array(list(cfg['SWAG_settings'].keys())) 
+    invalid_keys = cfg_keys[np.isin(cfg_keys, available_keys, invert=True)]
+    if len(invalid_keys) > 0: 
+        for key in invalid_keys: 
+            print("'{}' is an unvalid SWAG setting key!".format(key))
+        raise ValueError('Specify only correct SWAG setting keys in the config file!')        
+    
+    # Retrieve optional AR settings  
+    for key in available_keys:
+        SWAG_settings[key] = cfg['SWAG_settings'].get(key, default_SWAG_settings[key])   
+        
+    # Return AR settings 
+    return SWAG_settings
 
 #-----------------------------------------------------------------------------.
 #################################

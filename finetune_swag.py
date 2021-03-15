@@ -28,6 +28,7 @@ from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
 from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
+from modules.utils_config import get_SWAG_settings
 # from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
 from modules.utils_config import set_pytorch_settings
@@ -46,13 +47,14 @@ from modules.utils_torch import summarize_model
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
 
-## SWAG function
+## SWAG
 from modules.swag import SWAG
 from modules.utils_swag import bn_update
 
 ## Project specific functions
 from modules.xscaler import LoadScaler
 from modules.xscaler import SequentialScaler
+from modules.xscaler import LoadAnomaly
 import modules.xsphere  # required for xarray 'sphere' accessor 
 import modules.xverif as xverif
 
@@ -67,6 +69,7 @@ from modules.my_plotting import plot_global_skill
 from modules.my_plotting import plot_global_skills
 from modules.my_plotting import plot_skills_distribution
 from modules.my_plotting import create_GIF_forecast_error
+from modules.my_plotting import create_GIF_forecast_anom_error
 
 # For plotting 
 import matplotlib
@@ -121,15 +124,16 @@ def main(cfg_path, exp_dir, data_dir):
     cfg = read_config_file(fpath=cfg_path)
     
     # Some special stuff you might want to adjust 
-    cfg['dataloader_settings']["prefetch_in_GPU"] = False# True? To test 
-    cfg['dataloader_settings']["prefetch_factor"] = 2     # Maybe increase if only prefetch on CPU? 
+    cfg['dataloader_settings']["prefetch_in_GPU"] = False  
+    cfg['dataloader_settings']["prefetch_factor"] = 2      
     cfg['dataloader_settings']["num_workers"] = 8
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-    cfg['model_settings']["model_name_suffix"] = "LinearStep_weight_corrected"
+    cfg['model_settings']["architecture_name"] = 'UNetSpherical'
+    cfg['model_settings']["model_name_suffix"] = "LinearStep"    
     cfg['training_settings']["AR_training_strategy"] = "AR" # "RNN" # "AR" # "RNN"
-    cfg['training_settings']['epochs'] = 30
+    cfg['training_settings']['epochs'] = 15
     cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
@@ -137,6 +141,7 @@ def main(cfg_path, exp_dir, data_dir):
     AR_settings = get_AR_settings(cfg)
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
+    SWAG_settings = get_SWAG_settings(cfg)
     
     ##------------------------------------------------------------------------.
     #### Load netCDF4 Datasets
@@ -245,16 +250,22 @@ def main(cfg_path, exp_dir, data_dir):
     model_args = {k: model_settings[k] for k in model_keys}
     model_args['numeric_precision'] = training_settings['numeric_precision']
     # - Define DeepSphere model 
-    model = DeepSphereModelClass(**model_args)              
-    
+    model = DeepSphereModelClass(**model_args)
+    # - Define SWAG model
+    swag_model = SWAG(DeepSphereModelClass, no_cov_mat=SWAG_settings['no_cov_mat'], 
+                        max_num_models=SWAG_settings['max_num_models_swag'], **model_args)
+
     ###-----------------------------------------------------------------------.
     ## If requested, load a pre-trained model for fine-tuning
     if model_settings['pretrained_model_name'] is not None:
         load_pretrained_model(model = model, exp_dir=exp_dir, model_name = model_settings['pretrained_model_name'])
+        # - Collect the model weights in SWAG model
+        swag_model.collect_model(model)
         
     ###-----------------------------------------------------------------------.
     ### Transfer model to the device (i.e. GPU)
     model = model.to(device)
+    swag_model = swag_model.to(device)
     
     ###-----------------------------------------------------------------------.
     ### Summarize the model 
@@ -310,23 +321,24 @@ def main(cfg_path, exp_dir, data_dir):
                            weight_decay=0, amsgrad=False)
       
     ##------------------------------------------------------------------------.
-    # ### - Define AR_Weights_Scheduler 
-    # WORKS 
-    # ar_scheduler = AR_Scheduler(method = "Constant",
-    #                             # factor = 0.0005,
-    # 
-    #                             initial_AR_absolute_weights = [0.8, 0.4, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2]) 
-    # For RNN: growth and decay works weel (fix the first)
-    ar_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.0005,
-                                fixed_AR_weights = [0],
-                                initial_AR_absolute_weights = [1]) 
-    # FOR AR : Need to fix weights once growthed?
-    ar_scheduler = AR_Scheduler(method = "LinearStep",
-                                factor = 0.0005,
-                                fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
-                                initial_AR_absolute_weights = [1])   
-    
+    ## - Define AR_Weights_Scheduler 
+    # - For RNN: growth and decay works well (fix the first)
+    if training_settings["AR_training_strategy"] == "RNN":
+        ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                    factor = 0.0005,
+                                    fixed_AR_weights = [0],
+
+                                    initial_AR_absolute_weights = [1,1]) 
+    # - FOR AR : Do not decay weights once they growthed
+    elif training_settings["AR_training_strategy"] == "AR":                                
+        ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                    factor = 0.0005,
+                                    fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
+                                    initial_AR_absolute_weights = [1, 1])   
+    else:
+        raise NotImplementedError("'AR_training_strategy' must be either 'AR' or 'RNN'.")
+
+    ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
     patience = 500
@@ -339,24 +351,7 @@ def main(cfg_path, exp_dir, data_dir):
                                    minimum_iterations = minimum_iterations,
                                    stopping_metric = stopping_metric,                                                         
                                    mode = mode)  
-    ##------------------------------------------------------------------------.                              
-    ## - Define AR_Weights_Scheduler                                
-    # ar_scheduler = AR_Scheduler(method = "LinearStep",
-    #                             factor = 0.01, 
-    #                             initial_AR_weights = [1])   
-    
-    # ### - Define Early Stopping 
-    # # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    # patience = 1 #200
-    # minimum_iterations = 2 # 10000
-    # minimum_improvement = 0.001 # 0 to not stop 
-    # stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
-    # mode = "min" # MSE best when low  
-    # early_stopping = EarlyStopping(patience = patience,
-    #                                minimum_improvement = minimum_improvement,
-    #                                minimum_iterations = minimum_iterations,
-    #                                stopping_metric = stopping_metric,                                                         
-    #                                mode = mode)  
+                                   
     ##------------------------------------------------------------------------.
     ### - Defining LR_Scheduler 
     # TODO (@Yasser)
@@ -365,7 +360,7 @@ def main(cfg_path, exp_dir, data_dir):
     # LR_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,80,100,150], gamma=0.1)
     # LR_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, steps)
     # LR_scheduler = optim.lr_scheduler.ReduceLROnPlateau
-    LR_scheduler = None
+    LR_scheduler = optim.swa_utils.SWALR(optimizer, anneal_strategy="linear", anneal_epochs=4, swa_lr=SWAG_settings[""])
     ##------------------------------------------------------------------------.
     ### - Train the model 
     dask.config.set(scheduler='synchronous')
@@ -406,7 +401,12 @@ def main(cfg_path, exp_dir, data_dir):
                                            validation_batch_size = training_settings['validation_batch_size'],   
                                            epochs = training_settings['epochs'], 
                                            scoring_interval = training_settings['scoring_interval'], 
-                                           save_model_each_epoch = training_settings['save_model_each_epoch'], 
+                                           save_model_each_epoch = training_settings['save_model_each_epoch'],
+                                           # SWAG settings
+                                           swag = True,
+                                           swag_model = swag_model,
+                                           swag_freq = SWAG_settings['swag_freq'],
+                                           swa_start = SWAG_settings['swa_start'], 
                                            # GPU settings 
                                            device = device)
     
@@ -487,7 +487,36 @@ def main(cfg_path, exp_dir, data_dir):
     print("- Running predictions")
     forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
     dask.config.set(scheduler='synchronous')
-    ds_forecasts = AutoregressivePredictions(model = model, 
+
+    with torch.no_grad():
+        swag_model.sample(SWAG_settings["sampling_scale"], cov=(not SWAG_settings["no_cov_mat"]))
+
+    bn_update(swag_model,
+             # Data
+             da_training_dynamic = da_training_dynamic,
+             da_static = da_static,              
+             da_training_bc = da_training_bc,          
+             scaler = scaler, 
+             # Dataloader options
+             device = device,
+             batch_size = 50,  # number of forecasts per batch
+             num_workers = dataloader_settings['num_workers'], 
+             # tune_num_workers = False, 
+             prefetch_factor = dataloader_settings['prefetch_factor'], 
+             prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
+             pin_memory = dataloader_settings['pin_memory'],
+             asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
+             numeric_precision = training_settings['numeric_precision'], 
+             # Autoregressive settings  
+             input_k = AR_settings['input_k'], 
+             output_k = AR_settings['output_k'], 
+             forecast_cycle = AR_settings['forecast_cycle'],                         
+             AR_iterations = AR_settings['AR_iterations'], 
+             stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'],
+             )
+
+
+    ds_forecasts = AutoregressivePredictions(model = swag_model, 
                                              # Data
                                              da_dynamic = da_test_dynamic,
                                              da_static = da_static,              
@@ -497,7 +526,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              device = device,
                                              batch_size = 50,  # number of forecasts per batch
                                              num_workers = dataloader_settings['num_workers'], 
-                                            #  tune_num_workers = False, 
+                                             # tune_num_workers = False, 
                                              prefetch_factor = dataloader_settings['prefetch_factor'], 
                                              prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
                                              pin_memory = dataloader_settings['pin_memory'],
@@ -510,7 +539,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
                                              AR_iterations = 40,        # How many time to autoregressive iterate
                                              # Save options 
-                                             zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
+                                             zarr_fpath = None,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 
                                              compressor = "auto",      # Accept also a dictionary per variable
                                              chunks = "auto",          
@@ -586,7 +615,8 @@ def main(cfg_path, exp_dir, data_dir):
     ##------------------------------------------------------------------------.
     ### - Create animations 
     print("========================================================================================")
-    print("- Create error animations")
+    print("- Create forecast error animations")
+    t_i = time.time()
     # - Add information related to mesh area
     ds_forecasts = ds_forecasts.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_forecasts = ds_forecasts.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
@@ -598,18 +628,30 @@ def main(cfg_path, exp_dir, data_dir):
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
         create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
-                                ds_forecast = ds_forecast,
-                                ds_obs = ds_obs,
-                                aspect_cbar = 40,
-                                antialiased = False,
-                                edgecolors = None)
+                                  ds_forecast = ds_forecast,
+                                  ds_obs = ds_obs,
+                                  aspect_cbar = 40,
+                                  antialiased = False,
+                                  edgecolors = None)
     # - Plot GIF for different months (variable anomalies)
-    # TODO 
- 
-
+    hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
+    for month in range(1,13):
+        idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
+        ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
+        create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
+                                       ds_forecast = ds_forecast,
+                                       ds_obs = ds_obs,
+                                       scaler = hourly_weekly_anomaly_scaler,
+                                       anom_title = "Hourly-Weekly Std. Anomaly",
+                                       aspect_cbar = 40,
+                                       antialiased = True,
+                                       edgecolors = None)
+    ##-------------------------------------------------------------------------.                                     
+    print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
+    ##-------------------------------------------------------------------------.                            
+    print("========================================================================================")
     print("- Model training and verification terminated. Elapsed time: {:.1f} hours ".format((time.time() - t_start)/60/60))  
     print("========================================================================================")
-    
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':

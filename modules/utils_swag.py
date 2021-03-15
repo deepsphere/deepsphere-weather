@@ -12,6 +12,10 @@ import tqdm
 
 import torch.nn.functional as F
 
+from modules.dataloader_autoregressive import get_AR_batch
+from modules.dataloader_autoregressive import AutoregressiveDataset
+from modules.dataloader_autoregressive import AutoregressiveDataLoader
+
 def flatten(lst):
     tmp = [i.contiguous().view(-1, 1) for i in lst]
     return torch.cat(tmp).view(-1)
@@ -57,11 +61,34 @@ def _set_momenta(module, momenta):
         module.momentum = momenta[module]
 
 
-def bn_update(loader, model, batch_size, device, verbose=False, **kwargs):
+def bn_update(model, 
+             # Data
+             da_dynamic,
+             da_static = None,              
+             da_bc = None, 
+             # Scaler options
+             scaler = None,
+             scaler_transform = True,  # transform_input ???
+             scaler_inverse = True,    # backtransform_predictions ????
+             # Dataloader options
+             batch_size = 64, 
+             num_workers = 0,
+             prefetch_factor = 2, 
+             prefetch_in_GPU = False,  
+             pin_memory = False,
+             asyncronous_GPU_transfer = True,
+             device = 'cpu',
+             numeric_precision = "float32", 
+             # Autoregressive settings  
+             input_k = [-3,-2,-1], 
+             output_k = [0],
+             forecast_cycle = 1,                           
+             AR_iterations = 2, 
+             stack_most_recent_prediction = True,
+             **kwargs):
     """
         BatchNorm buffers update (if any).
         Performs 1 epochs to estimate buffers average using train dataset.
-        :param loader: train dataset loader for buffers average estimation.
         :param model: model being update
         :return: None
     """
@@ -71,26 +98,62 @@ def bn_update(loader, model, batch_size, device, verbose=False, **kwargs):
     momenta = {}
     model.apply(reset_bn)
     model.apply(lambda module: _get_momenta(module, momenta))
+
+    dataset = AutoregressiveDataset(da_dynamic = da_dynamic,  
+                                    da_bc = da_bc,
+                                    da_static = da_static,
+                                    scaler = scaler_transform, 
+                                    # Autoregressive settings  
+                                    input_k = input_k,
+                                    output_k = output_k,
+                                    forecast_cycle = forecast_cycle,                           
+                                    AR_iterations = AR_iterations, 
+                                    stack_most_recent_prediction = stack_most_recent_prediction, 
+                                    # GPU settings 
+                                    device = device,
+                                    # Precision settings
+                                    numeric_precision = numeric_precision)
+    
+    dataloader = AutoregressiveDataLoader(dataset = dataset, 
+                                          batch_size = batch_size,  
+                                          drop_last_batch = False, 
+                                          random_shuffle = False,
+                                          num_workers = num_workers,
+                                          prefetch_factor = prefetch_factor, 
+                                          prefetch_in_GPU = prefetch_in_GPU,  
+                                          pin_memory = pin_memory,
+                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                          device = device)
+
     n = 0
-    num_batches = len(loader)
-    n_samples = loader.n_samples
-    idxs = loader.idxs
 
     with torch.no_grad():
-        if verbose:
-            loader = tqdm.tqdm(loader, total=num_batches)
-
-        for i in range(0, n_samples - batch_size, batch_size):
-            i_next = min(i + batch_size, n_samples)
+        ##--------------------------------------------------------------------.     
+        # Iterate along training batches       
+        for batch_dict in dataloader: 
+            # batch_dict = next(iter(batch_dict))
+            ##----------------------------------------------------------------.      
+            ### Perform autoregressive loop
+            dict_Y_predicted = {}
+            for i in range(AR_iterations+1):
+                # Retrieve X and Y for current AR iteration
+                # - Torch Y stays in CPU with training_mode=False
+                torch_X, _ = get_AR_batch(AR_iteration = i, 
+                                        batch_dict = batch_dict, 
+                                        dict_Y_predicted = dict_Y_predicted,
+                                        device = device, 
+                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                        training_mode=False)
             
-            input_var = torch.autograd.Variable(input)
-            b = input_var.data.size(0)
+                input_var = torch.autograd.Variable(torch_X)
+                b = input_var.data.size(0)
 
-            momentum = b / (n + b)
-            for module in momenta.keys():
-                module.momentum = momentum
+                momentum = b / (n + b)
+                for module in momenta.keys():
+                    module.momentum = momentum
 
-            model(input_var, **kwargs)
-            n += b
+                model(input_var, **kwargs)
+                n += b
+                del torch_X, input_var
 
     model.apply(lambda module: _set_momenta(module, momenta))
