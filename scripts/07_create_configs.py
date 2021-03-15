@@ -6,7 +6,8 @@ Created on Fri Feb 12 20:41:34 2021
 @author: ghiggi
 """
 import os
-os.chdir("/home/ghiggi/Projects/weather_prediction/")
+import sys 
+sys.path.append('../')
 
 from modules.utils_config import get_default_settings
 from modules.utils_config import read_config_file
@@ -75,7 +76,7 @@ knn_list = [20]
 pool_methods = ['Max', 'Avg', 'MaxArea', 'Interp', 'Learn']
 
 # - Config folder 
-config_path = "/home/ghiggi/Projects/weather_prediction/configs"
+config_path = "/home/ghiggi/Projects/deepsphere-weather/configs"
 
 for architecture_name in architecture_names:
     for knn in knn_list:
