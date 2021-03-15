@@ -3,6 +3,7 @@ import sys
 sys.path.append('../')    
 import numpy as np
 import pygsp as pg
+import xarray as xr
 import matplotlib.pyplot as plt 
 from modules.my_io import readDatasets  
 from modules.utils_torch import get_time_function
@@ -13,15 +14,31 @@ from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_models import get_pygsp_graph
 from modules.remap import SphericalVoronoiMeshArea_from_pygsp
-import modules.xsphere  
+from modules.my_plotting import create_GIF_forecast_error
+from modules.my_plotting import create_GIF_forecast_anom_error
 from modules.xscaler import LoadAnomaly
+import modules.xsphere  
+
 # Plotting options
 import matplotlib
 matplotlib.use('cairo') # Cairo
 matplotlib.rcParams["figure.facecolor"] = "white"
 matplotlib.rcParams["savefig.facecolor"] = "white" # (1,1,1,0)
 matplotlib.rcParams["savefig.edgecolor"] = 'none'
-matplotlib.rcParams["figure.dpi"] = 300
+matplotlib.rcParams["figure.dpi"] = 200
+
+SMALL_SIZE = 8
+MEDIUM_SIZE = 10
+BIGGER_SIZE = 12 
+matplotlib.rcParams['font.size'] = SMALL_SIZE  # controls default text sizes
+      
+matplotlib.rcParams['axes.titlesize'] = SMALL_SIZE  # fontsize of the axes title
+matplotlib.rcParams['axes.labelsize'] = SMALL_SIZE     # fontsize of the x and y labels
+matplotlib.rcParams['xtick.labelsize'] = SMALL_SIZE    # fontsize of the tick labels
+matplotlib.rcParams['ytick.labelsize'] = SMALL_SIZE    # fontsize of the tick labels
+matplotlib.rcParams['legend.fontsize'] = SMALL_SIZE    # legend fontsize
+matplotlib.rcParams['figure.titlesize'] = MEDIUM_SIZE  # fontsize of the figure title
+
 
 ##-----------------------------------------------------------------------------.
 # Define directories
@@ -66,16 +83,9 @@ ds_obs = ds_obs_test.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
 ds_obs = ds_obs.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
 
 ds_forecast = ds_forecasts.isel(forecast_reference_time = 0)
-aspect_cbar = 40
-antialiased = False
-edgecolors = None
-tmp_dir = os.path.join(base_dir, "figs_tmp")
-GIF_fpath = os.path.join(base_dir, "figs_tmp","GIF1.gif")
-
 hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
 
-
-create_GIF_forecast_error(GIF_fpath = os.path.join(base_dir, "figs_tmp", "Forecast_State_Error.gif"),
+create_GIF_forecast_error(GIF_fpath = os.path.join(figs_dir, "Forecast_State_Error.gif"),
                           ds_forecast = ds_forecast,
                           ds_obs = ds_obs,
                           fps = 4,
@@ -83,7 +93,7 @@ create_GIF_forecast_error(GIF_fpath = os.path.join(base_dir, "figs_tmp", "Foreca
                           antialiased = False,
                           edgecolors = None)
 
-create_GIF_forecast_anom_error(GIF_fpath = os.path.join(base_dir, "figs_tmp", "Forecast_Anom_Error.gif"),
+create_GIF_forecast_anom_error(GIF_fpath = os.path.join(figs_dir, "Forecast_Anom_Error.gif"),
                                ds_forecast = ds_forecast,
                                ds_obs = ds_obs,
                                scaler = hourly_weekly_anomaly_scaler,

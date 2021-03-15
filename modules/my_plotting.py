@@ -709,9 +709,9 @@ def create_GIF_forecast_error(GIF_fpath,
         suptitle_str = "Forecast reference time: {}, Leadtime: {}".format(forecast_reference_time, tmp_leadtime)
         ##----------------------------------------------------------------------.
         # Create figure 
-        # pix = 1/plt.rcParams['figure.dpi']
+        # pix = 1/plt.rcParams['figure.dpi'] figsize=(1920*pix,1080*pix),
         fig, axs = plt.subplots(nrows=len(variables), ncols=3, 
-                                figsize=(18, 4*len(variables)), # (1920*pix,1080*pix),  # (1920, 1080) / "DPI" # 
+                                figsize=(18, 4*len(variables)), # (8, 2*len(variables))     
                         subplot_kw={'projection': ccrs.Robinson()})
         fig.suptitle(suptitle_str)
         # fig.subplots_adjust(wspace=0.1, hspace=0.2)
@@ -801,7 +801,7 @@ def create_GIF_forecast_error(GIF_fpath,
     cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, GIF_fpath)
     subprocess.run(cmd, shell=True)
     # Create GIF
-    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(fps, GIF_fpath, GIF_fpath)
+    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(GIF_fpath, fps, GIF_fpath)
     subprocess.run(cmd, shell=True)
 
     ##-------------------------------------------------------------------------.
@@ -879,7 +879,7 @@ def create_GIF_forecast_anom_error(GIF_fpath,
         ##---------------------------------------------------------------------.
         # Create figure 
         fig, axs = plt.subplots(nrows=len(variables), ncols=3, 
-                        figsize=(18, 4*len(variables)),
+                        figsize=(18, 4*len(variables)), # # (8, 2*len(variables))  
                         subplot_kw={'projection': ccrs.Robinson()})
         fig.suptitle(suptitle_str)
         # fig.subplots_adjust(wspace=0.1, hspace=0.2)
@@ -968,7 +968,7 @@ def create_GIF_forecast_anom_error(GIF_fpath,
     cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, GIF_fpath)
     subprocess.run(cmd, shell=True)
     # Create GIF
-    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(fps, GIF_fpath, GIF_fpath)
+    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(GIF_fpath, fps, GIF_fpath)
     subprocess.run(cmd, shell=True)
 
     ##-------------------------------------------------------------------------.
