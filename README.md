@@ -1,5 +1,5 @@
 # DeepSphere-Earth - Deep Learning on the sphere 
-
+[Alt Text](./figs/Forecast_State_Errors.gif)
 The code in this repository provides a scalable and flexible framework to apply convolutions on spherical unstructured grids for weather/climate applications.
 
 The folder `experiments` provide examples for:
