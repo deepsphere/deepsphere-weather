@@ -1,6 +1,6 @@
 # DeepSphere-Weather - Deep Learning on the sphere for weather/climate applications.
 
-![Alt Text](https://github.com/ownzonefeng/weather_prediction/blob/NewPipeLine/figs/Forecast_State_Errors.gif)
+![Alt Text](https://github.com/deepsphere/deepsphere-weather/blob/main/figs/Forecast_State_Errors.gif)
 
 The code in this repository provides a scalable and flexible framework to apply convolutions on spherical unstructured grids for weather/climate applications.
 
@@ -21,7 +21,7 @@ For a local installation, follow the below instructions.
 
 1. Clone this repository.
    ```sh
-   git clone https://github.com/DeepSphere/DeepSphere-Weather.git
+   git clone https://github.com/deepsphere/deepsphere-Weather.git
    cd DeepSphere-Weather
    ```
 
