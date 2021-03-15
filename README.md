@@ -22,7 +22,7 @@ For a local installation, follow the below instructions.
 1. Clone this repository.
    ```sh
    git clone https://github.com/deepsphere/deepsphere-weather.git
-   cd DeepSphere-Weather
+   cd deepSphere-weather
    ```
 
 2. Install the dependencies.
