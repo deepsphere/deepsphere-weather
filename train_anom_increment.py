@@ -128,7 +128,7 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['model_settings']["architecture_name"] = 'UNetDiffSpherical'
     cfg['model_settings']["model_name_prefix"] = "Anom"  
     cfg['model_settings']["model_name_suffix"] = "LinearStep"    
-    cfg['training_settings']["AR_training_strategy"] = "AR" # "RNN" # "AR" # "RNN"
+    cfg['training_settings']["AR_training_strategy"] = "RNN" # "RNN" # "AR" # "RNN"
     cfg['training_settings']['epochs'] = 15
     cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
@@ -493,7 +493,7 @@ def main(cfg_path, exp_dir, data_dir):
                                              output_k = AR_settings['output_k'], 
                                              forecast_cycle = AR_settings['forecast_cycle'],                         
                                              stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                             AR_iterations = 40,        # How many time to autoregressive iterate
+                                             AR_iterations = 20,        # How many time to autoregressive iterate
                                              # Save options 
                                              zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 

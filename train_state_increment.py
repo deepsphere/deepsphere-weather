@@ -127,7 +127,7 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
     cfg['model_settings']["architecture_name"] = 'UNetDiffSpherical'
     cfg['model_settings']["model_name_suffix"] = "LinearStep"    
-    cfg['training_settings']["AR_training_strategy"] = "AR" # "RNN" # "AR" # "RNN"
+    cfg['training_settings']["AR_training_strategy"] = "RNN" # "RNN" # "AR" # "RNN"
     cfg['training_settings']['epochs'] = 15
     cfg['AR_settings']["AR_iterations"] = 6
     ##------------------------------------------------------------------------.
