@@ -8,11 +8,11 @@ Created on Wed Feb 24 16:25:45 2021
 from setuptools import setup, find_packages
 
 setup(
-    name="deepsphere-earth",
+    name="deepsphere-weather",
     version="0.0.1",
     description="Pytorch Deep Learning framework for convolution on spherical unstructured grid.",
-    url="https://github.com/ownzonefeng/weather_prediction/tree/NewPipeLine",
+    url="https://github.com/deepsphere/deepsphere-weather/",
     author="Gionata Ghiggi @ghiggi",
     author_email="gionata.ghiggi@epfl.ch",
-    packages=["deepsphere-earth"],
+    packages=["deepsphere-weather"],
 )
