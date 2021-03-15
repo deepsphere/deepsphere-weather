@@ -7,6 +7,7 @@ Created on Sat Feb 27 21:39:12 2021
 """
 import os
 import glob
+import subprocess
 import tempfile
 import shutil
 import cartopy
@@ -651,16 +652,17 @@ def benchmark_global_skills(skills_dict, skills=['BIAS','RMSE','rSD','pearson_R2
 def create_GIF_forecast_error(GIF_fpath,
                               ds_forecast,
                               ds_obs, 
+                              fps = 4, 
                               aspect_cbar = 40,
                               antialiased = False,
-                              edgecolors = None):
-    ##----------------------------------------------------------------------------.                              
+                              edgecolors = None):                      
+    ##-------------------------------------------------------------------------.                              
     # Check Datasets have mesh attached 
     if 'mesh' not in list(ds_forecast.coords.keys()):
         raise ValueError("No 'mesh' coordinate in ds_forecast.")
     if 'mesh' not in list(ds_obs.coords.keys()):
         raise ValueError("No 'mesh' coordinate in ds_obs.")
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Retrieve forecast reference time 
     forecast_reference_time = str(ds_forecast['forecast_reference_time'].values.astype('datetime64[s]')) # remove nanosecs
 
@@ -686,38 +688,38 @@ def create_GIF_forecast_error(GIF_fpath,
     # Retrieve common variables to plot 
     variables = list(ds_forecast.data_vars.keys())
 
-    ##----------------------------------------------------------------------------.
-    # Check GIF fpath 
+    ##-------------------------------------------------------------------------.
+    # Check fpath 
     if not os.path.exists(os.path.dirname(GIF_fpath)):
         os.makedirs(os.path.dirname(GIF_fpath))
-        
-    # Check GIF fpath ends with .gif
-    if GIF_fpath[-4:] != ".gif":
-        print("Added .gif to GIF_fpath.")
-        GIF_fpath = GIF_fpath + ".gif"
-        
+
+    # Remove gif file format 
+    if GIF_fpath[-4:] == ".gif":
+        GIF_fpath = GIF_fpath[:-4]
+
     # Create temporary directory to store temporary GIF image frames
     tmp_dir = tempfile.mkdtemp()
 
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Create GIF image frames for each leadtime 
     for i in range(len(ds_forecast['leadtime'])):
         # Select frame super title 
         tmp_leadtime = str(ds_forecast['leadtime'].values[i].astype('timedelta64[h]'))
         tmp_valid_time = str(ds_forecast['time'].values[i].astype('datetime64[s]'))
         suptitle_str = "Forecast reference time: {}, Leadtime: {}".format(forecast_reference_time, tmp_leadtime)
-        ##------------------------------------------------------------------------.
+        ##----------------------------------------------------------------------.
         # Create figure 
+        # pix = 1/plt.rcParams['figure.dpi']
         fig, axs = plt.subplots(nrows=len(variables), ncols=3, 
-                        figsize=(18, 4*len(variables)),
+                                figsize=(18, 4*len(variables)), # (1920*pix,1080*pix),  # (1920, 1080) / "DPI" # 
                         subplot_kw={'projection': ccrs.Robinson()})
         fig.suptitle(suptitle_str)
         # fig.subplots_adjust(wspace=0.1, hspace=0.2)
-        ##------------------------------------------------------------------------.
-        # Initialize 
+        ##---------------------------------------------------------------------.
+        # Initialize
         axs = axs.flatten()
         ax_count = 0
-        ##------------------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         # Plot each variable
         for var in variables:
             # Plot obs 
@@ -782,26 +784,31 @@ def create_GIF_forecast_error(GIF_fpath,
             axs[ax_count+2].set_title("Error")
             # Update ax_count 
             ax_count += 3
-        ##------------------------------------------------------------------------.    
+        ##---------------------------------------------------------------------.    
         # Save figure in temporary directory 
         fig.savefig(os.path.join(tmp_dir, '{:04}.png'.format(i)))
-    ##----------------------------------------------------------------------------. 
-    # Load all figures (in PIL PngImageFile)
-    im_fpaths = glob.glob(tmp_dir + "/" + '*')
-    im_fpaths.sort()
-    img, *l_imgs = [Image.open(fpath) for fpath in im_fpaths]
-    ##----------------------------------------------------------------------------.
-    # Create a GIF
-    img.save(fp = GIF_fpath, 
-            format='GIF', 
-            append_images = l_imgs,
-            save_all=True, 
-            duration=0.5*1000,  # The time to display the current frame of the GIF, in milliseconds
-            loop=0) # Number of times the GIF should loop 
-    ##----------------------------------------------------------------------------.
+
+    ##-------------------------------------------------------------------------.
+    ## Create MP4 and GIF with FFMPEG 
+    # --> YouTube and Vimeo won’t really appreciate video with < 0.5 FPS
+    # --> Duplicate frames by specifying (again) the desired FPS before -codec 
+    # -y : overwrite existing file 
+    # -r:v 30 : write at 30 frames per seconds 
+    # -r 4: write 4 frames per seconds 
+    # -r:v 1/4 : write a frame every 4 seconds 
+    # -codec:v lix264
+    # Create MP4
+    cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, GIF_fpath)
+    subprocess.run(cmd, shell=True)
+    # Create GIF
+    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(fps, GIF_fpath, GIF_fpath)
+    subprocess.run(cmd, shell=True)
+
+    ##-------------------------------------------------------------------------.
     # Remove temporary images 
     shutil.rmtree(tmp_dir)
-    ##----------------------------------------------------------------------------.
+
+    ##-------------------------------------------------------------------------.
 
 
 ##------------------------------------------------------------------------------.
@@ -810,16 +817,17 @@ def create_GIF_forecast_anom_error(GIF_fpath,
                                    ds_obs, 
                                    scaler,
                                    anom_title, 
+                                   fps = 4, 
                                    aspect_cbar = 40,
                                    antialiased = False,
                                    edgecolors = None):
-    ##----------------------------------------------------------------------------.                              
+    ##-------------------------------------------------------------------------.                              
     # Check Datasets have mesh attached 
     if 'mesh' not in list(ds_forecast.coords.keys()):
         raise ValueError("No 'mesh' coordinate in ds_forecast.")
     if 'mesh' not in list(ds_obs.coords.keys()):
         raise ValueError("No 'mesh' coordinate in ds_obs.")
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Retrieve forecast reference time 
     forecast_reference_time = str(ds_forecast['forecast_reference_time'].values.astype('datetime64[s]')) # remove nanosecs
 
@@ -849,38 +857,37 @@ def create_GIF_forecast_anom_error(GIF_fpath,
     # Retrieve common variables to plot 
     variables = list(ds_forecast.data_vars.keys())
 
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Check GIF fpath 
     if not os.path.exists(os.path.dirname(GIF_fpath)):
         os.makedirs(os.path.dirname(GIF_fpath))
         
     # Check GIF fpath ends with .gif
-    if GIF_fpath[-4:] != ".gif":
-        print("Added .gif to GIF_fpath.")
-        GIF_fpath = GIF_fpath + ".gif"
+    if GIF_fpath[-4:] == ".gif":
+        GIF_fpath = GIF_fpath[:-4]
         
     # Create temporary directory to store temporary GIF image frames
     tmp_dir = tempfile.mkdtemp()
 
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------.
     # Create GIF image frames for each leadtime 
     for i in range(len(ds_forecast['leadtime'])):
         # Select frame super title 
         tmp_leadtime = str(ds_forecast['leadtime'].values[i].astype('timedelta64[h]'))
         tmp_valid_time = str(ds_forecast['time'].values[i].astype('datetime64[s]'))
         suptitle_str = "Forecast reference time: {}, Leadtime: {}".format(forecast_reference_time, tmp_leadtime)
-        ##------------------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         # Create figure 
         fig, axs = plt.subplots(nrows=len(variables), ncols=3, 
                         figsize=(18, 4*len(variables)),
                         subplot_kw={'projection': ccrs.Robinson()})
         fig.suptitle(suptitle_str)
         # fig.subplots_adjust(wspace=0.1, hspace=0.2)
-        ##------------------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         # Initialize 
         axs = axs.flatten()
         ax_count = 0
-        ##------------------------------------------------------------------------.
+        ##---------------------------------------------------------------------.
         # Plot each variable
         for var in variables:
             # Plot obs 
@@ -945,26 +952,29 @@ def create_GIF_forecast_anom_error(GIF_fpath,
             axs[ax_count+2].set_title("Error")
             # Update ax_count 
             ax_count += 3
-        ##------------------------------------------------------------------------.    
+        ##---------------------------------------------------------------------.    
         # Save figure in temporary directory 
         fig.savefig(os.path.join(tmp_dir, '{:04}.png'.format(i)))
-    ##----------------------------------------------------------------------------. 
-    # Load all figures (in PIL PngImageFile)
-    im_fpaths = glob.glob(tmp_dir + "/" + '*')
-    im_fpaths.sort()
-    img, *l_imgs = [Image.open(fpath) for fpath in im_fpaths]
-    ##----------------------------------------------------------------------------.
-    # Create a GIF
-    img.save(fp = GIF_fpath, 
-            format='GIF', 
-            append_images = l_imgs,
-            save_all=True, 
-            duration=0.5*1000,  # The time to display the current frame of the GIF, in milliseconds
-            loop=0) # Number of times the GIF should loop 
-    ##----------------------------------------------------------------------------.
+    ##-------------------------------------------------------------------------. 
+    ## Create MP4 and GIF with FFMPEG 
+    # --> YouTube and Vimeo won’t really appreciate video with < 0.5 FPS
+    # --> Duplicate frames by specifying (again) the desired FPS before -codec 
+    # -y : overwrite existing file 
+    # -r:v 30 : write at 30 frames per seconds 
+    # -r 4: write 4 frames per seconds 
+    # -r:v 1/4 : write a frame every 4 seconds 
+    # -codec:v lix264
+    # Create MP4
+    cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, GIF_fpath)
+    subprocess.run(cmd, shell=True)
+    # Create GIF
+    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(fps, GIF_fpath, GIF_fpath)
+    subprocess.run(cmd, shell=True)
+
+    ##-------------------------------------------------------------------------.
     # Remove temporary images 
     shutil.rmtree(tmp_dir)
-    ##----------------------------------------------------------------------------.    
+    ##-------------------------------------------------------------------------.    
     
  
     

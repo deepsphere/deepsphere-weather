@@ -13,13 +13,15 @@ from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_models import get_pygsp_graph
 from modules.remap import SphericalVoronoiMeshArea_from_pygsp
-
+import modules.xsphere  
+from modules.xscaler import LoadAnomaly
 # Plotting options
 import matplotlib
 matplotlib.use('cairo') # Cairo
 matplotlib.rcParams["figure.facecolor"] = "white"
 matplotlib.rcParams["savefig.facecolor"] = "white" # (1,1,1,0)
 matplotlib.rcParams["savefig.edgecolor"] = 'none'
+matplotlib.rcParams["figure.dpi"] = 300
 
 ##-----------------------------------------------------------------------------.
 # Define directories
@@ -70,43 +72,23 @@ edgecolors = None
 tmp_dir = os.path.join(base_dir, "figs_tmp")
 GIF_fpath = os.path.join(base_dir, "figs_tmp","GIF1.gif")
 
-
-
-
-create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
-                                ds_forecast = ds_forecast,
-                                ds_obs = ds_obs,
-                                aspect_cbar = 40,
-                                antialiased = False,
-                                edgecolors = None)
-
-
-
-
-
-
-
-
-# - Plot GIF for different months (variable states)
-for month in range(1,13):
-    idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
-    ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-    create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
-                                ds_forecast = ds_forecast,
-                                ds_obs = ds_obs,
-                                aspect_cbar = 40,
-                                antialiased = False,
-                                edgecolors = None)
-# - Plot GIF for different months (variable anomalies)
 hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
-for month in range(1,13):
-    idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
-    ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-    create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
-                                    ds_forecast = ds_forecast,
-                                    ds_obs = ds_obs,
-                                    scaler = hourly_weekly_anomaly_scaler,
-                                    anom_title = "Hourly-Weekly Std. Anomaly",
-                                    aspect_cbar = 40,
-                                    antialiased = True,
-                                    edgecolors = None)
+
+
+create_GIF_forecast_error(GIF_fpath = os.path.join(base_dir, "figs_tmp", "Forecast_State_Error.gif"),
+                          ds_forecast = ds_forecast,
+                          ds_obs = ds_obs,
+                          fps = 4,
+                          aspect_cbar = 40,
+                          antialiased = False,
+                          edgecolors = None)
+
+create_GIF_forecast_anom_error(GIF_fpath = os.path.join(base_dir, "figs_tmp", "Forecast_Anom_Error.gif"),
+                               ds_forecast = ds_forecast,
+                               ds_obs = ds_obs,
+                               scaler = hourly_weekly_anomaly_scaler,
+                               anom_title = "Hourly-Weekly Std. Anomaly",
+                               fps = 4,
+                               aspect_cbar = 40,
+                               antialiased = False,
+                               edgecolors = None)
