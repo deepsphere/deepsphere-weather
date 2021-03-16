@@ -12,7 +12,6 @@ from collections import Counter
 from abc import ABC, abstractmethod
 from scipy import sparse
 from torch.nn import functional as F
-from torch.nn import Conv1d
 from modules import remap
 from sparselinear import SparseLinear
 ### TODO:
@@ -969,6 +968,10 @@ class PoolUnpoolBlock(torch.nn.Module):
         elif pool_method == 'learn':
             pool = GeneralLearnablePool(pool_mat)
             unpool = GeneralLearnableUnpool(unpool_mat)
+            return pool, unpool
+        elif pool_method == 'maxval':
+            pool = GeneralMaxValPool(pool_mat)
+            unpool = GeneralMaxValUnpool(unpool_mat)
             return pool, unpool
         else:
             raise ValueError(f'{pool_method} is not supoorted.')
