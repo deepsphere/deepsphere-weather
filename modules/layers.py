@@ -635,7 +635,7 @@ class HealpixMaxPool(torch.nn.MaxPool1d):
         if self.return_indices:
             x, indices = F.max_pool1d(x, self.kernel_size, return_indices=self.return_indices)
         else:
-            x = F.max_pool1d(x)
+            x = F.max_pool1d(x, self.kernel_size)
         x = x.permute(0, 2, 1)
 
         if self.return_indices:
