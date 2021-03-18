@@ -27,11 +27,12 @@ from sparselinear import SparseLinear
 # ##############################
 def estimate_lmax(laplacian, tol=5e-3):
     """Estimate the Laplacian's largest eigenvalue."""
-    lmax = sparse.linalg.eigsh(laplacian, k=1, tol=tol,
-                               ncv=min(laplacian.shape[0], 10),
-                               return_eigenvectors=False)
-    lmax = lmax[0]
-    lmax *= 1 + 2 * tol  # # Increase by 1 percent to be robust to errors.
+    # eigs(Minv @ L) is faster than eigsh(L, M) and we use Minv @ L to convolve
+    lmax = sparse.linalg.eigs(laplacian, k=1, tol=tol,
+                              ncv=min(laplacian.shape[0], 10),
+                              return_eigenvectors=False)
+    lmax = np.real(lmax[0])  # Always real even if not symmetric.
+    lmax *= 1 + 2 * tol  # Margin to be robust to estimation errors.
     return lmax
 
 def scale_operator(laplacian, lmax, scale=1):
@@ -41,12 +42,10 @@ def scale_operator(laplacian, lmax, scale=1):
     laplacian -= sparse_I
     return laplacian
     
-def compute_torch_laplacian(graph, torch_dtype, laplacian_type="normalized"):
+def prepare_torch_laplacian(laplacian, torch_dtype):
     """Prepare a graph Laplacian to be fed to a graph convolutional layer."""
-    # Compute Laplacian and attach to the pgysp graph 
-    graph.compute_laplacian(laplacian_type)
     # Change type   
-    laplacian = graph.L.astype(np.float32)
+    laplacian = laplacian.astype(np.float32)
     # Scale the eigenvalues
     lmax = estimate_lmax(laplacian) 
     laplacian = scale_operator(laplacian, lmax)

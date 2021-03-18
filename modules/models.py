@@ -9,7 +9,7 @@ import pygsp
 import numpy as np
 from typing import List
 from abc import ABC, abstractmethod
-from modules.layers import compute_torch_laplacian
+from modules.layers import prepare_torch_laplacian
 from modules.utils_models import check_sampling
 # from modules.utils_models import get_pygsp_graph
 from modules.utils_models import get_pygsp_graph_fun
@@ -56,6 +56,7 @@ class UNet(ABC):
         graph_initializer = get_pygsp_graph_fun(sampling)
         # Retrieve parameters to customize the spherical graph
         params = get_pygsp_graph_params(sampling)
+        params['lap_type'] = 'normalized'
         params['k'] = knn
         # Create a list of pygsp graph 
         pygsp_graphs_list = [graph_initializer(*res, **params) for res in resolutions]
@@ -66,7 +67,7 @@ class UNet(ABC):
     def get_laplacian_kernels(graphs: List["pygsp.graphs"],
                               torch_dtype):
         """Compute the laplacian for each specified graph."""
-        laplacians_list = [compute_torch_laplacian(graph, torch_dtype=torch_dtype) for graph in graphs]
+        laplacians_list = [prepare_torch_laplacian(graph.L, torch_dtype=torch_dtype) for graph in graphs]
         return laplacians_list
     
     def init_graph_and_laplacians(self, 
