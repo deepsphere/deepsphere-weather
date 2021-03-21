@@ -22,18 +22,18 @@ figs_dir = os.path.join(base_dir, "figs")
 
 ##-----------------------------------------------------------------------------.
 # Load planar, cylinder and DeepSphere (Equiangular) skills 
-planar_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular","planar", "model_skills/deterministic_global_skill.nc"))
-cylinder_kills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "cylinder", "model_skills/deterministic_global_skill.nc"))
-graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "graph", "model_skills/deterministic_global_skill.nc"))
+planar_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular","RNN-UNetSpherical-equiangular-[36, 72]-k20-maxPooling-float32-AR6-planar", "model_skills/deterministic_global_skill.nc"))
+cylinder_kills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "RNN-UNetSpherical-equiangular-[36, 72]-k20-maxPooling-float32-AR6-cylinder", "model_skills/deterministic_global_skill.nc"))
+graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular" , "RNN-UNetSpherical-equiangular-[36, 72]-k20-MaxPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
 
 
 ##-----------------------------------------------------------------------------.
 # Load different modelling approaches
-RNN_cubed_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-cubed-24-k20-MaxAreaPooling-float32-AR2-LinearStep", "model_skills/deterministic_global_skill.nc"))
-RNN_equi_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-equiangular-[36, 72]-k20-MaxAreaPooling-float32-AR2-LinearStep", "model_skills/deterministic_global_skill.nc"))
-RNN_gauss_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-gauss-48-k20-MaxAreaPooling-float32-AR2-LinearStep", "model_skills/deterministic_global_skill.nc"))
-RNN_healpix_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-healpix-16-k20-MaxAreaPooling-float32-AR2-LinearStep", "model_skills/deterministic_global_skill.nc"))
-RNN_icos_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR2-LinearStep", "model_skills/deterministic_global_skill.nc"))
+RNN_cubed_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-cubed-24-k20-MaxAreaPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
+RNN_equi_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular" , "RNN-UNetSpherical-equiangular-[36, 72]-k20-MaxPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
+RNN_gauss_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-gauss-48-k20-MaxAreaPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
+RNN_healpix_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-healpix-16-k20-MaxAreaPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
+RNN_icos_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
 
 ##-----------------------------------------------------------------------------.
 # Load Weyn benchmark 
@@ -54,15 +54,15 @@ HourlyMonthlyClimatology_skills = xr.open_dataset(os.path.join(benchmark_dir, "H
 
 ## Define the dictionary of forecast to benchmark 
 skills_dict = {
-               'Planar Projection': planar_skills,
-               'Cylindrical Projection': cylinder_kills,
+               # 'Planar Projection': planar_skills,
+               # 'Cylindrical Projection': cylinder_kills,
                # 'DeepSphere - Equiangular': graph_skills,
                'Equiangular': RNN_equi_skills,
                'Reduced Gaussian': RNN_gauss_skills,
                'Cubed': RNN_cubed_skills,
                'Healpix': RNN_healpix_skills,
                'Icosahedral': RNN_icos_skills,
-               'Weyn et al., 2020': weyn_skills,
+               # 'Weyn et al., 2020': weyn_skills,
                'Persistence forecast': persistence_skills,
                'Weekly Climatology': WeeklyClimatology_skills,
                'HourlyWeekly Climatology': HourlyWeeklyClimatology_skills,
@@ -73,8 +73,8 @@ skills_dict = {
 
 ## Define the dictionary of forecast to benchmark (without Weyn)
 skills_dict1 = {
-               'Planar Projection': planar_skills,
-               'Cylindrical Projection': cylinder_kills,
+               # 'Planar Projection': planar_skills,
+               # 'Cylindrical Projection': cylinder_kills,
                # 'DeepSphere - Equiangular': graph_skills,
                'Equiangular': RNN_equi_skills,
                'Reduced Gaussian': RNN_gauss_skills,
@@ -121,6 +121,39 @@ benchmark_global_skills(skills_dict=skills_dict1,
                         colors_dict = colors_dict,
                         legend_everywhere = True,
                         n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Overview_Samplings.png"))
+
+
+
+
+
+
+## Define the dictionary of forecast to benchmark 
+skills_dict = {
+               # 'Planar Projection': planar_skills,
+               # 'Cylindrical Projection': cylinder_kills,
+               # 'DeepSphere - Equiangular': graph_skills,
+               'Equiangular': RNN_equi_skills,
+               'Reduced Gaussian': RNN_gauss_skills,
+               'Cubed': RNN_cubed_skills,
+               'Healpix': RNN_healpix_skills,
+               'Icosahedral': RNN_icos_skills,
+               'Weyn et al., 2020': weyn_skills,
+               'Persistence forecast': persistence_skills,
+               'Weekly Climatology': WeeklyClimatology_skills,
+               'HourlyWeekly Climatology': HourlyWeeklyClimatology_skills,
+               #'Monthly Climatology': MonthlyClimatology_skills,
+               #'Daily Climatology': DailyClimatology_skills,
+               #'HourlyMonthly Climatology': HourlyMonthlyClimatology_skills,
+               }
+
+# Benchmark skills 
+benchmark_global_skill(skills_dict=skills_dict, 
+                       skill="RMSE", 
+                       variables=['z500','t850'],
+                       colors_dict = colors_dict,
+                       n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_RMSE_Samplings_Weyn.png"))
+
+
 
 
 # Others skills 

@@ -21,10 +21,13 @@ figs_dir = os.path.join(base_dir, "figs")
 
 ##-----------------------------------------------------------------------------.
 # Load planar, cylinder and DeepSphere (Equiangular) skills 
-planar_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular","planar", "model_skills/deterministic_global_skill.nc"))
-cylinder_kills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "cylinder", "model_skills/deterministic_global_skill.nc"))
+planar_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular","RNN-UNetSpherical-equiangular-[36, 72]-k20-maxPooling-float32-AR6-planar", "model_skills/deterministic_global_skill.nc"))
+cylinder_kills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "RNN-UNetSpherical-equiangular-[36, 72]-k20-maxPooling-float32-AR6-cylinder", "model_skills/deterministic_global_skill.nc"))
 # graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "graph", "model_skills/deterministic_global_skill.nc"))
-graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-equiangular-[36, 72]-k20-MaxAreaPooling-float32-AR2-LinearStep", "model_skills/deterministic_global_skill.nc"))
+graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular" , "RNN-UNetSpherical-equiangular-[36, 72]-k20-MaxPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
+graph_skills1 = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular" , "RNN-UNetSpherical-equiangular_test-[36, 72]-k20-InterpPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
+
+
 ## Load climatology and persistence baselines 
 sampling_name = "Equiangular_400km"
 benchmark_dir = os.path.join("/data/weather_prediction/data", sampling_name, "Benchmarks")
@@ -77,6 +80,13 @@ benchmark_global_skills(skills_dict=skills_dict,
                         colors_dict = colors_dict,
                         legend_everywhere = True,
                         n_leadtimes=20).savefig(os.path.join(figs_dir, "Benchmark_Overview_Equiangular.png"))
+
+benchmark_global_skill(skills_dict=skills_dict, 
+                       skill="RMSE", 
+                       variables=['z500','t850'],
+                       colors_dict = colors_dict,
+                       ylim = (75,200),
+                       n_leadtimes=4).savefig(os.path.join(figs_dir, "Benchmark_Zoom_RMSE_Equiangular.png"))
 
 # benchmark_global_skills(skills_dict=skills_dict, 
 #                         skills=['relBIAS','MAE','relMAE','diffSD','NSE', 'error_CoV'],
