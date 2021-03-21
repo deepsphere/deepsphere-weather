@@ -602,13 +602,19 @@ def cdo_genweights(method,
     else: 
         opt_CDO_parallelism = ""
     ##------------------------------------------------------------------------.
+    ## Define output precision 
+    if method != "largest_area_fraction":
+        output_precision = "-b 64"
+    else: 
+        output_precision = ""
+    ##------------------------------------------------------------------------.
     ## Compute weights        
     cdo_genweights_command = get_cdo_genweights_cmd(method=method)
     # Define command 
     command = "" .join([opt_CDO_environment,
                         "cdo ",
                         opt_CDO_parallelism, " ", 
-                        "-b 64", " ", # output precision
+                        output_precision, " ",  
                         cdo_genweights_command, ",",
                         dst_CDO_grid_fpath, " ",
                         "-setgrid,",
@@ -729,6 +735,14 @@ def cdo_remapping(method,
     else: 
         opt_CDO_data_compression = ""
     ##------------------------------------------------------------------------.
+    ## Define output precision 
+    if method != "largest_area_fraction":
+        output_precision = "-b 64"
+    else: 
+        # BUG in genlaf (reported) ... need to use remaplaf directly for the moment
+        precompute_weights = False 
+        output_precision = ""
+    ##------------------------------------------------------------------------.
     ## Precompute the weights (once) and then remap 
     if precompute_weights: 
         ##--------------------------------------------------------------------.  
@@ -739,13 +753,13 @@ def cdo_remapping(method,
             command = "".join([opt_CDO_environment,
                                "cdo ",
                                opt_CDO_parallelism, " ", 
-                               "-b 64", " ", # output precision
+                               output_precision, " ", # output precision
                                cdo_genweights_command, ",",
                                dst_CDO_grid_fpath, " ",
                                "-setgrid,",
                                src_CDO_grid_fpath, " ", 
                                src_fpaths[0], " ",
-                               weights_fpath])    
+                               weights_fpath])  
             # Run command
             flag_cmd = subprocess.run(command, shell=True, capture_output=False)
             if (flag_cmd.returncode != 0):
@@ -757,7 +771,7 @@ def cdo_remapping(method,
             command = "".join([opt_CDO_environment,
                                "cdo ",
                                opt_CDO_parallelism, " ", 
-                               "-b 64", " ", # output precision
+                               output_precision, " ",  
                                "-f nc4", " ", # output type: netcdf
                                opt_CDO_data_compression, " ",
                                "remap,",
@@ -767,7 +781,6 @@ def cdo_remapping(method,
                                src_CDO_grid_fpath, " ",
                                src_fpath, " ",
                                dst_fpath])
-            
             # Run command
             flag_cmd = subprocess.run(command, shell=True, capture_output=False)
             if (flag_cmd.returncode != 0):
@@ -783,7 +796,7 @@ def cdo_remapping(method,
             command = "".join([opt_CDO_environment,
                                "cdo ",
                                opt_CDO_parallelism, " ", 
-                               "-b 64", " ", # output precision
+                               output_precision, " ",  
                                "-f nc4", " ",
                                opt_CDO_data_compression, " ",
                                remapping_command, ",",

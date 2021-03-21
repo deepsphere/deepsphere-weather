@@ -10,6 +10,7 @@ import sys
 sys.path.append('../')
 
 from modules.my_remap import remap_grib_files
+
 ### Define folder paths
 proj_dir = "/ltenas3/DeepSphere/"
 data_dir = "/ltenas3/DeepSphere/data/raw"
@@ -30,14 +31,14 @@ spherical_samplings = [
      # 100 km 
     'Healpix_100km'
 ]
-
-spherical_samplings = ["Random_2800"]
 # Define dataset to remap 
 dataset = 'ERA5_HRES'
 
 # Define variable types to remap 
 variable_types = ['static','dynamic']
 
+spherical_samplings = ["Random_2800"]
+variable_types = ['static']
 ##-----------------------------------------------------------------------------.
 # Remap
 for sampling in spherical_samplings:
@@ -52,4 +53,4 @@ for sampling in spherical_samplings:
                          normalization = 'fracarea',
                          compression_level = 1, 
                          n_threads = 4, 
-                         force_remapping=False)
+                         force_remapping=True)

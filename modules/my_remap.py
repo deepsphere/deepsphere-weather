@@ -10,8 +10,8 @@ import glob
 import re 
 import numpy as np 
 
-from module.remap import check_normalization
-from module.remap import cdo_remapping
+from modules.remap import check_normalization
+from modules.remap import cdo_remapping
 
 ########################################
 ### Ad-hoc funtion for WeatherBench #### 
