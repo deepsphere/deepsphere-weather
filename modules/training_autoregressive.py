@@ -27,6 +27,8 @@ from modules.utils_torch import check_prefetch_in_GPU
 from modules.utils_torch import check_prefetch_factor
 from modules.utils_torch import check_AR_training_strategy
 from modules.utils_torch import get_time_function
+
+from modules.utils_swag import bn_update_with_loader
 ##----------------------------------------------------------------------------.
 # TODOs
 # - ONNX for saving model weights 
@@ -506,7 +508,7 @@ def AutoregressiveTraining(model,
                            input_k = [-3,-2,-1], 
                            output_k = [0],
                            forecast_cycle = 1,                           
-                           AR_iterations = 2, 
+                           AR_iterations = 6, 
                            stack_most_recent_prediction = True,
                            # Training settings 
                            AR_training_strategy = "AR", 
@@ -689,7 +691,8 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     # Initialize AR TrainingInfo object 
     training_info = AR_TrainingInfo(AR_iterations=AR_iterations,
-                                    epochs = epochs)  
+                                    epochs = epochs,
+                                    AR_scheduler = AR_scheduler)  
 
     ##------------------------------------------------------------------------.
     # Get dimension infos
@@ -810,7 +813,8 @@ def AutoregressiveTraining(model,
                 training_info.update_training_stats(total_loss = training_total_loss,
                                                     dict_loss_per_AR_iteration = dict_training_loss_per_AR_iteration, 
                                                     AR_scheduler = AR_scheduler, 
-                                                    LR_scheduler = LR_scheduler) 
+                                                    LR_scheduler = LR_scheduler)
+
             if swag_training:
                 if batch_count in collection_indices:
                     swag_model.collect_model(model)
@@ -827,6 +831,18 @@ def AutoregressiveTraining(model,
                     # Initialize 
                     dict_validation_loss_per_AR_iteration = {}
                     dict_validation_Y_predicted = {}
+                    
+                    # SWAG : collect, sample and update batch norm statistics
+                    if swag_training:
+                        swag_model.collect_model(model)
+                        with torch.no_grad():
+                            swag_model.sample(0.0)
+
+                        bn_update_with_loader(swag_model, trainingDataLoader,
+                                            AR_iterations = AR_scheduler.current_AR_iterations,
+                                            asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                            device = device
+                                            )
                     #-#-------------------------------------------------------.
                     # Disable gradient calculations 
                     # - And do not update network weights  

@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import torch
+import pickle
 import shutil
 import numpy as np
 
@@ -76,13 +77,14 @@ def get_default_dataloader_settings():
 
 def get_default_SWAG_settings():
     """Return some default settings for the SWAG model."""
-    dataloader_settings = {"start_learning_rate": 0.07,
-                            "target_learning_rate": 0.007,
-                            "no_cov_mat": False,
-                            "max_num_models": 40,
-                            "swag_freq": 10,
-                            "swa_start": 10,
-                            "sampling_scale": 0.1,
+    dataloader_settings = {"SWAG": False,
+                           "target_learning_rate": 0.007,
+                           "no_cov_mat": False,
+                           "max_num_models": 40,
+                           "swag_freq": 10,
+                           "swa_start": 0,
+                           "sampling_scale": 0.1,
+                           "nb_samples": 10
                            }  
     return dataloader_settings
 
@@ -339,9 +341,18 @@ def check_numeric_precision(numeric_precision):
 
 def load_pretrained_model(model, exp_dir, model_name):
     """Load a pre-trained pytorch model."""
-    model_fpath = os.path.join(exp_dir, model_name, 'models_weights', "model.h5")
+    model_fpath = os.path.join(exp_dir, model_name, 'model_weights', "model.h5")
     state = torch.load(model_fpath)
     model.load_state_dict(state, strict=False)
+
+def load_pretrained_ar_scheduler(exp_dir, model_name):
+    """Load a pre-trained AR scheduler."""
+    training_info_fpath = os.path.join(exp_dir, model_name, 'training_info', 'AR_TrainingInfo.pickle')
+    with open(training_info_fpath, 'rb') as f:
+        training_info = pickle.load(f)
+    ar_scheduler = pickle.loads(training_info.AR_scheduler)
+
+    return ar_scheduler
 
 #-----------------------------------------------------------------------------.
 ######################### 

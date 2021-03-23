@@ -12,7 +12,7 @@ import gpytorch
 from gpytorch.lazy import RootLazyTensor, DiagLazyTensor, AddedDiagLazyTensor
 from gpytorch.distributions import MultivariateNormal
 
-from utils_swag import flatten, unflatten_like
+# from utils_swag import flatten, unflatten_like
 
 def flatten(lst):
     tmp = [i.contiguous().view(-1, 1) for i in lst]

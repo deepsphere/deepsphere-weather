@@ -68,8 +68,6 @@ def bn_update(model,
              da_bc = None, 
              # Scaler options
              scaler = None,
-             scaler_transform = True,  # transform_input ???
-             scaler_inverse = True,    # backtransform_predictions ????
              # Dataloader options
              batch_size = 64, 
              num_workers = 0,
@@ -102,7 +100,7 @@ def bn_update(model,
     dataset = AutoregressiveDataset(da_dynamic = da_dynamic,  
                                     da_bc = da_bc,
                                     da_static = da_static,
-                                    scaler = scaler_transform, 
+                                    scaler = scaler, 
                                     # Autoregressive settings  
                                     input_k = input_k,
                                     output_k = output_k,
@@ -152,8 +150,55 @@ def bn_update(model,
                 for module in momenta.keys():
                     module.momentum = momentum
 
-                model(input_var, **kwargs)
+                dict_Y_predicted[i] = model(input_var, **kwargs)
                 n += b
                 del torch_X, input_var
+
+    model.apply(lambda module: _set_momenta(module, momenta))
+
+def bn_update_with_loader(model, 
+                          loader, 
+                          AR_iterations = 2, 
+                          asyncronous_GPU_transfer = True,
+                          device = 'cpu',
+                          **kwargs):
+    if not check_bn(model):
+        return
+    model.train()
+    momenta = {}
+    model.apply(reset_bn)
+    model.apply(lambda module: _get_momenta(module, momenta))
+    n = 0
+
+    with torch.no_grad():
+        ##--------------------------------------------------------------------.     
+        # Iterate along training batches       
+        for batch_dict in loader: 
+            # batch_dict = next(iter(batch_dict))
+            ##----------------------------------------------------------------.      
+            ### Perform autoregressive loop
+            dict_Y_predicted = {}
+            for i in range(AR_iterations+1):
+                # Retrieve X and Y for current AR iteration
+                # - Torch Y stays in CPU with training_mode=False
+                torch_X, _ = get_AR_batch(AR_iteration = i, 
+                                        batch_dict = batch_dict, 
+                                        dict_Y_predicted = dict_Y_predicted,
+                                        device = device, 
+                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                        training_mode=False)
+            
+                input_var = torch.autograd.Variable(torch_X)
+                b = input_var.data.size(0)
+
+                momentum = b / (n + b)
+                for module in momenta.keys():
+                    module.momentum = momentum
+
+                dict_Y_predicted[i] = model(input_var, **kwargs)
+                n += b
+                del torch_X, input_var
+            
+            del dict_Y_predicted
 
     model.apply(lambda module: _set_momenta(module, momenta))

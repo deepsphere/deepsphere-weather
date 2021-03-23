@@ -33,6 +33,7 @@ from modules.utils_config import get_SWAG_settings
 from modules.utils_config import get_model_name
 from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
+from modules.utils_config import load_pretrained_ar_scheduler
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_dim_info
@@ -41,6 +42,7 @@ from modules.utils_io import get_AR_model_diminfo
 from modules.utils_io import check_AR_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
+from modules.predictions_autoregressive import AutoregressiveSWAGPredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
 # from modules.predictions_autoregressive import reshape_forecasts_for_verification
 from modules.utils_torch import summarize_model
@@ -73,7 +75,7 @@ from modules.my_plotting import create_GIF_forecast_anom_error
 
 # For plotting 
 import matplotlib
-matplotlib.use('cairo') # Cairo
+# matplotlib.use('cairo') # Cairo
 matplotlib.rcParams["figure.facecolor"] = "white"
 matplotlib.rcParams["savefig.facecolor"] = "white" # (1,1,1,0)
 matplotlib.rcParams["savefig.edgecolor"] = 'none'
@@ -116,7 +118,7 @@ warnings.filterwarnings("ignore")
 # Set RNG in worker_init_fn of DataLoader for reproducible ... 
 ##----------------------------------------------------------------------------.
 #-----------------------------------------------------------------------------.
-def main(cfg_path, exp_dir, data_dir):
+def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     """General function for training DeepSphere4Earth models."""
     ##------------------------------------------------------------------------.
     t_start = time.time()
@@ -130,11 +132,15 @@ def main(cfg_path, exp_dir, data_dir):
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-    cfg['model_settings']["architecture_name"] = 'UNetSpherical'
-    cfg['model_settings']["model_name_suffix"] = "LinearStep"    
-    cfg['training_settings']["AR_training_strategy"] = "AR" # "RNN" # "AR" # "RNN"
-    cfg['training_settings']['epochs'] = 15
+    # cfg['model_settings']["architecture_name"] = 'UNetSpherical'
+    # cfg['model_settings']["model_name_suffix"] = "LinearStep"
+    cfg['model_settings']['pretrained_model_name'] = 'RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep'
+    cfg['model_settings']['model_name'] = 'RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep-SWAG'
+    cfg['training_settings']["AR_training_strategy"] = "RNN" # "RNN" # "AR" # "RNN"
+    cfg['training_settings']['epochs'] = 4
     cfg['AR_settings']["AR_iterations"] = 6
+    cfg['SWAG_settings']["sampling_scale"] = 0.0
+    cfg['SWAG_settings']["nb_samples"] = 1
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
@@ -142,6 +148,8 @@ def main(cfg_path, exp_dir, data_dir):
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
     SWAG_settings = get_SWAG_settings(cfg)
+
+    sampling_scale = str(SWAG_settings["sampling_scale"]).replace(".", "")
     
     ##------------------------------------------------------------------------.
     #### Load netCDF4 Datasets
@@ -253,7 +261,7 @@ def main(cfg_path, exp_dir, data_dir):
     model = DeepSphereModelClass(**model_args)
     # - Define SWAG model
     swag_model = SWAG(DeepSphereModelClass, no_cov_mat=SWAG_settings['no_cov_mat'], 
-                        max_num_models=SWAG_settings['max_num_models_swag'], **model_args)
+                        max_num_models=SWAG_settings['max_num_models'], **model_args)
 
     ###-----------------------------------------------------------------------.
     ## If requested, load a pre-trained model for fine-tuning
@@ -292,12 +300,20 @@ def main(cfg_path, exp_dir, data_dir):
     
     exp_dir = create_experiment_directories(exp_dir = exp_dir,      
                                             model_name = model_name,
-                                            force=True) 
+                                            force=True)
+ 
+    figs_dir_sampling_scale = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/")
+    figs_skills_dir = os.path.join(figs_dir_sampling_scale, "skills")
+    figs_training_info_dir = os.path.join(figs_dir_sampling_scale, "training_info")
     
+    os.makedirs(figs_dir_sampling_scale, exist_ok=False)
+    os.makedirs(figs_skills_dir, exist_ok=False)
+    os.makedirs(figs_training_info_dir, exist_ok=False)
+
     ##------------------------------------------------------------------------.
     # Define model weights filepath 
     # TODO: (@Yasser, Wentao) (better name convention?)
-    model_fpath = os.path.join(exp_dir, "model_weights", "model.h5")
+    model_fpath = os.path.join(exp_dir, "model_weights", "model_swag.h5")
     
     ##------------------------------------------------------------------------.
     # Write config file in the experiment directory 
@@ -323,28 +339,32 @@ def main(cfg_path, exp_dir, data_dir):
     ##------------------------------------------------------------------------.
     ## - Define AR_Weights_Scheduler 
     # - For RNN: growth and decay works well (fix the first)
-    if training_settings["AR_training_strategy"] == "RNN":
-        ar_scheduler = AR_Scheduler(method = "LinearStep",
-                                    factor = 0.0005,
-                                    fixed_AR_weights = [0],
-
-                                    initial_AR_absolute_weights = [1,1]) 
-    # - FOR AR : Do not decay weights once they growthed
-    elif training_settings["AR_training_strategy"] == "AR":                                
-        ar_scheduler = AR_Scheduler(method = "LinearStep",
-                                    factor = 0.0005,
-                                    fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
-                                    initial_AR_absolute_weights = [1, 1])   
+    if model_settings['pretrained_model_name'] is not None:
+        ar_scheduler = load_pretrained_ar_scheduler(exp_dir = exp_dir,
+                                                    model_name = model_settings['pretrained_model_name'])
     else:
-        raise NotImplementedError("'AR_training_strategy' must be either 'AR' or 'RNN'.")
+        if training_settings["AR_training_strategy"] == "RNN":
+            ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                        factor = 0.0005,
+                                        fixed_AR_weights = [0],
+
+                                        initial_AR_absolute_weights = [1,1]) 
+        # - FOR AR : Do not decay weights once they growthed
+        elif training_settings["AR_training_strategy"] == "AR":                                
+            ar_scheduler = AR_Scheduler(method = "LinearStep",
+                                        factor = 0.0005,
+                                        fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
+                                        initial_AR_absolute_weights = [1, 1])   
+        else:
+            raise NotImplementedError("'AR_training_strategy' must be either 'AR' or 'RNN'.")
 
     ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
     # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
     patience = 500
     minimum_iterations = 500
-    minimum_improvement = 0.001 # 0 to not stop 
-    stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
+    minimum_improvement = 0 # 0 to not stop 
+    stopping_metric = 'training_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
     early_stopping = EarlyStopping(patience = patience,
                                    minimum_improvement = minimum_improvement,
@@ -360,190 +380,173 @@ def main(cfg_path, exp_dir, data_dir):
     # LR_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,80,100,150], gamma=0.1)
     # LR_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, steps)
     # LR_scheduler = optim.lr_scheduler.ReduceLROnPlateau
-    LR_scheduler = optim.swa_utils.SWALR(optimizer, anneal_strategy="linear", anneal_epochs=4, swa_lr=SWAG_settings[""])
+    LR_scheduler = optim.swa_utils.SWALR(optimizer, anneal_strategy="linear", anneal_epochs=5000, swa_lr=SWAG_settings["target_learning_rate"])
     ##------------------------------------------------------------------------.
     ### - Train the model 
-    dask.config.set(scheduler='synchronous')
-    training_info = AutoregressiveTraining(model = model,
-                                           model_fpath = model_fpath,  
-                                           # Loss settings 
-                                           criterion = criterion,
-                                           optimizer = optimizer,  
-                                           LR_scheduler = LR_scheduler, 
-                                           AR_scheduler = ar_scheduler,                                
-                                           early_stopping = early_stopping,
-                                           # Data
-                                           da_training_dynamic = da_training_dynamic,
-                                           da_validation_dynamic = da_validation_dynamic,
-                                           da_static = da_static,              
-                                           da_training_bc = da_training_bc,         
-                                           da_validation_bc = da_validation_bc,  
-                                           scaler = scaler, 
-                                           # Dataloader settings
-                                           num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
-                                           autotune_num_workers = dataloader_settings['autotune_num_workers'], 
-                                           prefetch_factor = dataloader_settings['prefetch_factor'],  
-                                           prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 
-                                           drop_last_batch = dataloader_settings['drop_last_batch'],     
-                                           random_shuffle = dataloader_settings['random_shuffle'], 
-                                           pin_memory = dataloader_settings['pin_memory'], 
-                                           asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'], 
-                                           # Autoregressive settings  
-                                           input_k = AR_settings['input_k'], 
-                                           output_k = AR_settings['output_k'], 
-                                           forecast_cycle = AR_settings['forecast_cycle'],                         
-                                           AR_iterations = AR_settings['AR_iterations'], 
-                                           stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                           # Training settings 
-                                           AR_training_strategy = training_settings["AR_training_strategy"],
-                                           numeric_precision = training_settings['numeric_precision'], 
-                                           training_batch_size = training_settings['training_batch_size'], 
-                                           validation_batch_size = training_settings['validation_batch_size'],   
-                                           epochs = training_settings['epochs'], 
-                                           scoring_interval = training_settings['scoring_interval'], 
-                                           save_model_each_epoch = training_settings['save_model_each_epoch'],
-                                           # SWAG settings
-                                           swag = True,
-                                           swag_model = swag_model,
-                                           swag_freq = SWAG_settings['swag_freq'],
-                                           swa_start = SWAG_settings['swa_start'], 
-                                           # GPU settings 
-                                           device = device)
+    if train:
+        dask.config.set(scheduler='synchronous')
+        training_info = AutoregressiveTraining(model = model,
+                                            model_fpath = model_fpath,  
+                                            # Loss settings 
+                                            criterion = criterion,
+                                            optimizer = optimizer,  
+                                            LR_scheduler = LR_scheduler, 
+                                            AR_scheduler = ar_scheduler,                                
+                                            early_stopping = early_stopping,
+                                            # Data
+                                            da_training_dynamic = da_training_dynamic,
+                                            da_validation_dynamic = da_validation_dynamic,
+                                            da_static = da_static,              
+                                            da_training_bc = da_training_bc,         
+                                            da_validation_bc = da_validation_bc,  
+                                            scaler = scaler, 
+                                            # Dataloader settings
+                                            num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
+                                            autotune_num_workers = dataloader_settings['autotune_num_workers'], 
+                                            prefetch_factor = dataloader_settings['prefetch_factor'],  
+                                            prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'], 
+                                            drop_last_batch = dataloader_settings['drop_last_batch'],     
+                                            random_shuffle = dataloader_settings['random_shuffle'], 
+                                            pin_memory = dataloader_settings['pin_memory'], 
+                                            asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'], 
+                                            # Autoregressive settings  
+                                            input_k = AR_settings['input_k'], 
+                                            output_k = AR_settings['output_k'], 
+                                            forecast_cycle = AR_settings['forecast_cycle'],                         
+                                            AR_iterations = AR_settings['AR_iterations'], 
+                                            stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
+                                            # Training settings 
+                                            AR_training_strategy = training_settings["AR_training_strategy"],
+                                            numeric_precision = training_settings['numeric_precision'], 
+                                            training_batch_size = training_settings['training_batch_size'], 
+                                            validation_batch_size = training_settings['validation_batch_size'],   
+                                            epochs = training_settings['epochs'], 
+                                            scoring_interval = training_settings['scoring_interval'], 
+                                            save_model_each_epoch = training_settings['save_model_each_epoch'],
+                                            # SWAG settings
+                                            swag = True,
+                                            swag_model = swag_model,
+                                            swag_freq = SWAG_settings['swag_freq'],
+                                            swa_start = SWAG_settings['swa_start'], 
+                                            # GPU settings 
+                                            device = device)
+        
+        # Save AR TrainingInfo
+        print("========================================================================================")
+        print("- Saving training information")
+        with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
+            pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
-    # Save AR TrainingInfo
-    print("========================================================================================")
-    print("- Saving training information")
-    with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
-        pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # # Load AR TrainingInfo
+        # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
+        #    training_info = pickle.load(handle)
     
-    # # Load AR TrainingInfo
-    # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
-    #    training_info = pickle.load(handle)
-  
-    ##------------------------------------------------------------------------.
-    ### Create plots related to training evolution  
-    ### Create plots related to training evolution  
-    print("========================================================================================")
-    print("- Creating plots to investigate training evolution")
-    ## - Plot the loss at all AR iterations (in one figure)
-    fig, ax = plt.subplots()
-    for AR_iteration in range(training_info.AR_iterations+1):
-        ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                        ax = ax,
-                                                        linestyle="solid",
-                                                        linewidth=0.3,
-                                                        ylim = (0,0.06), 
-                                                        plot_validation = False, 
-                                                        plot_labels = True,
-                                                        plot_legend = False,
-                                                        add_AR_weights_updates=False)
-    leg = ax.legend(labels=list(range(training_info.AR_iterations + 1)), 
-                    title="AR iteration", 
-                    loc='upper right')
-    # - Make legend line more thick
-    for line in leg.get_lines():
-        line.set_linewidth(2)
-    # - Reset color cycling 
-    plt.gca().set_prop_cycle(None) 
-    for AR_iteration in range(training_info.AR_iterations+1):
-        ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
-                                                        ax = ax,
-                                                        linestyle="dashed",
-                                                        linewidth=0.3,
-                                                        ylim = (0,0.06), 
-                                                        plot_training = False, 
-                                                        plot_labels = False,
-                                                        plot_legend = False,
-                                                        add_AR_weights_updates=False)  
-    # - Add vertical line when AR iteration is added
-    iterations_of_AR_updates = training_info.iterations_of_AR_updates()
-    if len(iterations_of_AR_updates) > 0: 
-        [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
-    # - Add title 
-    ax.set_title("Loss evolution at each AR iteration")
-    # - Save figure
-    fig.savefig(os.path.join(exp_dir, "figs/training_info/Loss_at_all_AR_iterations.png"))    
-    ##------------------------------------------------------------------------.   
-    ## - Plot the loss at each AR iteration (in separate figures)
-    for AR_iteration in range(training_info.AR_iterations+1):
-        fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
-        training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
-                                                 linewidth=0.6,
-                                                 ylim = (0,0.06),
-                                                 title="Loss evolution at AR iteration {}".format(AR_iteration)).savefig(fname) 
+        ##------------------------------------------------------------------------.
+        ### Create plots related to training evolution  
+        ### Create plots related to training evolution  
+        print("========================================================================================")
+        print("- Creating plots to investigate training evolution")
+        ## - Plot the loss at all AR iterations (in one figure)
+        fig, ax = plt.subplots()
+        for AR_iteration in range(training_info.AR_iterations+1):
+            ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+                                                            ax = ax,
+                                                            linestyle="solid",
+                                                            linewidth=0.3,
+                                                            ylim = (0,0.06), 
+                                                            plot_validation = False, 
+                                                            plot_labels = True,
+                                                            plot_legend = False,
+                                                            add_AR_weights_updates=False)
+        leg = ax.legend(labels=list(range(training_info.AR_iterations + 1)), 
+                        title="AR iteration", 
+                        loc='upper right')
+        # - Make legend line more thick
+        for line in leg.get_lines():
+            line.set_linewidth(2)
+        # - Reset color cycling 
+        plt.gca().set_prop_cycle(None) 
+        for AR_iteration in range(training_info.AR_iterations+1):
+            ax = training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+                                                            ax = ax,
+                                                            linestyle="dashed",
+                                                            linewidth=0.3,
+                                                            ylim = (0,0.06), 
+                                                            plot_training = False, 
+                                                            plot_labels = False,
+                                                            plot_legend = False,
+                                                            add_AR_weights_updates=False)  
+        # - Add vertical line when AR iteration is added
+        iterations_of_AR_updates = training_info.iterations_of_AR_updates()
+        if len(iterations_of_AR_updates) > 0: 
+            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        # - Add title 
+        ax.set_title("Loss evolution at each AR iteration")
+        # - Save figure
+        fig.savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/training_info/Loss_at_all_AR_iterations.png"))    
+        ##------------------------------------------------------------------------.   
+        ## - Plot the loss at each AR iteration (in separate figures)
+        for AR_iteration in range(training_info.AR_iterations+1):
+            fname = os.path.join(exp_dir, "figs/sampling_{}/training_info/Loss_at_AR_{}.png".format(sampling_scale, AR_iteration)) 
+            training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
+                                                    linewidth=0.6,
+                                                    ylim = (0,0.06),
+                                                    title="Loss evolution at AR iteration {}".format(AR_iteration)).savefig(fname) 
 
-    ##------------------------------------------------------------------------.
-    ## - Plot total loss 
-    training_info.plot_total_loss(ylim = (0,0.06),linewidth=0.6).savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
+        ##------------------------------------------------------------------------.
+        ## - Plot total loss 
+        training_info.plot_total_loss(ylim = (0,0.06),linewidth=0.6).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/training_info/Total_Loss.png"))
 
-    ##------------------------------------------------------------------------.
-    ## - Plot AR weights  
-    training_info.plot_AR_weights(normalized=True).savefig(os.path.join(exp_dir, "figs/training_info/AR_Normalized_Weights.png"))
-    training_info.plot_AR_weights(normalized=False).savefig(os.path.join(exp_dir, "figs/training_info/AR_Absolute_Weights.png"))   
-    
+        ##------------------------------------------------------------------------.
+        ## - Plot AR weights  
+        training_info.plot_AR_weights(normalized=True).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/training_info/AR_Normalized_Weights.png"))
+        training_info.plot_AR_weights(normalized=False).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/training_info/AR_Absolute_Weights.png"))   
+        
     ##-------------------------------------------------------------------------.
     ### - Create predictions 
     print("========================================================================================")
     print("- Running predictions")
-    forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
+    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale}_median.zarr")
     dask.config.set(scheduler='synchronous')
+        
+    if pred:
+        ds_forecasts = AutoregressiveSWAGPredictions(model = swag_model, 
+                                                    exp_dir = exp_dir, 
+                                                    # Data
+                                                    da_training_dynamic = da_training_dynamic,
+                                                    da_test_dynamic = da_test_dynamic,
+                                                    da_static = da_static,              
+                                                    da_training_bc = da_training_bc,         
+                                                    da_test_bc = da_test_bc, 
+                                                    # Scaler options
+                                                    scaler = scaler,
+                                                    # Dataloader options
+                                                    device = device,
+                                                    batch_size = training_settings['training_batch_size'],  # number of forecasts per batch
+                                                    num_workers = dataloader_settings['num_workers'], 
+                                                    prefetch_factor = dataloader_settings['prefetch_factor'], 
+                                                    prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
+                                                    pin_memory = dataloader_settings['pin_memory'],
+                                                    asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
+                                                    numeric_precision = training_settings['numeric_precision'],
+                                                    # Autoregressive settings  
+                                                    input_k = AR_settings['input_k'], 
+                                                    output_k = AR_settings['output_k'], 
+                                                    forecast_cycle = AR_settings['forecast_cycle'],                         
+                                                    AR_iterations = 20, 
+                                                    stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'],
+                                                    # SWAG settings
+                                                    no_cov_mat=SWAG_settings['no_cov_mat'],
+                                                    sampling_scale = SWAG_settings["sampling_scale"],
+                                                    nb_samples = SWAG_settings["nb_samples"],
+                                                    # Save options  
+                                                    rounding = 2,             # Default None. Accept also a dictionary 
+                                                    compressor = "auto",      # Accept also a dictionary per variable
+                                                    chunks = "auto",          
+                                                    timedelta_unit='hour')
+    else:
+        ds_forecasts = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
 
-    with torch.no_grad():
-        swag_model.sample(SWAG_settings["sampling_scale"], cov=(not SWAG_settings["no_cov_mat"]))
-
-    bn_update(swag_model,
-             # Data
-             da_training_dynamic = da_training_dynamic,
-             da_static = da_static,              
-             da_training_bc = da_training_bc,          
-             scaler = scaler, 
-             # Dataloader options
-             device = device,
-             batch_size = 50,  # number of forecasts per batch
-             num_workers = dataloader_settings['num_workers'], 
-             # tune_num_workers = False, 
-             prefetch_factor = dataloader_settings['prefetch_factor'], 
-             prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
-             pin_memory = dataloader_settings['pin_memory'],
-             asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
-             numeric_precision = training_settings['numeric_precision'], 
-             # Autoregressive settings  
-             input_k = AR_settings['input_k'], 
-             output_k = AR_settings['output_k'], 
-             forecast_cycle = AR_settings['forecast_cycle'],                         
-             AR_iterations = AR_settings['AR_iterations'], 
-             stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'],
-             )
-
-
-    ds_forecasts = AutoregressivePredictions(model = swag_model, 
-                                             # Data
-                                             da_dynamic = da_test_dynamic,
-                                             da_static = da_static,              
-                                             da_bc = da_test_bc, 
-                                             scaler = scaler,
-                                             # Dataloader options
-                                             device = device,
-                                             batch_size = 50,  # number of forecasts per batch
-                                             num_workers = dataloader_settings['num_workers'], 
-                                             # tune_num_workers = False, 
-                                             prefetch_factor = dataloader_settings['prefetch_factor'], 
-                                             prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
-                                             pin_memory = dataloader_settings['pin_memory'],
-                                             asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
-                                             numeric_precision = training_settings['numeric_precision'], 
-                                             # Autoregressive settings
-                                             input_k = AR_settings['input_k'], 
-                                             output_k = AR_settings['output_k'], 
-                                             forecast_cycle = AR_settings['forecast_cycle'],                         
-                                             stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                             AR_iterations = 40,        # How many time to autoregressive iterate
-                                             # Save options 
-                                             zarr_fpath = None,  # None --> do not write to disk
-                                             rounding = 2,             # Default None. Accept also a dictionary 
-                                             compressor = "auto",      # Accept also a dictionary per variable
-                                             chunks = "auto",          
-                                             timedelta_unit='hour')
     ##------------------------------------------------------------------------.
     ### Reshape forecast Dataset for verification
     # - For efficient verification, data must be contiguous in time, but chunked over space (and leadtime) 
@@ -557,7 +560,7 @@ def main(cfg_path, exp_dir, data_dir):
     # - Rechunk Dataset over space on disk and then reshape the for verification
     print("========================================================================================")
     print("- Reshape test set predictions for verification")
-    verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
+    verification_zarr_fpath = os.path.join(exp_dir, f"model_predictions/temporal_chunks/test_pred_{sampling_scale}.zarr")
     ds_verification_format = rechunk_forecasts_for_verification(ds=ds_forecasts, 
                                                                 chunks="auto", 
                                                                 target_store=verification_zarr_fpath,
@@ -576,7 +579,7 @@ def main(cfg_path, exp_dir, data_dir):
                                     forecast_type="continuous",
                                     aggregating_dim='time')
     # - Save sptial skills 
-    ds_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_spatial_skill.nc"))
+    ds_skill.to_netcdf(os.path.join(exp_dir, f"model_skills/deterministic_spatial_skill_{sampling_scale}.nc"))
     
     ##------------------------------------------------------------------------.
     ### - Create verification summary plots and maps
@@ -596,11 +599,11 @@ def main(cfg_path, exp_dir, data_dir):
     ds_longitudinal_skill = xverif.longitudinal_summary(ds_skill, lat_dim='lat', lon_dim='lon', lon_res=5) 
     
     # - Save global skills
-    ds_global_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_global_skill.nc"))
+    ds_global_skill.to_netcdf(os.path.join(exp_dir, f"model_skills/deterministic_global_skill_{sampling_scale}.nc"))
 
     # - Create spatial maps 
     plot_skill_maps(ds_skill = ds_skill,  
-                    figs_dir = os.path.join(exp_dir, "figs/skills/SpatialSkill"),
+                    figs_dir = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/SpatialSkill"),
                     crs_proj = ccrs.Robinson(),
                     skills = ['BIAS','RMSE','rSD', 'pearson_R2', 'error_CoV'],
                     # skills = ['percBIAS','percMAE','rSD', 'pearson_R2', 'KGE'],
@@ -608,9 +611,9 @@ def main(cfg_path, exp_dir, data_dir):
                     prefix="")
 
     # - Create skill vs. leadtime plots 
-    plot_global_skill(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/RMSE_skill.png"))
-    plot_global_skills(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_global.png"))
-    plot_skills_distribution(ds_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_distribution.png"))
+    plot_global_skill(ds_global_skill).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/RMSE_skill.png"))
+    plot_global_skills(ds_global_skill).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/skills_global.png"))
+    plot_skills_distribution(ds_skill).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/skills_distribution.png"))
         
     ##------------------------------------------------------------------------.
     ### - Create animations 
@@ -627,7 +630,7 @@ def main(cfg_path, exp_dir, data_dir):
     for month in range(1,13):
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
+        create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
                                   ds_forecast = ds_forecast,
                                   ds_obs = ds_obs,
                                   aspect_cbar = 40,
@@ -638,7 +641,7 @@ def main(cfg_path, exp_dir, data_dir):
     for month in range(1,13):
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
+        create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
                                        ds_forecast = ds_forecast,
                                        ds_obs = ds_obs,
                                        scaler = hourly_weekly_anomaly_scaler,
@@ -655,18 +658,22 @@ def main(cfg_path, exp_dir, data_dir):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
-    default_config = 'configs/UNetSpherical/Healpix_400km/InterpPool-k20.json'
-    default_config = 'configs/UNetSpherical/Healpix_400km/MaxAreaPool-k20.json'
+    # default_config = 'configs/UNetSpherical/Healpix_400km/SWAG.json' 
+    default_config = 'configs/UNetSpherical/Icosahedral_400km/SWAG.json'
 
     parser = argparse.ArgumentParser(description='Training weather prediction model')
     parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--cuda', type=str, default='0')
+    parser.add_argument('--train', action='store_true')
+    parser.add_argument('--pred', action='store_true')
 
     args = parser.parse_args()
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
 
-    data_dir = "/data/weather_prediction/data"
-    exp_dir = "/data/weather_prediction/experiments_GG"
+    #data_dir = "/data/weather_prediction/data"
+    #exp_dir = "/data/weather_prediction/experiments_GG"
+    data_dir = "/mnt/scratch/students/wefeng/data/"
+    exp_dir = "/mnt/scratch/students/haddad/experiments"
 
-    main(args.config_file, exp_dir, data_dir)
+    main(args.config_file, exp_dir, data_dir, train=args.train, pred=args.pred)
