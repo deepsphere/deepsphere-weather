@@ -22,8 +22,12 @@ def main(base_dir, figs_dir, benchmark_dir):
     ##-----------------------------------------------------------------------------.
     # Load different modelling approaches
     RNN_classic = xr.open_dataset(os.path.join(base_dir, "RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
-    #RNN_swag_01 = xr.open_dataset(os.path.join(base_dir, "RNN-UNetSpherical-healpix-16-k20-MaxAreaPooling-float32-AR2-LinearStep-SWAG", "model_skills/deterministic_global_skill.nc"))
+    RNN_classic_8 = xr.open_dataset(os.path.join(base_dir, "RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep-8", "model_skills/deterministic_global_skill.nc"))
+
     RNN_swag_00 = xr.open_dataset(os.path.join(base_dir, "RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep-SWAG", "model_skills/deterministic_global_skill_00.nc"))
+    RNN_swag_00_lr_001_swalr_0001 = xr.open_dataset(os.path.join(base_dir, "RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep-SWAG-LR001-SWALR0001", "model_skills/deterministic_global_skill_00.nc"))
+
+    RNN_8_swag_00_lr_0007_swalr_0001 = xr.open_dataset(os.path.join(base_dir, "RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep-SWAG-LR001-SWALR0001", "model_skills/deterministic_global_skill_00.nc"))
     
     ##-----------------------------------------------------------------------------.
     # Load Weyn benchmark 
@@ -46,7 +50,10 @@ def main(base_dir, figs_dir, benchmark_dir):
                     #    'Planar Projection': planar_skills,
                     #    'Cylindrical Projection': cylinder_kills,
                 'DeepSphere - Icosahedral': RNN_classic,
-                'RNN Icosahedral State SWA': RNN_swag_00,
+                'DeepSphere - Icosahedral 8 epochs': RNN_classic_8,
+                'RNN Icosahedral SWA': RNN_swag_00,
+                'RNN Icosahedral SWA | LR 0.01 SWA-LR 0.001': RNN_swag_00_lr_001_swalr_0001,
+                'RNN Icosahedral (8 epochs) SWA | LR 0.007 SWA-LR 0.0001': RNN_8_swag_00_lr_0007_swalr_0001,
                 # 'RNN Healpix State SWAG 0.1': RNN_swag_01,
                 'Weyn et al., 2020': weyn_skills,
                 'Persistence forecast': persistence_skills,

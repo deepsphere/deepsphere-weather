@@ -26,10 +26,10 @@
     "training_settings": {
         "epochs": 4,
         "AR_training_strategy": "AR",
-        "learning_rate": 0.07,
+        "learning_rate": 0.007,
         "training_batch_size": 16,
         "validation_batch_size": 64,
-        "scoring_interval": 1000,
+        "scoring_interval": 2000,
         "save_model_each_epoch": false,
         "numeric_precision": "float32",
         "deterministic_training": false,
@@ -58,8 +58,8 @@
         "SWAG": true,
         "target_learning_rate": 0.007,
         "no_cov_mat": false,
-        "max_num_models": 40,
-        "swag_freq": 10,
+        "max_num_models": 50,
+        "swag_freq": 20,
         "swa_start": 0,
         "sampling_scale": 0.1,
         "nb_samples": 10

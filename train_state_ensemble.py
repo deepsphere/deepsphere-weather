@@ -7,10 +7,10 @@ Created on Fri Feb 12 20:04:40 2021
 """
 import os
 import warnings
+import shutil
 import time
 import dask
 import argparse
-import torch
 import cartopy.crs as ccrs
 import pickle
 import numpy as np
@@ -18,8 +18,9 @@ import pygsp as pg
 import cartopy.crs as ccrs
 import xarray as xr
 import matplotlib.pyplot as plt
-from torch import nn, optim
 
+import torch
+from torch import nn, optim
 ## DeepSphere-Earth
 from modules.utils_config import get_default_settings
 from modules.utils_config import read_config_file
@@ -28,12 +29,10 @@ from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
 from modules.utils_config import get_AR_settings
 from modules.utils_config import get_dataloader_settings
-from modules.utils_config import get_SWAG_settings
 # from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
 from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
-from modules.utils_config import load_pretrained_ar_scheduler
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_dim_info
@@ -42,16 +41,11 @@ from modules.utils_io import get_AR_model_diminfo
 from modules.utils_io import check_AR_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
-from modules.predictions_autoregressive import AutoregressiveSWAGPredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
 # from modules.predictions_autoregressive import reshape_forecasts_for_verification
 from modules.utils_torch import summarize_model
 from modules.AR_Scheduler import AR_Scheduler
 from modules.early_stopping import EarlyStopping
-
-## SWAG
-from modules.swag import SWAG
-from modules.utils_swag import bn_update
 
 ## Project specific functions
 from modules.xscaler import LoadScaler
@@ -75,7 +69,7 @@ from modules.my_plotting import create_GIF_forecast_anom_error
 
 # For plotting 
 import matplotlib
-# matplotlib.use('cairo') # Cairo
+matplotlib.use('cairo') # Cairo
 matplotlib.rcParams["figure.facecolor"] = "white"
 matplotlib.rcParams["savefig.facecolor"] = "white" # (1,1,1,0)
 matplotlib.rcParams["savefig.edgecolor"] = 'none'
@@ -118,7 +112,7 @@ warnings.filterwarnings("ignore")
 # Set RNG in worker_init_fn of DataLoader for reproducible ... 
 ##----------------------------------------------------------------------------.
 #-----------------------------------------------------------------------------.
-def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
+def main(cfg_path, exp_dir, data_dir, nb_models):
     """General function for training DeepSphere4Earth models."""
     ##------------------------------------------------------------------------.
     t_start = time.time()
@@ -132,26 +126,17 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     cfg['dataloader_settings']["autotune_num_workers"] = False
     cfg['dataloader_settings']["pin_memory"] = False
     cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
-    # cfg['model_settings']["architecture_name"] = 'UNetSpherical'
-    # cfg['model_settings']["model_name_suffix"] = "LinearStep"
-    cfg['model_settings']['pretrained_model_name'] = 'RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep'
-    cfg['model_settings']['model_name'] = 'RNN-UNetSpherical-icosahedral-16-k20-MaxAreaPooling-float32-AR6-LinearStep-SWAG-LR0007'
+    cfg['model_settings']["architecture_name"] = 'UNetSpherical'
+    cfg['model_settings']["model_name_suffix"] = "LinearStep"    
     cfg['training_settings']["AR_training_strategy"] = "RNN" # "RNN" # "AR" # "RNN"
-    cfg['training_settings']['epochs'] = 4
-    cfg['training_settings']['learning_rate'] = 0.007
-    cfg['AR_settings']["AR_iterations"] = 6
-    cfg['SWAG_settings']["sampling_scale"] = 0.0
-    cfg['SWAG_settings']["nb_samples"] = 1
-    cfg['SWAG_settings']["target_learning_rate"] = 0.001
+    cfg['training_settings']['epochs'] = 12
+    cfg['AR_settings']["AR_iterations"] = 2
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
     AR_settings = get_AR_settings(cfg)
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
-    SWAG_settings = get_SWAG_settings(cfg)
-
-    sampling_scale = str(SWAG_settings["sampling_scale"]).replace(".", "")
     
     ##------------------------------------------------------------------------.
     #### Load netCDF4 Datasets
@@ -247,103 +232,93 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     print_model_description(cfg)
     print_dim_info(dim_info)  
 
-    ##------------------------------------------------------------------------.
-    ### Define the model architecture   
-    # TODO (@Wentao ... )  
-    # - wrap below in a function --> utils_config ? 
-    # - model = get_pytorch_model(module, model_settings = model_settings) 
-    DeepSphereModelClass = getattr(my_architectures, model_settings['architecture_name'])
-    # - Retrieve required model arguments
-    model_keys = ['dim_info', 'sampling', 'resolution',
-                  'knn', 'kernel_size_conv',
-                  'pool_method', 'kernel_size_pooling']
-    model_args = {k: model_settings[k] for k in model_keys}
-    model_args['numeric_precision'] = training_settings['numeric_precision']
-    # - Define DeepSphere model 
-    model = DeepSphereModelClass(**model_args)
-    # - Define SWAG model
-    swag_model = SWAG(DeepSphereModelClass, no_cov_mat=SWAG_settings['no_cov_mat'], 
-                        max_num_models=SWAG_settings['max_num_models'], **model_args)
-
-    ###-----------------------------------------------------------------------.
-    ## If requested, load a pre-trained model for fine-tuning
-    if model_settings['pretrained_model_name'] is not None:
-        load_pretrained_model(model = model, exp_dir=exp_dir, model_name = model_settings['pretrained_model_name'])
-        # - Collect the model weights in SWAG model
-        swag_model.collect_model(model)
+    # Train the ensemble of models
+    for member in range(1, nb_models+1):
+        ##------------------------------------------------------------------------.
+        ### Define the model architecture   
+        # TODO (@Wentao ... )  
+        # - wrap below in a function --> utils_config ? 
+        # - model = get_pytorch_model(module, model_settings = model_settings) 
+        DeepSphereModelClass = getattr(my_architectures, model_settings['architecture_name'])
+        # - Retrieve required model arguments
+        model_keys = ['dim_info', 'sampling', 'resolution',
+                    'knn', 'kernel_size_conv',
+                    'pool_method', 'kernel_size_pooling']
+        model_args = {k: model_settings[k] for k in model_keys}
+        model_args['numeric_precision'] = training_settings['numeric_precision']
+        # - Define DeepSphere model 
+        model = DeepSphereModelClass(**model_args)              
         
-    ###-----------------------------------------------------------------------.
-    ### Transfer model to the device (i.e. GPU)
-    model = model.to(device)
-    swag_model = swag_model.to(device)
-    
-    ###-----------------------------------------------------------------------.
-    ### Summarize the model 
-    profiling_info = summarize_model(model=model, 
-                                     input_size=dim_info['input_shape'],  
-                                     batch_size=training_settings["training_batch_size"], 
-                                     device=device)
-
-    ###-----------------------------------------------------------------------.
-    # DataParallel training option on multiple GPUs
-    # if training_settings['DataParallel_training'] is True:
-    #     if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
-    #         model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
+        ###-----------------------------------------------------------------------.
+        ## If requested, load a pre-trained model for fine-tuning
+        if model_settings['pretrained_model_name'] is not None:
+            load_pretrained_model(model = model, exp_dir=exp_dir, model_name = model_settings['pretrained_model_name'])
+            
+        ###-----------------------------------------------------------------------.
+        ### Transfer model to the device (i.e. GPU)
+        model = model.to(device)
         
-    ###-----------------------------------------------------------------------.
-    ## Generate the (new) model name and its directories 
-    if model_settings['model_name'] is not None:
-        model_name = model_settings['model_name']
-    else: 
-        model_name = get_model_name(cfg)
-        model_settings['model_name'] = model_name
-        cfg['model_settings']["model_name_prefix"] = None
-        cfg['model_settings']["model_name_suffix"] = None
-    
-    experiments_dir = exp_dir
-    exp_dir = create_experiment_directories(exp_dir = exp_dir,      
-                                            model_name = model_name,
-                                            force=True)
- 
-    figs_dir_sampling_scale = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/")
-    figs_skills_dir = os.path.join(figs_dir_sampling_scale, "skills")
-    
-    os.makedirs(figs_dir_sampling_scale, exist_ok=False)
-    os.makedirs(figs_skills_dir, exist_ok=False)
+        ###-----------------------------------------------------------------------.
+        ### Summarize the model 
+        profiling_info = summarize_model(model=model, 
+                                        input_size=dim_info['input_shape'],  
+                                        batch_size=training_settings["training_batch_size"], 
+                                        device=device)
 
-    ##------------------------------------------------------------------------.
-    # Define model weights filepath 
-    # TODO: (@Yasser, Wentao) (better name convention?)
-    model_fpath = os.path.join(exp_dir, "model_weights", "model_swag.h5")
-    
-    ##------------------------------------------------------------------------.
-    # Write config file in the experiment directory 
-    write_config_file(cfg = cfg,
-                      fpath = os.path.join(exp_dir, 'config.json'))
-       
-    ##------------------------------------------------------------------------.
-    ### - Define custom loss function 
-    # TODO (@Wentao) 
-    # - --> variable weights 
-    # - --> spatial masking 
-    # - --> area_weights   
-    weights = compute_error_weight(model.graphs[0])
-    criterion = WeightedMSELoss(weights=weights)
-    
-    ##------------------------------------------------------------------------.
-    ### - Define optimizer 
-    optimizer = optim.Adam(model.parameters(),    
-                           lr=training_settings['learning_rate'], 
-                           eps=1e-7,    
-                           weight_decay=0, amsgrad=False)
-      
-    ##------------------------------------------------------------------------.
-    ## - Define AR_Weights_Scheduler 
-    # - Load pretrained AR_Weights_Scheduler
-    if model_settings['pretrained_model_name'] is not None:
-        ar_scheduler = load_pretrained_ar_scheduler(exp_dir = experiments_dir,
-                                                    model_name = model_settings['pretrained_model_name'])
-    else:
+        ###-----------------------------------------------------------------------.
+        # DataParallel training option on multiple GPUs
+        # if training_settings['DataParallel_training'] is True:
+        #     if torch.cuda.device_count() > 1 and len(training_settings['GPU_devices_ids']) > 1:
+        #         model = nn.DataParallel(model, device_ids=[i for i in training_settings['GPU_devices_ids']])
+            
+        ###-----------------------------------------------------------------------.
+        ## Generate the (new) model name and its directories 
+        if model_settings['model_name'] is not None:
+            model_name = model_settings['model_name']
+        else: 
+            model_name = get_model_name(cfg)
+            model_settings['model_name'] = model_name
+            cfg['model_settings']["model_name_prefix"] = None
+            cfg['model_settings']["model_name_suffix"] = None
+        
+        exp_dir = create_experiment_directories(exp_dir = exp_dir,      
+                                                model_name = model_name,
+                                                force=True)
+
+        figs_dir_member = os.path.join(exp_dir, f"figs/member_{member}/")
+        figs_training_dir = os.path.join(figs_dir_member, "training_info")
+        
+        os.makedirs(figs_dir_member, exist_ok=False)
+        os.makedirs(figs_training_dir, exist_ok=False)
+        
+        ##------------------------------------------------------------------------.
+        # Define model weights filepath 
+        # TODO: (@Yasser, Wentao) (better name convention?)
+        model_fpath = os.path.join(exp_dir, "model_weights", f"model_{member}.h5")
+        
+        ##------------------------------------------------------------------------.
+        # Write config file in the experiment directory 
+        write_config_file(cfg = cfg,
+                        fpath = os.path.join(exp_dir, 'config.json'))
+        
+        ##------------------------------------------------------------------------.
+        ### - Define custom loss function 
+        # TODO (@Wentao) 
+        # - --> variable weights 
+        # - --> spatial masking 
+        # - --> area_weights   
+        weights = compute_error_weight(model.graphs[0])
+        criterion = WeightedMSELoss(weights=weights)
+        
+        ##------------------------------------------------------------------------.
+        ### - Define optimizer 
+        optimizer = optim.Adam(model.parameters(),    
+                            lr=training_settings['learning_rate'], 
+                            eps=1e-7,    
+                            weight_decay=0, amsgrad=False)
+        
+        ##------------------------------------------------------------------------.
+        ## - Define AR_Weights_Scheduler 
         # - For RNN: growth and decay works well (fix the first)
         if training_settings["AR_training_strategy"] == "RNN":
             ar_scheduler = AR_Scheduler(method = "LinearStep",
@@ -360,33 +335,31 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
         else:
             raise NotImplementedError("'AR_training_strategy' must be either 'AR' or 'RNN'.")
 
-    ##------------------------------------------------------------------------.
-    ### - Define Early Stopping 
-    # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
-    patience = 500
-    minimum_iterations = 500
-    minimum_improvement = 0 # 0 to not stop 
-    stopping_metric = 'training_total_loss'   # training_total_loss                                                     
-    mode = "min" # MSE best when low  
-    early_stopping = EarlyStopping(patience = patience,
-                                   minimum_improvement = minimum_improvement,
-                                   minimum_iterations = minimum_iterations,
-                                   stopping_metric = stopping_metric,                                                         
-                                   mode = mode)  
-                                   
-    ##------------------------------------------------------------------------.
-    ### - Defining LR_Scheduler 
-    # TODO (@Yasser)
-    # - https://www.kaggle.com/isbhargav/guide-to-pytorch-learning-rate-scheduling
-    # LR_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1, last_epoch=-1)
-    # LR_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,80,100,150], gamma=0.1)
-    # LR_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, steps)
-    # LR_scheduler = optim.lr_scheduler.ReduceLROnPlateau
-    # LR_scheduler = optim.swa_utils.SWALR(optimizer, anneal_strategy="linear", anneal_epochs=3500, swa_lr=SWAG_settings["target_learning_rate"])
-    LR_scheduler = None
-    ##------------------------------------------------------------------------.
-    ### - Train the model 
-    if train:
+        ##------------------------------------------------------------------------.
+        ### - Define Early Stopping 
+        # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
+        patience = 500
+        minimum_iterations = 500
+        minimum_improvement = 0.001 # 0 to not stop 
+        stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
+        mode = "min" # MSE best when low  
+        early_stopping = EarlyStopping(patience = patience,
+                                    minimum_improvement = minimum_improvement,
+                                    minimum_iterations = minimum_iterations,
+                                    stopping_metric = stopping_metric,                                                         
+                                    mode = mode)  
+                                    
+        ##------------------------------------------------------------------------.
+        ### - Defining LR_Scheduler 
+        # TODO (@Yasser)
+        # - https://www.kaggle.com/isbhargav/guide-to-pytorch-learning-rate-scheduling
+        # LR_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1, last_epoch=-1)
+        # LR_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,80,100,150], gamma=0.1)
+        # LR_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, steps)
+        # LR_scheduler = optim.lr_scheduler.ReduceLROnPlateau
+        LR_scheduler = None
+        ##------------------------------------------------------------------------.
+        ### - Train the model 
         dask.config.set(scheduler='synchronous')
         training_info = AutoregressiveTraining(model = model,
                                             model_fpath = model_fpath,  
@@ -425,21 +398,16 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
                                             validation_batch_size = training_settings['validation_batch_size'],   
                                             epochs = training_settings['epochs'], 
                                             scoring_interval = training_settings['scoring_interval'], 
-                                            save_model_each_epoch = training_settings['save_model_each_epoch'],
-                                            # SWAG settings
-                                            swag = True,
-                                            swag_model = swag_model,
-                                            swag_freq = SWAG_settings['swag_freq'],
-                                            swa_start = SWAG_settings['swa_start'], 
+                                            save_model_each_epoch = training_settings['save_model_each_epoch'], 
                                             # GPU settings 
                                             device = device)
         
         # Save AR TrainingInfo
         print("========================================================================================")
         print("- Saving training information")
-        with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'wb') as handle:
+        with open(os.path.join(exp_dir,f"training_info/AR_TrainingInfo_{member}.pickle"), 'wb') as handle:
             pickle.dump(training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    
+        
         # # Load AR TrainingInfo
         # with open(os.path.join(exp_dir,"training_info/AR_TrainingInfo.pickle"), 'rb') as handle:
         #    training_info = pickle.load(handle)
@@ -486,11 +454,11 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
         # - Add title 
         ax.set_title("Loss evolution at each AR iteration")
         # - Save figure
-        fig.savefig(os.path.join(exp_dir, f"figs/training_info/Loss_at_all_AR_iterations.png"))    
+        fig.savefig(os.path.join(exp_dir, f"figs/member_{member}/training_info/Loss_at_all_AR_iterations.png"))    
         ##------------------------------------------------------------------------.   
         ## - Plot the loss at each AR iteration (in separate figures)
         for AR_iteration in range(training_info.AR_iterations+1):
-            fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
+            fname = os.path.join(exp_dir, f"figs/member_{member}/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
             training_info.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
                                                     linewidth=0.6,
                                                     ylim = (0,0.06),
@@ -498,57 +466,109 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
 
         ##------------------------------------------------------------------------.
         ## - Plot total loss 
-        training_info.plot_total_loss(ylim = (0,0.06),linewidth=0.6).savefig(os.path.join(exp_dir, f"figs/training_info/Total_Loss.png"))
+        training_info.plot_total_loss(ylim = (0,0.06),linewidth=0.6).savefig(os.path.join(exp_dir, f"figs/member_{member}/training_info/Total_Loss.png"))
 
         ##------------------------------------------------------------------------.
         ## - Plot AR weights  
-        training_info.plot_AR_weights(normalized=True).savefig(os.path.join(exp_dir, f"figs/training_info/AR_Normalized_Weights.png"))
-        training_info.plot_AR_weights(normalized=False).savefig(os.path.join(exp_dir, f"figs/training_info/AR_Absolute_Weights.png"))   
+        training_info.plot_AR_weights(normalized=True).savefig(os.path.join(exp_dir, f"figs/member_{member}/training_info/AR_Normalized_Weights.png"))
+        training_info.plot_AR_weights(normalized=False).savefig(os.path.join(exp_dir, f"figs/member_{member}/training_info/AR_Absolute_Weights.png"))   
         
-    ##-------------------------------------------------------------------------.
-    ### - Create predictions 
-    print("========================================================================================")
-    print("- Running predictions")
-    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale}_median.zarr")
-    dask.config.set(scheduler='synchronous')
+        ##-------------------------------------------------------------------------.
+        ### - Create predictions 
+        print("========================================================================================")
+        print("- Running predictions")
+        forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{member}.zarr")
+        dask.config.set(scheduler='synchronous')
+        ds_forecasts = AutoregressivePredictions(model = model, 
+                                                # Data
+                                                da_dynamic = da_test_dynamic,
+                                                da_static = da_static,              
+                                                da_bc = da_test_bc, 
+                                                scaler = scaler,
+                                                # Dataloader options
+                                                device = device,
+                                                batch_size = 50,  # number of forecasts per batch
+                                                num_workers = dataloader_settings['num_workers'], 
+                                                #  tune_num_workers = False, 
+                                                prefetch_factor = dataloader_settings['prefetch_factor'], 
+                                                prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
+                                                pin_memory = dataloader_settings['pin_memory'],
+                                                asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
+                                                numeric_precision = training_settings['numeric_precision'], 
+                                                # Autoregressive settings
+                                                input_k = AR_settings['input_k'], 
+                                                output_k = AR_settings['output_k'], 
+                                                forecast_cycle = AR_settings['forecast_cycle'],                         
+                                                stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
+                                                AR_iterations = 20,        # How many time to autoregressive iterate
+                                                # Save options 
+                                                zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
+                                                rounding = 2,             # Default None. Accept also a dictionary 
+                                                compressor = "auto",      # Accept also a dictionary per variable
+                                                chunks = "auto",          
+                                                timedelta_unit='hour')
+        ##------------------------------------------------------------------------.
+        ### Reshape forecast Dataset for verification
+        # - For efficient verification, data must be contiguous in time, but chunked over space (and leadtime) 
+        # dask.config.set(pool=ThreadPool(4))
+        dask.config.set(scheduler='processes')
+        ## Reshape on the fly (might work with the current size of data)
+        # --> To test ...  
+        # ds_verification = reshape_forecasts_for_verification(ds_forecasts)
         
-    if pred:
-        ds_forecasts = AutoregressiveSWAGPredictions(model = swag_model, 
-                                                    exp_dir = exp_dir, 
-                                                    # Data
-                                                    da_training_dynamic = da_training_dynamic,
-                                                    da_test_dynamic = da_test_dynamic,
-                                                    da_static = da_static,              
-                                                    da_training_bc = da_training_bc,         
-                                                    da_test_bc = da_test_bc, 
-                                                    # Scaler options
-                                                    scaler = scaler,
-                                                    # Dataloader options
-                                                    device = device,
-                                                    batch_size = training_settings['training_batch_size'],  # number of forecasts per batch
-                                                    num_workers = dataloader_settings['num_workers'], 
-                                                    prefetch_factor = dataloader_settings['prefetch_factor'], 
-                                                    prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
-                                                    pin_memory = dataloader_settings['pin_memory'],
-                                                    asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
-                                                    numeric_precision = training_settings['numeric_precision'],
-                                                    # Autoregressive settings  
-                                                    input_k = AR_settings['input_k'], 
-                                                    output_k = AR_settings['output_k'], 
-                                                    forecast_cycle = AR_settings['forecast_cycle'],                         
-                                                    AR_iterations = 20, 
-                                                    stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'],
-                                                    # SWAG settings
-                                                    no_cov_mat=SWAG_settings['no_cov_mat'],
-                                                    sampling_scale = SWAG_settings["sampling_scale"],
-                                                    nb_samples = SWAG_settings["nb_samples"],
-                                                    # Save options  
-                                                    rounding = 2,             # Default None. Accept also a dictionary 
-                                                    compressor = "auto",      # Accept also a dictionary per variable
-                                                    chunks = "auto",          
-                                                    timedelta_unit='hour')
-    else:
-        ds_forecasts = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
+        ## Reshape from 'forecast_reference_time'-'leadtime' to 'time (aka) forecasted_time'-'leadtime'  
+        # - Rechunk Dataset over space on disk and then reshape the for verification
+        print("========================================================================================")
+        print("- Reshape test set predictions for verification")
+        verification_zarr_fpath = os.path.join(exp_dir, f"model_predictions/temporal_chunks/test_pred_{member}.zarr")
+        ds_verification_format = rechunk_forecasts_for_verification(ds=ds_forecasts, 
+                                                                    chunks="auto", 
+                                                                    target_store=verification_zarr_fpath,
+                                                                    max_mem = '1GB')
+        
+        ##------------------------------------------------------------------------.
+        ### - Run deterministic verification 
+        print("========================================================================================")
+        print("- Run deterministic verification")
+        # dask.config.set(scheduler='processes')
+        # - Compute skills
+        ds_obs_test = da_test_dynamic.to_dataset('feature')
+        ds_obs_test = ds_obs_test.chunk({'time': -1,'node': 1})
+        ds_skill = xverif.deterministic(pred = ds_verification_format,
+                                        obs = ds_obs_test, 
+                                        forecast_type="continuous",
+                                        aggregating_dim='time')
+        # - Save sptial skills 
+        ds_skill.to_netcdf(os.path.join(exp_dir, f"model_skills/deterministic_spatial_skill_{member}.nc"))
+    
+
+    ##------------------------------------------------------------------------.
+    ### - Ensemble predictions
+    zarr_members_fpaths = [os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{member}.zarr") for member in nb_models]
+    list_ds_member = [xr.open_zarr(fpath) for fpath in zarr_members_fpaths]
+    ds_ensemble = xr.concat(list_ds_member, dim="member")
+
+    del list_ds_member
+    
+    ### - Save ensemble
+    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred.zarr")
+    if not os.path.exists(forecast_zarr_fpath):
+        ds_ensemble.to_zarr(forecast_zarr_fpath, mode='w') # Create
+    else:                        
+        ds_ensemble.to_zarr(forecast_zarr_fpath, append_dim='member') # Append
+    ds_ensemble = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
+
+    ### - Remove individual members
+    for member in zarr_members_fpaths:
+        shutil.rmtree(member)
+    
+    ### - Compute median of ensemble
+    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_median.zarr")
+    ds_forecasts = ds_ensemble.median(dim="member")
+    ds_forecasts.to_zarr(forecast_zarr_fpath, mode='w') # Create
+    ds_forecasts = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
+
+    del ds_ensemble
 
     ##------------------------------------------------------------------------.
     ### Reshape forecast Dataset for verification
@@ -563,12 +583,12 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     # - Rechunk Dataset over space on disk and then reshape the for verification
     print("========================================================================================")
     print("- Reshape test set predictions for verification")
-    verification_zarr_fpath = os.path.join(exp_dir, f"model_predictions/temporal_chunks/test_pred_{sampling_scale}.zarr")
+    verification_zarr_fpath = os.path.join(exp_dir, f"model_predictions/temporal_chunks/test_pred.zarr")
     ds_verification_format = rechunk_forecasts_for_verification(ds=ds_forecasts, 
                                                                 chunks="auto", 
                                                                 target_store=verification_zarr_fpath,
                                                                 max_mem = '1GB')
-     
+    
     ##------------------------------------------------------------------------.
     ### - Run deterministic verification 
     print("========================================================================================")
@@ -582,7 +602,7 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
                                     forecast_type="continuous",
                                     aggregating_dim='time')
     # - Save sptial skills 
-    ds_skill.to_netcdf(os.path.join(exp_dir, f"model_skills/deterministic_spatial_skill_{sampling_scale}.nc"))
+    ds_skill.to_netcdf(os.path.join(exp_dir, f"model_skills/deterministic_spatial_skill.nc"))
     
     ##------------------------------------------------------------------------.
     ### - Create verification summary plots and maps
@@ -602,11 +622,11 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     ds_longitudinal_skill = xverif.longitudinal_summary(ds_skill, lat_dim='lat', lon_dim='lon', lon_res=5) 
     
     # - Save global skills
-    ds_global_skill.to_netcdf(os.path.join(exp_dir, f"model_skills/deterministic_global_skill_{sampling_scale}.nc"))
+    ds_global_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_global_skill.nc"))
 
     # - Create spatial maps 
     plot_skill_maps(ds_skill = ds_skill,  
-                    figs_dir = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/SpatialSkill"),
+                    figs_dir = os.path.join(exp_dir, "figs/skills/SpatialSkill"),
                     crs_proj = ccrs.Robinson(),
                     skills = ['BIAS','RMSE','rSD', 'pearson_R2', 'error_CoV'],
                     # skills = ['percBIAS','percMAE','rSD', 'pearson_R2', 'KGE'],
@@ -614,9 +634,9 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
                     prefix="")
 
     # - Create skill vs. leadtime plots 
-    plot_global_skill(ds_global_skill).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/RMSE_skill.png"))
-    plot_global_skills(ds_global_skill).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/skills_global.png"))
-    plot_skills_distribution(ds_skill).savefig(os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/skills/skills_distribution.png"))
+    plot_global_skill(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/RMSE_skill.png"))
+    plot_global_skills(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_global.png"))
+    plot_skills_distribution(ds_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_distribution.png"))
         
     ##------------------------------------------------------------------------.
     ### - Create animations 
@@ -630,10 +650,10 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     ds_obs = ds_obs_test.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_obs = ds_obs.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
     # - Plot GIF for different months (variable states)
-    for month in range(1,13):
+    for month in [1, 4, 7, 10]:
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
+        create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
                                   ds_forecast = ds_forecast,
                                   ds_obs = ds_obs,
                                   aspect_cbar = 40,
@@ -641,10 +661,10 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
                                   edgecolors = None)
     # - Plot GIF for different months (variable anomalies)
     hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
-    for month in range(1,13):
+    for month in [1, 4, 7, 10]:
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
+        create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
                                        ds_forecast = ds_forecast,
                                        ds_obs = ds_obs,
                                        scaler = hourly_weekly_anomaly_scaler,
@@ -661,20 +681,17 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
-    # default_config = 'configs/UNetSpherical/Healpix_400km/SWAG.json' 
-    default_config = 'configs/UNetSpherical/Icosahedral_400km/SWAG.json'
+    default_config = 'configs/UNetSpherical/Healpix_400km/InterpPool-k20.json'
 
     parser = argparse.ArgumentParser(description='Training weather prediction model')
     parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--cuda', type=str, default='0')
-    parser.add_argument('--train', action='store_true')
-    parser.add_argument('--pred', action='store_true')
 
     args = parser.parse_args()
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
 
-    data_dir = "/mnt/scratch/students/wefeng/data/"
-    exp_dir = "/mnt/scratch/students/haddad/experiments"
+    data_dir = "/mnt/scratch/students/wefeng/data/" # Change accordingly
+    exp_dir = "/mnt/scratch/students/haddad/experiments" # Change accordingly
 
-    main(args.config_file, exp_dir, data_dir, train=args.train, pred=args.pred)
+    main(args.config_file, exp_dir, data_dir)
