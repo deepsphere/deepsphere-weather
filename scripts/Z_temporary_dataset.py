@@ -104,6 +104,8 @@ for sampling in spherical_samplings:
     ds = ds.rename({'plev': 'level'})
     ds = ds.rename({'var129': 'z'})
     ds = ds.rename({'var130': 't'})
+    ds = ds.rename({'var133': 'q'})
+    
     ds = ds.assign_coords(node=(np.arange(0, ds.dims['node'])))
     # Select variables 
     ds_z = ds.z.sel(level=500*100).to_dataset()
