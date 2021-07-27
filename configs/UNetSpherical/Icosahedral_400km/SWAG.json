@@ -1,0 +1,67 @@
+{
+    "model_settings": {
+        "pretrained_model_name": null,
+        "model_name_prefix": null,
+        "model_name": null,
+        "model_name_suffix": null,
+        "knn": 20,
+        "pool_method": "MaxArea",
+        "kernel_size_conv": 3,
+        "kernel_size_pooling": 4,
+        "sampling_name": "Icosahedral_400km",
+        "sampling": "icosahedral",
+        "resolution": 16,
+        "architecture_name": "UNetSpherical"
+    },
+    "dataloader_settings": {
+        "random_shuffle": true,
+        "drop_last_batch": false,
+        "prefetch_in_GPU": false,
+        "prefetch_factor": 2,
+        "pin_memory": false,
+        "asyncronous_GPU_transfer": false,
+        "num_workers": 8,
+        "autotune_num_workers": false
+    },
+    "training_settings": {
+        "epochs": 4,
+        "AR_training_strategy": "AR",
+        "learning_rate": 0.007,
+        "training_batch_size": 16,
+        "validation_batch_size": 64,
+        "scoring_interval": 2000,
+        "save_model_each_epoch": false,
+        "numeric_precision": "float32",
+        "deterministic_training": false,
+        "deterministic_training_seed": 100,
+        "benchmark_cuDNN": true,
+        "GPU_training": true,
+        "GPU_devices_ids": [
+            0
+        ],
+        "DataParallel_training": false
+    },
+    "AR_settings": {
+        "input_k": [
+            -18,
+            -12,
+            -6
+        ],
+        "output_k": [
+            0
+        ],
+        "forecast_cycle": 6,
+        "AR_iterations": 6,
+        "stack_most_recent_prediction": true
+    },
+    "SWAG_settings": {
+        "SWAG": true,
+        "target_learning_rate": 0.007,
+        "no_cov_mat": false,
+        "max_num_models": 50,
+        "swag_freq": 20,
+        "swa_start": 0,
+        "sampling_scale": 0.1,
+        "nb_samples": 10
+    }
+}

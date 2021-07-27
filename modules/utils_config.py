@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import torch
+import pickle
 import shutil
 import numpy as np
 
@@ -71,6 +72,19 @@ def get_default_dataloader_settings():
                            "asyncronous_GPU_transfer": True, 
                            "num_workers": 0,
                            "autotune_num_workers": False, 
+                           }  
+    return dataloader_settings
+
+def get_default_SWAG_settings():
+    """Return some default settings for the SWAG model."""
+    dataloader_settings = {"SWAG": False,
+                           "target_learning_rate": 0.007,
+                           "no_cov_mat": False,
+                           "max_num_models": 40,
+                           "swag_freq": 10,
+                           "swa_start": 0,
+                           "sampling_scale": 0.1,
+                           "nb_samples": 10
                            }  
     return dataloader_settings
 
@@ -227,6 +241,28 @@ def get_AR_settings(cfg):
     # Return AR settings 
     return AR_settings
 
+def get_SWAG_settings(cfg):
+    """Return SWAG settings from the config file."""
+    # Initialize AR settings
+    SWAG_settings = {}
+    default_SWAG_settings = get_default_SWAG_settings()  
+    available_keys = list(default_SWAG_settings.keys())
+    
+    # Check that only correct keys are specified 
+    cfg_keys = np.array(list(cfg['SWAG_settings'].keys())) 
+    invalid_keys = cfg_keys[np.isin(cfg_keys, available_keys, invert=True)]
+    if len(invalid_keys) > 0: 
+        for key in invalid_keys: 
+            print("'{}' is an unvalid SWAG setting key!".format(key))
+        raise ValueError('Specify only correct SWAG setting keys in the config file!')        
+    
+    # Retrieve optional AR settings  
+    for key in available_keys:
+        SWAG_settings[key] = cfg['SWAG_settings'].get(key, default_SWAG_settings[key])   
+        
+    # Return AR settings 
+    return SWAG_settings
+
 #-----------------------------------------------------------------------------.
 #################################
 ### Checks config key values ####
@@ -305,9 +341,18 @@ def check_numeric_precision(numeric_precision):
 
 def load_pretrained_model(model, exp_dir, model_name):
     """Load a pre-trained pytorch model."""
-    model_fpath = os.path.join(exp_dir, model_name, 'models_weights', "model.h5")
+    model_fpath = os.path.join(exp_dir, model_name, 'model_weights', "model.h5")
     state = torch.load(model_fpath)
     model.load_state_dict(state, strict=False)
+
+def load_pretrained_ar_scheduler(exp_dir, model_name):
+    """Load a pre-trained AR scheduler."""
+    training_info_fpath = os.path.join(exp_dir, model_name, 'training_info', 'AR_TrainingInfo.pickle')
+    with open(training_info_fpath, 'rb') as f:
+        training_info = pickle.load(f)
+    ar_scheduler = pickle.loads(training_info.AR_scheduler)
+
+    return ar_scheduler
 
 #-----------------------------------------------------------------------------.
 ######################### 

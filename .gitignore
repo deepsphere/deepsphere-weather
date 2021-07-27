@@ -9,6 +9,7 @@ test*
 /data/equiangular/
 /data/healpix/
 /tmp/
+/figs/figs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

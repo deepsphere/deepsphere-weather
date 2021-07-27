@@ -27,6 +27,8 @@ from modules.utils_torch import check_prefetch_in_GPU
 from modules.utils_torch import check_prefetch_factor
 from modules.utils_torch import check_AR_training_strategy
 from modules.utils_torch import get_time_function
+
+from modules.utils_swag import bn_update_with_loader
 ##----------------------------------------------------------------------------.
 # TODOs
 # - ONNX for saving model weights 
@@ -54,7 +56,8 @@ def timing_AR_Training(dataset,
                        AR_scheduler, 
                        AR_training_strategy = "AR",
                        # DataLoader options
-                       batch_size = 32, 
+                       batch_size = 32,
+                       random_shuffle = True, 
                        num_workers = 0, 
                        prefetch_in_GPU = False,
                        prefetch_factor = 2,
@@ -155,7 +158,7 @@ def timing_AR_Training(dataset,
     trainingDataLoader = AutoregressiveDataLoader(dataset = dataset,                                                   
                                                   batch_size = batch_size,  
                                                   drop_last_batch = True,
-                                                  random_shuffle = True,
+                                                  random_shuffle = random_shuffle,
                                                   num_workers = num_workers,
                                                   prefetch_factor = prefetch_factor, 
                                                   prefetch_in_GPU = prefetch_in_GPU,  
@@ -349,6 +352,7 @@ def tune_num_workers(dataset,
                      AR_training_strategy = "AR", # TODO add doc
                      # DataLoader options
                      batch_size = 32, 
+                     random_shuffle = True,
                      prefetch_in_GPU = False,
                      prefetch_factor = 2,
                      pin_memory = False,
@@ -427,6 +431,7 @@ def tune_num_workers(dataset,
                                                       AR_training_strategy = AR_training_strategy, 
                                                       # DataLoader options
                                                       batch_size = batch_size, 
+                                                      random_shuffle = random_shuffle,
                                                       num_workers = num_workers, 
                                                       prefetch_in_GPU = prefetch_in_GPU,
                                                       prefetch_factor = prefetch_factor,
@@ -506,7 +511,7 @@ def AutoregressiveTraining(model,
                            input_k = [-3,-2,-1], 
                            output_k = [0],
                            forecast_cycle = 1,                           
-                           AR_iterations = 2, 
+                           AR_iterations = 6, 
                            stack_most_recent_prediction = True,
                            # Training settings 
                            AR_training_strategy = "AR", 
@@ -517,6 +522,11 @@ def AutoregressiveTraining(model,
                            numeric_precision = "float64",
                            scoring_interval = 10, 
                            save_model_each_epoch = False,
+                           # SWAG settings
+                           swag=False,
+                           swag_model=None,
+                           swag_freq=10,
+                           swa_start=8,
                            # GPU settings 
                            device = 'cpu'):
     """AutoregressiveTraining."""
@@ -612,6 +622,7 @@ def AutoregressiveTraining(model,
                                             AR_training_strategy = AR_training_strategy, 
                                             # DataLoader options
                                             batch_size = training_batch_size, 
+                                            random_shuffle = random_shuffle,
                                             prefetch_in_GPU = prefetch_in_GPU,
                                             prefetch_factor = prefetch_factor,
                                             pin_memory = pin_memory,
@@ -635,6 +646,7 @@ def AutoregressiveTraining(model,
                                                     AR_training_strategy = AR_training_strategy, 
                                                     # DataLoader options
                                                     batch_size = validation_batch_size, 
+                                                    random_shuffle = random_shuffle,
                                                     prefetch_in_GPU = prefetch_in_GPU,
                                                     prefetch_factor = prefetch_factor,
                                                     pin_memory = pin_memory,
@@ -684,7 +696,8 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     # Initialize AR TrainingInfo object 
     training_info = AR_TrainingInfo(AR_iterations=AR_iterations,
-                                    epochs = epochs)  
+                                    epochs = epochs,
+                                    AR_scheduler = AR_scheduler)  
 
     ##------------------------------------------------------------------------.
     # Get dimension infos
@@ -705,7 +718,16 @@ def AutoregressiveTraining(model,
         ##--------------------------------------------------------------------.
         # Iterate along training batches 
         trainingDataLoader_iter = iter(trainingDataLoader)
-        for batch_count in range(len(trainingDataLoader_iter)):
+        ##--------------------------------------------------------------------.
+        # Compute collection points for SWAG training
+        num_batches = len(trainingDataLoader_iter)
+        batch_indices = range(num_batches)
+        swag_training = swag and swag_model and epoch >= swa_start
+        if swag_training:
+            freq = int(num_batches/(swag_freq-1))
+            collection_indices = list(range(0, num_batches, freq))
+            
+        for batch_count in batch_indices:
             ##----------------------------------------------------------------.   
             # Retrieve the training batch
             training_batch_dict = next(trainingDataLoader_iter)
@@ -796,8 +818,11 @@ def AutoregressiveTraining(model,
                 training_info.update_training_stats(total_loss = training_total_loss,
                                                     dict_loss_per_AR_iteration = dict_training_loss_per_AR_iteration, 
                                                     AR_scheduler = AR_scheduler, 
-                                                    LR_scheduler = LR_scheduler) 
-    
+                                                    LR_scheduler = LR_scheduler)
+
+            if swag_training:
+                if batch_count in collection_indices:
+                    swag_model.collect_model(model)
             ##----------------------------------------------------------------. 
             ### Run validation 
             if validationDataset is not None:
@@ -811,6 +836,18 @@ def AutoregressiveTraining(model,
                     # Initialize 
                     dict_validation_loss_per_AR_iteration = {}
                     dict_validation_Y_predicted = {}
+                    
+                    # SWAG : collect, sample and update batch norm statistics
+                    if swag_training:
+                        swag_model.collect_model(model)
+                        with torch.no_grad():
+                            swag_model.sample(0.0)
+
+                        bn_update_with_loader(swag_model, trainingDataLoader,
+                                            AR_iterations = AR_scheduler.current_AR_iterations,
+                                            asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                            device = device
+                                            )
                     #-#-------------------------------------------------------.
                     # Disable gradient calculations 
                     # - And do not update network weights  
@@ -826,7 +863,7 @@ def AutoregressiveTraining(model,
                         
                             ##------------------------------------------------.
                             # Forward pass and store output for stacking into next AR iterations
-                            dict_validation_Y_predicted[AR_iteration] = model(torch_X)
+                            dict_validation_Y_predicted[AR_iteration] = swag_model(torch_X) if swag_training else model(torch_X)
                 
                             ##------------------------------------------------.
                             # Compute loss for current forecast iteration 
@@ -923,6 +960,7 @@ def AutoregressiveTraining(model,
                                                                 AR_training_strategy = AR_training_strategy, 
                                                                 # DataLoader options
                                                                 batch_size = training_batch_size, 
+                                                                random_shuffle = random_shuffle,
                                                                 prefetch_in_GPU = prefetch_in_GPU,
                                                                 prefetch_factor = prefetch_factor,
                                                                 pin_memory = pin_memory,
@@ -946,6 +984,7 @@ def AutoregressiveTraining(model,
                                                                       AR_training_strategy = AR_training_strategy,  
                                                                       # DataLoader options
                                                                       batch_size = validation_batch_size, 
+                                                                      random_shuffle = random_shuffle,
                                                                       prefetch_in_GPU = prefetch_in_GPU,
                                                                       prefetch_factor = prefetch_factor,
                                                                       pin_memory = pin_memory,
@@ -971,15 +1010,15 @@ def AutoregressiveTraining(model,
                         if validationDataset is not None: 
                             validationDataset.update_AR_iterations(AR_scheduler.current_AR_iterations)
                             validationDataLoader = AutoregressiveDataLoader(dataset = validationDataset, 
-                                                                        batch_size = validation_batch_size,  
-                                                                        drop_last_batch = drop_last_batch,
-                                                                        random_shuffle = random_shuffle,
-                                                                        num_workers = validation_num_workers,
-                                                                        prefetch_in_GPU = prefetch_in_GPU,  
-                                                                        prefetch_factor = prefetch_factor, 
-                                                                        pin_memory = pin_memory,
-                                                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                                                                        device = device)
+                                                                            batch_size = validation_batch_size,  
+                                                                            drop_last_batch = drop_last_batch,
+                                                                            random_shuffle = random_shuffle,
+                                                                            num_workers = validation_num_workers,
+                                                                            prefetch_in_GPU = prefetch_in_GPU,  
+                                                                            prefetch_factor = prefetch_factor, 
+                                                                            pin_memory = pin_memory,
+                                                                            asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                                                            device = device)
                             validationDataLoader_iter = cylic_iterator(validationDataLoader)
                             
                     ##--------------------------------------------------------.     
@@ -1002,7 +1041,8 @@ def AutoregressiveTraining(model,
         ##--------------------------------------------------------------------. 
         # Option to save the model each epoch
         if save_model_each_epoch:
-            torch.save(model.state_dict(), model_fpath[:-3] + '_epoch_{}'.format(epoch) + '.h5')
+            model_weights = swag_model.state_dict() if swag_training else model.state_dict()
+            torch.save(model_weights, model_fpath[:-3] + '_epoch_{}'.format(epoch) + '.h5')
       
     ##------------------------------------------------------------------------.
     # Save final model
@@ -1010,8 +1050,9 @@ def AutoregressiveTraining(model,
     print("========================================================================================")
     print("- Training ended !")
     print("- Total elapsed time: {:.2f} hours.".format((time.time()-time_start_training)/60/60))
-    print("- Saving model to {}".format(model_fpath)) 
-    torch.save(model.state_dict(), f=model_fpath)    
+    print("- Saving model to {}".format(model_fpath))
+    model_weights = swag_model.state_dict() if (swag and swag_model) else model.state_dict() 
+    torch.save(model_weights, f=model_fpath)    
     ##-------------------------------------------------------------------------.
     # Return training info object 
     return training_info

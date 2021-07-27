@@ -5,8 +5,9 @@ Created on Tue Jan 19 00:07:05 2021
 
 @author: ghiggi
 """
-import numpy as np
 import time
+import pickle
+import numpy as np
 import matplotlib.pyplot as plt
 from cycler import cycler
 ## TODO:
@@ -106,7 +107,7 @@ def plot_loss(iterations,
 class AR_TrainingInfo():
     """Training info Object."""
     
-    def __init__(self, AR_iterations, epochs):
+    def __init__(self, AR_iterations, epochs, AR_scheduler):
         # TODO
         # - loss per variable 
         # Initialize training info 
@@ -160,6 +161,8 @@ class AR_TrainingInfo():
             AR_weights_per_AR_iteration[i]['AR_weights'] = []
         self.AR_weights_per_AR_iteration = AR_weights_per_AR_iteration
         ##--------------------------------------------------------------------. 
+        # - Initialize the AR scheduler pickle
+        self.AR_scheduler = pickle.dumps(AR_scheduler)
         
     ##------------------------------------------------------------------------.
     def step(self): 
@@ -210,6 +213,9 @@ class AR_TrainingInfo():
             self.AR_weights_per_AR_iteration[i]['iteration'].append(self.iteration)   
             self.AR_weights_per_AR_iteration[i]['AR_absolute_weights'].append(AR_scheduler.AR_absolute_weights[i])
             self.AR_weights_per_AR_iteration[i]['AR_weights'].append(AR_scheduler.AR_weights[i])
+        
+        # Pickle AR scheduler
+        self.AR_scheduler = pickle.dumps(AR_scheduler)
    
     ##------------------------------------------------------------------------.
     def update_validation_stats(self, total_loss, dict_loss_per_AR_iteration):

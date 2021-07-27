@@ -11,8 +11,8 @@ class EarlyStopping:
   
     def __init__(self, 
                  patience = 10,
-                 minimum_improvement = 0.001,
-                 minimum_iterations = 500,
+                 minimum_improvement = 0,
+                 minimum_iterations = 1000,
                  stopping_metric = 'training_total_loss',                                                         
                  mode = "min"):  
         """
@@ -27,8 +27,9 @@ class EarlyStopping:
             The number of scoring events with no improvement before stop training. 
             The default is 10.
         minimum_improvement : float, optional
-            Minimum change in the monitored quantity to qualify as an improvement
-            The default is 0.001.
+            Absolute minimum change in the monitored quantity to qualify as an improvement.
+            Absolute change of less than minimum_improvement, will count as no improvement.
+            The default is 0.
         minimum_iterations : float, optional
             Minimum number of training iterations before turning on 
             early stopping.  
@@ -49,6 +50,8 @@ class EarlyStopping:
             raise ValueError("'patience' must be a positive integer larger than 1.")
         if not isinstance(minimum_improvement, (int, float)):
             raise TypeError("'minimum_improvement' must be a value (int or float).")
+        if minimum_improvement < 0:
+            raise ValueError("'minimum_improvement' must be 0 or positive value.")
         if isinstance(minimum_iterations, type(None)):
             minimum_iterations = 0 
         if not isinstance(minimum_iterations, int):
@@ -70,27 +73,37 @@ class EarlyStopping:
         self.counter = 0
         self.best_score = None
         self.early_stop = False
+        self.disabled = False
         
     def __call__(self, training_info):
         """Call to verify if training must stop."""
         stopping_metric = self.stopping_metric
         score = getattr(training_info, stopping_metric)[-1]
         iteration_from_last_AR_update = getattr(training_info, "iteration_from_last_AR_update")
-        if iteration_from_last_AR_update > self.minimum_iterations:
-            if self.best_score is None:
-                self.best_score = score
-    
-            elif ((score > (self.best_score - self.minimum_improvement)) and (self.mode=='min')) or \
-                 ((score < (self.best_score + self.minimum_improvement)) and (self.mode=='max')):
-                self.counter += 1
-                if self.counter >= self.patience:
-                    self.early_stop = True
-            else:
-                self.best_score = score
-                self.counter = 0
+        if not self.disabled:
+            if iteration_from_last_AR_update > self.minimum_iterations:
+                if self.best_score is None:
+                    self.best_score = score
+                elif ((((self.best_score - score) < self.minimum_improvement) and (self.mode=='min')) or \
+                     ((((score - self.best_score) < self.minimum_improvement)) and (self.mode=='max'))):
+                    self.counter += 1
+                    if self.counter >= self.patience:
+                        self.early_stop = True
+                else:
+                    self.best_score = score
+                    self.counter = 0
         
         return self.early_stop
 
     def reset(self):
         self.early_stop = False
+        self.best_score = None
         self.counter = 0
+    
+    def disable(self):
+        print('Early stopping disabled!')
+        self.disabled = True
+    
+    def enable(self):
+        print('Early stopping activated!')
+        self.disabled = False

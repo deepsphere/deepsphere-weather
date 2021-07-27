@@ -6,6 +6,7 @@ Created on Sun Jan  3 19:49:16 2021
 @author: ghiggi
 """
 import os
+import glob
 import shutil
 import time
 import torch
@@ -30,6 +31,7 @@ from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_GPU_transfer
 from modules.utils_torch import check_prefetch_in_GPU
 from modules.utils_torch import check_prefetch_factor
+from modules.utils_swag import bn_update
 # conda install -c conda-forge zarr
 # conda install -c conda-forge cfgrib
 # conda install -c conda-forge rechunker
@@ -568,6 +570,140 @@ def AutoregressivePredictions(model,
     ##------------------------------------------------------------------------.    
     return ds_forecasts  
  
+#----------------------------------------------------------------------------.
+def AutoregressiveSWAGPredictions(model, exp_dir, 
+                                # Data
+                                da_training_dynamic,
+                                da_test_dynamic = None,
+                                da_static = None,              
+                                da_training_bc = None,         
+                                da_test_bc = None, 
+                                # Scaler options
+                                scaler = None,
+                                scaler_transform = True,  # transform_input ???
+                                scaler_inverse = True,    # backtransform_predictions ????
+                                # Dataloader options
+                                batch_size = 64, 
+                                num_workers = 0,
+                                prefetch_factor = 2, 
+                                prefetch_in_GPU = False,  
+                                pin_memory = False,
+                                asyncronous_GPU_transfer = True,
+                                device = 'cpu',
+                                numeric_precision = "float32", 
+                                # Autoregressive settings  
+                                input_k = [-3,-2,-1], 
+                                output_k = [0],
+                                forecast_cycle = 1,                           
+                                AR_iterations = 50, 
+                                stack_most_recent_prediction = True,
+                                # SWAG settings
+                                no_cov_mat=False,
+                                sampling_scale = 0.1,
+                                nb_samples = 10,
+                                # Save options  
+                                rounding = None,
+                                compressor = "auto",
+                                chunks = "auto",
+                                timedelta_unit='hour'):
+    
+    sampling_scale_str = str(sampling_scale).replace(".", "")
+    
+    for i in range(1, nb_samples+1): 
+        print(f"- Sample {i}")
+        forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_temp{i}.zarr")
+        with torch.no_grad():
+            model.sample(sampling_scale, cov=(no_cov_mat))
+
+        bn_update(model,
+                # Data
+                da_dynamic = da_training_dynamic,
+                da_static = da_static,              
+                da_bc = da_training_bc,          
+                scaler = scaler, 
+                # Dataloader options
+                device = device,
+                batch_size = batch_size,  # number of forecasts per batch
+                num_workers = num_workers, 
+                # tune_num_workers = False, 
+                prefetch_factor = prefetch_factor, 
+                prefetch_in_GPU = prefetch_in_GPU,  
+                pin_memory = pin_memory,
+                asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                numeric_precision = numeric_precision, 
+                # Autoregressive settings  
+                input_k = input_k, 
+                output_k = output_k, 
+                forecast_cycle = forecast_cycle,                         
+                AR_iterations = AR_iterations, 
+                stack_most_recent_prediction = stack_most_recent_prediction
+                )
+
+
+        ds_forecasts = AutoregressivePredictions(model = model, 
+                                                # Data
+                                                da_dynamic = da_test_dynamic,
+                                                da_static = da_static,              
+                                                da_bc = da_test_bc, 
+                                                scaler = scaler,
+                                                scaler_transform = scaler_transform,  # transform_input ???
+                                                scaler_inverse = scaler_inverse,    # backtransform_predictions ????
+                                                # Dataloader options
+                                                device = device,
+                                                batch_size = 50,  # number of forecasts per batch
+                                                num_workers = num_workers, 
+                                                # tune_num_workers = False, 
+                                                prefetch_factor = prefetch_factor, 
+                                                prefetch_in_GPU = prefetch_in_GPU,  
+                                                pin_memory = pin_memory,
+                                                asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                                numeric_precision = numeric_precision, 
+                                                # Autoregressive settings
+                                                input_k = input_k, 
+                                                output_k = output_k, 
+                                                forecast_cycle = forecast_cycle,                         
+                                                stack_most_recent_prediction = stack_most_recent_prediction, 
+                                                AR_iterations = 20,        # How many time to autoregressive iterate
+                                                # Save options 
+                                                zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
+                                                rounding = rounding,             # Default None. Accept also a dictionary 
+                                                compressor = compressor,      # Accept also a dictionary per variable
+                                                chunks = chunks,          
+                                                timedelta_unit=timedelta_unit)
+
+    ##-------------------------------------------------------------------------.
+    # Ensemble the predicitons along dim "member"
+    zarr_members_fpaths = glob.glob(os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_*"))
+    list_ds_member = [xr.open_zarr(fpath) for fpath in zarr_members_fpaths]
+    ds_ensemble = xr.concat(list_ds_member, dim="member")
+    
+    del list_ds_member
+        
+    ##-------------------------------------------------------------------------.
+    # Save ensemble
+    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}.zarr")
+    if not os.path.exists(forecast_zarr_fpath):
+        ds_ensemble.to_zarr(forecast_zarr_fpath, mode='w') # Create
+    else:                        
+        ds_ensemble.to_zarr(forecast_zarr_fpath, append_dim='member') # Append
+    ds_ensemble = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
+
+    ##-------------------------------------------------------------------------.
+    # Remove individual members
+    for member in zarr_members_fpaths:
+        shutil.rmtree(member)
+    
+    ##-------------------------------------------------------------------------.
+    # Compute median of ensemble
+    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_median.zarr")
+    df_median = ds_ensemble.median(dim="member")
+    df_median.to_zarr(forecast_zarr_fpath, mode='w') # Create
+    df_median = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
+    
+    del ds_ensemble
+
+    return df_median
+
 #----------------------------------------------------------------------------.
 def reshape_forecasts_for_verification(ds):
     """Process a Dataset with forecasts in the format required for verification."""
