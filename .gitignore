@@ -8,6 +8,7 @@ test*
 # Folders
 /data/equiangular/
 /data/healpix/
+/figs/figs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
