@@ -578,7 +578,7 @@ def main(cfg_path, exp_dir, data_dir):
     ds_obs = ds_obs_test.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_obs = ds_obs.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
     # - Plot GIF for different months (variable states)
-    for month in range(1,13):
+    for month in [1,4,7,10]:
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
         create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
@@ -589,7 +589,7 @@ def main(cfg_path, exp_dir, data_dir):
                                   edgecolors = None)
     # - Plot GIF for different months (variable anomalies)
     hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
-    for month in range(1,13):
+    for month in [1,4,7,10]:
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
         create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
@@ -609,7 +609,6 @@ def main(cfg_path, exp_dir, data_dir):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
-    default_config = 'configs/UNetSpherical/Healpix_400km/InterpPool-k20.json'
     default_config = 'configs/UNetSpherical/Healpix_400km/MaxAreaPool-k20.json'
 
     parser = argparse.ArgumentParser(description='Training weather prediction model')
