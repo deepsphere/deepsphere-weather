@@ -10,6 +10,7 @@ test*
 /data/healpix/
 /tmp/
 /figs/figs/
+/scripts_dev/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
