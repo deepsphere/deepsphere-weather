@@ -5,11 +5,233 @@ Created on Sun Jan  3 18:46:41 2021
 
 @author: ghiggi
 """
+import zarr
+import os
 import time
 import xarray as xr
 from modules.utils_io import check_AR_Datasets
+from dask.diagnostics import ProgressBar
+from modules.utils_zarr import check_chunks
+from modules.utils_zarr import check_compressor
 
+##----------------------------------------------------------------------------.   
+def _write_zarr(zarr_fpath, ds, chunks="auto",
+                compressor="auto", 
+                consolidated=True, append=False):
+    """Write Xarray Dataset to zarr with custom chunks and compressor per Dataset variable."""
+    ### - Define file chunking  
+    default_chunks = {'node': -1,
+                      'time': 72,
+                      'feature': 1}
+    chunks = check_chunks(chunks = chunks, 
+                          default_chunks = default_chunks,
+                          variable_names = list(ds.data_vars.keys())) 
+    
+    ##------------------------------------------------------------------------.
+    # - Define compressor and filters
+    default_compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
+    compressor = check_compressor(compressor = compressor,  
+                                  default_compressor = default_compressor,
+                                  variable_names = list(ds.data_vars.keys()))
+    
+    ##------------------------------------------------------------------------.
+    # - Add chunk encoding the dataset
+    for var, chunk in chunks.items():
+        ds[var] = ds[var].chunk(chunk)  
+    # - Add compressor encoding to each DataArray
+    for var, comp in compressor.items(): 
+        ds[var].encoding['compressor'] = comp
+        
+    ##------------------------------------------------------------------------.
+    ### - Write zarr files
+    # - Define zarr store  
+    zarr_store = zarr.DirectoryStore(zarr_fpath)  
+    # - Write data to new zarr store 
+    if not append: 
+        r = ds.to_zarr(store=zarr_store, 
+                       mode='w', # overwrite if exists already
+                       synchronizer=None, group=None, 
+                       consolidated = consolidated,
+                       compute=False) 
+        with ProgressBar():
+            r.compute()   
+    # - Append data to existing zarr store 
+    # ---> !!! Do not check if data are repeated !!! 
+    else: 
+        r = ds.to_zarr(zarr_store,
+                       append_dim="time",
+                       mode="a", 
+                       consolidated = consolidated, 
+                       compute=False) 
+        with ProgressBar():
+            r.compute()   
+            
+##----------------------------------------------------------------------------.   
+def pl_to_zarr(ds,
+               zarr_fpath, 
+               var_dict = None, 
+               unstack_plev = True, 
+               stack_variables = True, 
+               chunks="auto", compressor="auto",
+               consolidated = True, 
+               append = False, 
+               attrs={}):
+    """Convert pressure level data netCDFs to zarr.
+    
+    unstack_plev: bool
+         If True, it suppress the vertical dimension and it treats every 
+           <variable>-<pressure level> as a separate feature
+         If False, it keeps the vertical (pressure) dimension
+    stack_variables: bool
+        If True, all Dataset variables are stacked across a new 'feature' dimension        
+    """
+    ##------------------------------------------------------------------------.  
+    # Check arguments
+    if not isinstance(attrs, dict):
+        raise TypeError("attrs must be a dictionary")
+    if var_dict is not None:
+        if not isinstance(var_dict, dict):
+            raise TypeError("var_dict must be a dictionary") 
+    if not zarr_fpath.endswith(".zarr"):
+        zarr_fpath = zarr_fpath + ".zarr"
+    if not append:
+        if os.path.exists(zarr_fpath):
+            raise ValueError(zarr_fpath + " already exists !")
 
+    # Drop information related to mesh vertices 
+    ds = ds.drop_vars(['lon_bnds', 'lat_bnds'])
+    # Drop lat lon info of nodes 
+    # ds = ds.drop_vars(['lon', 'lat'])  
+    # Rename ncells to nodes 
+    ds = ds.rename({'ncells':'node'})
+    # Rename variables 
+    if var_dict is not None:
+        ds = ds.rename(var_dict)
+        
+    ##------------------------------------------------------------------------.
+    ### - Unstack pressure levels (as separate variables)
+    if unstack_plev:
+        l_da_vars = []
+        for var in ds.keys():
+            for i, p_level in enumerate(ds[var]['plev'].values):
+                # - Select variable at given pressure level
+                tmp_da = ds[var].isel(plev=i)
+                # - Update the name to (<var>_<plevel_in_hPa>)
+                tmp_da.name = tmp_da.name + str(int(p_level/100))
+                # - Remove plev dimension 
+                tmp_da = tmp_da.drop_vars('plev')
+                # - Append to the list of DataArrays to then be merged
+                l_da_vars.append(tmp_da)
+                
+        ds = xr.merge(l_da_vars)
+        
+    ##------------------------------------------------------------------------.
+    ### - Stack variables 
+    # - new_dim : new dimension name 
+    # - variable_dim : level name of the new stacked coordinate <new_dim>
+    # - name : DataArray name 
+    if stack_variables:
+        da_stacked = ds.to_stacked_array(new_dim="feature", variable_dim='variable', 
+                                         sample_dims=list(ds.dims.keys()), 
+                                         name = 'data')
+        # - Remove MultiIndex for compatibility with netCDF and Zarr
+        da_stacked = da_stacked.reset_index('feature')
+        da_stacked = da_stacked.set_index(feature='variable', append=True)
+        
+        # - Remove attributes from DataArray 
+        da_stacked.attrs = {}
+        # - Reshape to Dataset
+        ds = da_stacked.to_dataset() 
+        # - Reorder dimension as requested by PyTorch input 
+        ds = ds.transpose('time', 'node', ..., 'feature')
+    else: 
+        # - Reorder dimension as requested by PyTorch input 
+        ds = ds.transpose('time', 'node', ...)
+        
+    ##------------------------------------------------------------------------.
+    ### - Write Zarr store
+    # - Add attributes 
+    ds.attrs = attrs
+    # - Write data
+    _write_zarr(zarr_fpath=zarr_fpath, 
+                ds = ds, 
+                chunks = chunks,
+                compressor = compressor,
+                consolidated = consolidated,
+                append = append)
+    ##------------------------------------------------------------------------.
+    return None
+
+def toa_to_zarr(ds,
+               zarr_fpath, 
+               var_dict = None, 
+               stack_variables = True, 
+               chunks="auto", compressor="auto",
+               consolidated = True, 
+               append = False, 
+               attrs={}):
+    """Convert TOA data netCDFs to zarr."""
+    ##------------------------------------------------------------------------.  
+    # Check arguments
+    if not isinstance(attrs, dict):
+        raise TypeError("attrs must be a dictionary")
+    if var_dict is not None:
+        if not isinstance(var_dict, dict):
+            raise TypeError("var_dict must be a dictionary") 
+    if not zarr_fpath.endswith(".zarr"):
+        zarr_fpath = zarr_fpath + ".zarr"
+    if not append:
+        if os.path.exists(zarr_fpath):
+            raise ValueError(zarr_fpath + " already exists !")
+    ##------------------------------------------------------------------------.
+    # Drop information related to mesh vertices 
+    ds = ds.drop_vars(['lon_bnds', 'lat_bnds'])
+    # Drop lat lon info of nodes 
+    # ds = ds.drop_vars(['lon', 'lat'])  
+    # Rename ncells to nodes 
+    ds = ds.rename({'ncells':'node'})
+    # Rename variables 
+    if var_dict is not None:
+        ds = ds.rename(var_dict)
+        
+    ##------------------------------------------------------------------------.
+    ### - Stack variables 
+    # - new_dim : new dimension name 
+    # - variable_dim : level name of the new stacked coordinate <new_dim>
+    # - name : DataArray name 
+    if stack_variables:
+        da_stacked = ds.to_stacked_array(new_dim="feature", variable_dim='variable', 
+                                         sample_dims=list(ds.dims.keys()), 
+                                         name = 'data')
+        # - Remove MultiIndex for compatibility with netCDF and Zarr
+        da_stacked = da_stacked.reset_index('feature')
+        da_stacked = da_stacked.set_index(feature='variable', append=True)
+        
+        # - Remove attributes from DataArray 
+        da_stacked.attrs = {}
+        # - Reshape to Dataset
+        ds = da_stacked.to_dataset() 
+        # - Reorder dimension as requested by PyTorch input 
+        ds = ds.transpose('time', 'node', ..., 'feature')
+    else: 
+        # - Reorder dimension as requested by PyTorch input 
+        ds = ds.transpose('time', 'node', ...)
+        
+    ##------------------------------------------------------------------------.
+    ### - Write Zarr store
+    # - Add attributes 
+    ds.attrs = attrs
+    # - Write data
+    _write_zarr(zarr_fpath=zarr_fpath, 
+                ds = ds, 
+                chunks = chunks,
+                compressor = compressor,
+                consolidated = consolidated,
+                append = append)
+    ##------------------------------------------------------------------------.
+    return None
+
+### OLD 
 ##----------------------------------------------------------------------------.
 def load_dynamic_dataset(data_dir, chunk_size="auto"):
     z500 = xr.open_mfdataset(f'{data_dir}/data/geopotential_500/*.nc', 
