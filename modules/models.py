@@ -16,6 +16,26 @@ from modules.utils_models import get_pygsp_graph_fun
 from modules.utils_models import get_pygsp_graph_params
 from modules.utils_models import check_conv_type
 from modules.utils_torch import get_torch_dtype
+import igl # conda install igl
+
+def triangulate(graph):
+    sv = SphericalVoronoi(graph.coords)
+    assert sv.points.shape[0] == graph.n_vertices
+    return sv.points, sv._simplices
+
+def compute_cotan_laplacian(graph, return_mass=False):
+    v, f = triangulate(graph)
+    L = -igl.cotmatrix(v, f)
+    assert len((L - L.T).data) == 0
+    M = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_VORONOI)
+    # M = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_BARYCENTRIC)
+    if return_mass:
+        # Eliminate zeros for speed (appears for equiangular).
+        L.eliminate_zeros()  
+        return L, M
+    else:
+        Minv = sparse.diags(1 / M.diagonal())
+        return Minv @ L
 
 # TODO 
 # - Add RemappingNet (just pooling)
@@ -65,9 +85,14 @@ class UNet(ABC):
     
     @staticmethod
     def get_laplacian_kernels(graphs: List["pygsp.graphs"],
-                              torch_dtype):
+                              torch_dtype,
+                              gtype='knn'):
         """Compute the laplacian for each specified graph."""
-        laplacians_list = [prepare_torch_laplacian(graph.L, torch_dtype=torch_dtype) for graph in graphs]
+        # TODO 
+        # - Add gtype in config file
+        assert gtype in ['knn', 'mesh']
+        laplacians_list = [graph.L if gtype == 'knn' else compute_cotan_laplacian(graph, return_mass=False) for graph in graphs]
+        laplacians_list = [prepare_torch_laplacian(L, torch_dtype=torch_dtype) for L in laplacians_list]
         return laplacians_list
     
     def init_graph_and_laplacians(self, 
