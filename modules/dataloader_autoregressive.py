@@ -5,9 +5,11 @@ Created on Mon Jan  4 00:04:12 2021
 
 @author: ghiggi
 """
+import time
 import torch
 import numpy as np
 from functools import partial 
+from tabulate import tabulate 
 from torch.utils.data import Dataset, DataLoader
 
 from modules.utils_autoregressive import get_dict_stack_info
@@ -18,7 +20,6 @@ from modules.utils_autoregressive import get_dict_X_dynamic
 from modules.utils_autoregressive import get_dict_X_bc    
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
-from modules.utils_autoregressive import check_AR_settings
 from modules.utils_io import is_dask_DataArray
 from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import get_torch_dtype
@@ -27,6 +28,8 @@ from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_GPU_transfer
 from modules.utils_torch import check_prefetch_in_GPU
 from modules.utils_torch import check_prefetch_factor
+from modules.utils_torch import get_time_function
+
 ##----------------------------------------------------------------------------.
 # TODO DataLoader Options    
 # - sampler                    # Provide this option? To generalize outside batch samples?  
@@ -666,3 +669,173 @@ def cylic_iterator(iterable):
     return iter(_cyclic(iterable))
             
 #-----------------------------------------------------------------------------.
+######################
+#### Timing utils ####
+######################
+def timing_AR_DataLoader(dataset,
+                         # DataLoader options
+                         batch_size = 32,
+                         random_shuffle = True, 
+                         num_workers = 0, 
+                         prefetch_in_GPU = False,
+                         prefetch_factor = 2,
+                         pin_memory = False,
+                         asyncronous_GPU_transfer = True,
+                         # Timing options 
+                         sleeping_time = 0.5, 
+                         n_repetitions = 10,
+                         verbose = True):
+    """
+    Time execution and memory consumption of AR DataLoader.
+
+    Parameters
+    ----------
+    dataset : AutoregressiveDataLoader
+        AutoregressiveDataLoader
+    num_workers : 0, optional
+        Number of processes that generate batches in parallel.
+        0 means ONLY the main process will load batches (that can be a bottleneck).
+        1 means ONLY one worker (just not the main process) will load data 
+        A high enough number of workers usually assures that CPU computations 
+        are efficiently managed. However, increasing num_workers increase the 
+        CPU memory consumption.
+        The Dataloader prefetch into the CPU prefetch_factor*num_workers batches.
+        The default is 0.        
+    batch_size : int, optional
+        Number of samples within a batch. The default is 32.
+    prefetch_factor: int, optional 
+        Number of sample loaded in advance by each worker.
+        The default is 2.
+    prefetch_in_GPU: bool, optional 
+        Whether to prefetch 'prefetch_factor'*'num_workers' batches of data into GPU instead of CPU.
+        By default it prech 'prefetch_factor'*'num_workers' batches of data into CPU (when False)
+        The default is False.
+    pin_memory : bool, optional
+        When True, it prefetch the batch data into the pinned memory.  
+        pin_memory=True enables (asynchronous) fast data transfer to CUDA-enabled GPUs.
+        Useful only if training on GPU.
+        The default is False.
+    asyncronous_GPU_transfer: bool, optional 
+        Only used if 'prefetch_in_GPU' = True. 
+        Indicates whether to transfer data into GPU asynchronously   
+    sleeping_time : float 
+        Sleeping time in seconds after batch creation between AR iterations.
+    n_repetitions : int, optional
+        Number of runs to time. The default is 10.
+    verbose : bool, optional
+        Wheter to print the timing summary. The default is True.
+
+    Returns
+    -------
+    timing_info : dict
+        Dictionary with timing information of AR training.
+
+    """
+    ##------------------------------------------------------------------------.
+    if not isinstance(num_workers, int):
+        raise TypeError("'num_workers' must be a integer larger than 0.")
+    if num_workers < 0: 
+        raise ValueError("'num_workers' must be a integer larger than 0.")
+    ##------------------------------------------------------------------------.  
+    # Retrieve informations 
+    AR_iterations = dataset.AR_iterations
+    device = dataset.device                      
+    # Retrieve function to get time 
+    get_time = get_time_function(device)
+    ##------------------------------------------------------------------------.
+    # Initialize list 
+    Dataloader_timing = []  
+    AR_batch_timing = []  
+    Total_timing = []
+    ##------------------------------------------------------------------------.
+    # Initialize DataLoader 
+    dataloader = AutoregressiveDataLoader(dataset = dataset,                                                   
+                                          batch_size = batch_size,  
+                                          drop_last_batch = True,
+                                          random_shuffle = random_shuffle,
+                                          num_workers = num_workers,
+                                          prefetch_factor = prefetch_factor, 
+                                          prefetch_in_GPU = prefetch_in_GPU,  
+                                          pin_memory = pin_memory,
+                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                          device = device)
+    dataloader_iter = iter(dataloader)
+    ##------------------------------------------------------------------------.
+    # Repeat training n_repetitions
+    for count in range(n_repetitions):  
+        # Measure background memory used
+        if device.type != 'cpu':
+            background_memory = torch.cuda.memory_allocated()/1000/1000
+        ##----------------------------------------------------------------. 
+        t_start = get_time()
+        # Retrieve batch
+        t_i = get_time()
+        training_batch_dict = next(dataloader_iter)
+        Dataloader_timing.append(get_time() - t_i)
+        # Perform AR iterations 
+        dict_training_Y_predicted = {}
+        ##----------------------------------------------------------------.
+        # Initialize stuff for AR loop timing 
+        tmp_AR_data_removal_timing = 0
+        tmp_AR_batch_timing = 0 
+        batch_memory_size = 0 
+        for i in range(AR_iterations+1):
+            # Retrieve X and Y for current AR iteration   
+            t_i = get_time()
+            torch_X, torch_Y = get_AR_batch(AR_iteration = i, 
+                                            batch_dict = training_batch_dict, 
+                                            dict_Y_predicted = dict_training_Y_predicted,
+                                            device = device, 
+                                            asyncronous_GPU_transfer = asyncronous_GPU_transfer)
+            tmp_AR_batch_timing = tmp_AR_batch_timing + (get_time() - t_i)
+            ##------------------------------------------------------------.                                
+            # Measure batch size in MB 
+            if device.type != 'cpu' and i == 0:
+                batch_memory_size = torch.cuda.memory_allocated()/1000/1000 - background_memory
+            ##------------------------------------------------------------.
+            # Spend some custom time here
+            time.sleep(sleeping_time)
+            dict_training_Y_predicted[i] = torch_Y.detach().clone()
+            ##------------------------------------------------------------.
+            # Remove unnecessary stored Y predictions 
+            t_i = get_time()
+            remove_unused_Y(AR_iteration = i, 
+                            dict_Y_predicted = dict_training_Y_predicted,
+                            dict_Y_to_remove = training_batch_dict['dict_Y_to_remove'])
+            del torch_X, torch_Y
+            if i == AR_iterations:
+                del dict_training_Y_predicted
+            tmp_AR_data_removal_timing = tmp_AR_data_removal_timing + (get_time()- t_i)
+                
+        ##----------------------------------------------------------------.
+        # Summarize timing 
+        AR_batch_timing.append(tmp_AR_batch_timing - tmp_AR_data_removal_timing)
+
+        ##----------------------------------------------------------------.
+        # - Total time elapsed
+        Total_timing.append(AR_batch_timing[-1] + Dataloader_timing[-1])
+
+    ##------------------------------------------------------------------------.
+    # Create timing info dictionary 
+    timing_info = {'Run': list(range(n_repetitions)), 
+                   'Total': Total_timing, 
+                   'Dataloader': Dataloader_timing,
+                   'AR Batch': AR_batch_timing,
+                   }
+    ##------------------------------------------------------------------------. 
+    memory_info = {'Batch': batch_memory_size}
+    
+    ##-------------------------------------------------------------------------. 
+    # Create timing table 
+    if verbose:
+        table = []
+        headers = ['Run', 'Total', 'Dataloader','AR Batch', 'Delete', ' ', ' ', ' ']
+        for count in range(n_repetitions):
+            table.append([count,    
+                         round(Total_timing[count], 4),
+                         round(Dataloader_timing[count], 4),
+                         round(AR_batch_timing[count], 4),
+                          ])
+        print(tabulate(table, headers=headers))   
+    ##------------------------------------------------------------------------.               
+    return timing_info, memory_info
