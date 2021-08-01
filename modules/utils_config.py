@@ -280,7 +280,12 @@ def check_numeric_precision(numeric_precision):
 ########################
 ### Model definition ###
 ########################
-# def get_pytorch_model(model_settings):
+# def get_pytorch_model(module_with_custom_models, 
+#                       model_settings, 
+#                       training_settings):
+#  
+
+# def get_pytorch_model(module_with_custom_models, model_settings, training_settings):
 #     """Define a DeepSphere model based on general architecture structure.
        
 #     The architecture structure must be define in a custom python file.
@@ -326,18 +331,19 @@ def check_numeric_precision(numeric_precision):
 #     # Import custom architecture.py  
 #     # import modules.architectures as module
     
+#     # DeepSphereModelClass = getattr(module_with_custom_models, model_settings['architecture_name'])
 #     ##------------------------------------------------------------------------.
 #     # Retrieve required model arguments
-#     model_keys = ['dim_info','resolution', 'kernel_size_conv', 'sampling',
-#                   'knn', 'pool_method', 'kernel_size_pooling']
+#     model_keys = ['dim_info', 'sampling', 'resolution',
+#                   'knn', 'kernel_size_conv',
+#                   'pool_method', 'kernel_size_pooling']
 #     model_args = {k: model_settings[k] for k in model_keys}
-    
-#     ##------------------------------------------------------------------------.
-#     # Define DeepSphere model 
-#     model = DeepSphereModelClass(**model_args)  
-    
-#     ##------------------------------------------------------------------------.
+#     model_args['numeric_precision'] = training_settings['numeric_precision']
+#     # - Define DeepSphere model 
+#     model = DeepSphereModelClass(**model_args)       
 #     return model 
+
+##----------------------------------------------------------------------------.
 
 def load_pretrained_model(model, exp_dir, model_name):
     """Load a pre-trained pytorch model."""

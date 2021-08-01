@@ -41,6 +41,8 @@ from xarray.plot.plot import contourf as xr_contourf
 
 # - Check_mesh()  --> Check Polygon mpatches 
 
+# - 3D plots
+
 ## Add from shapefile 
 # - da.sphere.add_mesh_from_shp(fpath)  # poly.shp 
 # - da.sphere.add_nodes_from_shp(fpath) # point.shp

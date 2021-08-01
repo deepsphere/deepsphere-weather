@@ -187,9 +187,9 @@ def set_pytorch_numeric_precision(numeric_precision, device):
     torch.set_default_dtype(dtype)
     
 #----------------------------------------------------------------------------.
-############################
-### Summary / Profiling ####
-############################
+#############################
+#### Summary / Profiling ####
+#############################
 # TODOs
 # - check dtype validity more robust 
 # - check input size tuple values are positive integers
