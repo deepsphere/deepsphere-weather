@@ -17,6 +17,10 @@ def is_dask_DataArray(da):
 
 def check_no_missing_timesteps(timesteps, verbose=True):
     """Check if there are missing timesteps in a numpy datetime64 array."""
+    # Check if there are data
+    if timesteps.size == 0: 
+        raise ValueError("No data available !")
+    # Check if missing timesteps 
     dt = np.diff(timesteps)
     dts, counts = np.unique(dt, return_counts=True)
     if verbose:
