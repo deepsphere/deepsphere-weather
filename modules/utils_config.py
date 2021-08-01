@@ -30,6 +30,7 @@ def get_default_model_settings():
                       "pool_method": "Max",
                       "kernel_size_conv": 3, 
                       "kernel_size_pooling": 4,
+                      "gtype": "knn", 
                       }
     return model_settings
 
@@ -336,7 +337,7 @@ def check_numeric_precision(numeric_precision):
 #     # Retrieve required model arguments
 #     model_keys = ['dim_info', 'sampling', 'resolution',
 #                   'knn', 'kernel_size_conv',
-#                   'pool_method', 'kernel_size_pooling']
+#                   'pool_method', 'kernel_size_pooling', "gtype"]
 #     model_args = {k: model_settings[k] for k in model_keys}
 #     model_args['numeric_precision'] = training_settings['numeric_precision']
 #     # - Define DeepSphere model 

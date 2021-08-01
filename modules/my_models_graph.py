@@ -75,6 +75,7 @@ class UNetSpherical(UNet, torch.nn.Module):
                  knn: int = 10, 
                  pool_method: str = 'max', 
                  kernel_size_pooling: int = 4,
+                 gtype: str = 'knn',
                  numeric_precision: str = 'float32'):
         ##--------------------------------------------------------------------.
         super().__init__()
@@ -113,10 +114,11 @@ class UNetSpherical(UNet, torch.nn.Module):
         ### Initialize graphs and laplacians
         self.init_graph_and_laplacians(conv_type = conv_type, 
                                        resolution = resolution, 
-                                       sampling=sampling, 
-                                       knn=knn,
-                                       kernel_size_pooling=kernel_size_pooling,
-                                       numeric_precision=numeric_precision,
+                                       sampling = sampling, 
+                                       knn = knn,
+                                       kernel_size_pooling = kernel_size_pooling,
+                                       numeric_precision = numeric_precision,
+                                       gtype = gtype,
                                        UNet_depth=3)
         
         ##--------------------------------------------------------------------.
@@ -304,6 +306,7 @@ class UNetDiffSpherical(UNet, torch.nn.Module):
                  knn: int = 10, 
                  pool_method: str = 'max', 
                  kernel_size_pooling: int = 4,
+                 gtype: str = 'knn',
                  numeric_precision: str = 'float32'):
         ##--------------------------------------------------------------------.
         super().__init__()
@@ -342,10 +345,11 @@ class UNetDiffSpherical(UNet, torch.nn.Module):
         ### Initialize graphs and laplacians
         self.init_graph_and_laplacians(conv_type = conv_type, 
                                        resolution = resolution, 
-                                       sampling=sampling, 
-                                       knn=knn,
-                                       kernel_size_pooling=kernel_size_pooling,
-                                       numeric_precision=numeric_precision,
+                                       sampling = sampling, 
+                                       knn = knn,
+                                       kernel_size_pooling = kernel_size_pooling,
+                                       numeric_precision = numeric_precision,
+                                       gtype = gtype, 
                                        UNet_depth=3)
         
         ##--------------------------------------------------------------------.

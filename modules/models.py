@@ -102,6 +102,7 @@ class UNet(ABC):
                                   knn, 
                                   kernel_size_pooling,
                                   UNet_depth,
+                                  gtype="knn",
                                   numeric_precision='float32'):
         """Initialize graph and laplacian.
         
@@ -140,7 +141,8 @@ class UNet(ABC):
                                            sampling=sampling,
                                            knn=knn)
             self.laplacians = UNet.get_laplacian_kernels(graphs=self.graphs, 
-                                                         torch_dtype=torch_dtype)
+                                                         torch_dtype=torch_dtype,
+                                                         gtype=gtype)
         # Option for equiangular sampling  
         elif conv_type == 'image':
             self.graphs = UNet.build_graph(resolutions=resolutions,
