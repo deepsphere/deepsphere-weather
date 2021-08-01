@@ -380,7 +380,6 @@ p = xsphere._contourf(da_single,
 ax.coastlines(alpha=0.2)
 plt.show()
 #-----------------------------------------------------------------------------.
-
 #### Plot mesh
 fig, ax = plt.subplots(1, 1, subplot_kw=dict(projection=crs_proj))
 p = ds.sphere.plot_mesh(ax=ax, 
