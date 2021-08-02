@@ -26,7 +26,8 @@ spherical_samplings = [
     'Healpix_100km'
 ]  
 
-# spherical_samplings = ['Healpix_100km']
+spherical_samplings = ['Healpix_100km']
+sampling = spherical_samplings[0]
 
 for sampling in spherical_samplings:
     print("Preprocessing", sampling, "data")
@@ -35,6 +36,7 @@ for sampling in spherical_samplings:
     
     #-------------------------------------------------------------------------.
     ### Process all netCDF and make sure that February data do not contain March data 
+    # - Retrievals from MARS sometimes lead to March data into February query
     # - Pressure levels (analysis)
     print("- Correcting February pressure levels (analysis) data")
     pl_fpaths = sorted(glob.glob(pl_dirpath + "/pl_*_02.nc"))
@@ -49,6 +51,7 @@ for sampling in spherical_samplings:
             tmp_ds.to_netcdf(fpath, mode="w")
     
     # - TOA (forecasts)
+    # -- Ensure the last timestep is XXXX-03-01-T06:00:00
     print("- Correcting February TOA (forecasts) data")
     toa_fpaths = sorted(glob.glob(toa_dirpath + "/toa_*_02.nc"))
     for fpath in toa_fpaths:
@@ -71,8 +74,11 @@ for sampling in spherical_samplings:
     start_time = '1980-01-01T07:00:00'
     pl_1980_01_fpath = os.path.join(pl_dirpath + "/pl_1980_01.nc")
     tmp_ds = xr.open_dataset(pl_1980_01_fpath)
-    tmp_ds = tmp_ds.sel(time=slice(start_time, None))
-    tmp_ds.to_netcdf(pl_1980_01_fpath, mode="w")
+    if np.any(tmp_ds['time'].values < np.datetime64(start_time)):
+        tmp_ds = tmp_ds.sel(time=slice(start_time, None))
+        tmp_ds = tmp_ds.compute()
+        os.remove(pl_1980_01_fpath)
+        tmp_ds.to_netcdf(pl_1980_01_fpath, mode="w")
     
     #-------------------------------------------------------------------------.
  

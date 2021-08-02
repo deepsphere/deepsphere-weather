@@ -15,12 +15,13 @@ from modules.utils_io import check_no_missing_timesteps
 from modules.my_io import pl_to_zarr  
 from modules.my_io import toa_to_zarr
 from modules.utils_zarr import rechunk_Dataset
-# Define data directory
-raw_dataset_dirpath = "/home/ghiggi/Projects/DeepSphere/data/raw/ERA5_HRES"
-zarr_dataset_dirpath = "/home/ghiggi/Projects/DeepSphere/data/preprocessed/ERA5_HRES"
 
-# raw_dataset_dirpath = "/ltenas3/DeepSphere/data/raw/ERA5_HRES"
-# zarr_dataset_dirpath = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
+## Define data directory
+# raw_dataset_dirpath = "/home/ghiggi/Projects/DeepSphere/data/raw/ERA5_HRES"
+# zarr_dataset_dirpath = "/home/ghiggi/Projects/DeepSphere/data/preprocessed/ERA5_HRES"
+
+raw_dataset_dirpath = "/ltenas3/DeepSphere/data/raw/ERA5_HRES"
+zarr_dataset_dirpath = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
 
 # Define spherical samplings
 spherical_samplings = [ 
@@ -42,6 +43,9 @@ sampling = spherical_samplings[0]
 NOVERTICAL_DIMENSION = True # --> Each pressure level treated as a feature 
 STACK_VARIABLES = True     # --> Create a DataArray with all features along the "feature" dimension
 start_time = '1980-01-01T07:00:00'
+end_time = '2000-12-31T23:00:00'
+
+start_time = '2005-01-01T00:00:00'
 end_time = '2018-12-31T23:00:00'
 
 # - Define variable dictionary 
@@ -103,20 +107,39 @@ for sampling in spherical_samplings:
     # - Retrieve all raw netCDF files 
     pl_fpaths = sorted(glob.glob(raw_pl_dirpath + "/pl_*.nc"))
     # - Open all netCDF4 files
-    ds = xr.open_mfdataset(pl_fpaths, chunks = "auto")
+    ds = xr.open_mfdataset(pl_fpaths, parallel = True,
+                           concat_dim = "time",
+                           # decode_cf = False, 
+                           chunks = "auto")
+    # ds = ds.decode_cf(ds)
+    # - Subset time 
     ds = ds.sel(time=slice(start_time,end_time))
     # - Check there are not missing timesteps 
     check_no_missing_timesteps(timesteps=ds.time.values)
     # - Unstack pressure levels dimension, create a feature dimension and save to zarr
-    pl_to_zarr(ds = ds, 
-               zarr_fpath = dynamic_zarr_fpath, 
-               var_dict = pl_var_dict, 
-               unstack_plev = NOVERTICAL_DIMENSION, 
-               stack_variables = STACK_VARIABLES, 
-               chunks = chunks_dict[sampling], 
-               compressor = compressor_dict[sampling],
-               append = False)
-
+    # --> Perform unstacking year per year block 
+    block_size = 24*30*2 # TODO depending on sampling 
+    n_blocks = int(len(ds.time)/block_size + 1)
+    append = False
+    if os.path.exists(dynamic_zarr_fpath):
+        append = True
+    for i in range(n_blocks):
+        print(i,"/", n_blocks)
+        slice_start = block_size*i
+        slice_end = block_size*(i+1)
+        if i == n_blocks - 1:
+            slice_end = None
+        tmp_ds = ds.isel(time=slice(slice_start,slice_end))
+        pl_to_zarr(ds = tmp_ds, 
+                   zarr_fpath = dynamic_zarr_fpath, 
+                   var_dict = pl_var_dict, 
+                   unstack_plev = NOVERTICAL_DIMENSION, 
+                   stack_variables = STACK_VARIABLES, 
+                   chunks = chunks_dict[sampling], 
+                   compressor = compressor_dict[sampling],
+                   append = append)
+        append = True
+        
     ##------------------------------------------------------------------------. 
     ### TOA 
     print("- Zarrify TOA data")
