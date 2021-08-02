@@ -26,6 +26,7 @@ from modules.utils_zarr import check_chunks
 from modules.utils_zarr import check_compressor
 from modules.utils_zarr import check_rounding
 from modules.utils_zarr import rechunk_Dataset
+from modules.utils_zarr import write_zarr
 from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
@@ -161,16 +162,12 @@ def AutoregressivePredictions(model,
     if zarr_fpath is not None: 
         variable_names = da_dynamic['feature'].values.tolist()
         ##--------------------------------------------------------------------.
-        # Check chunking 
+        # Set default chunks and compressors 
         default_chunks = {'node': -1,
                           'forecast_reference_time': 1,
                           'leadtime': 1}
-        chunks = check_chunks(chunks=chunks, 
-                              default_chunks=default_chunks,
-                              variable_names=variable_names)       
-        ##--------------------------------------------------------------------.
-        # Check compressor (used as encoding for writing to zarr)
         default_compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
+        
         compressor = check_compressor(compressor = compressor,  
                                       default_compressor = default_compressor,
                                       variable_names = variable_names)
@@ -348,20 +345,20 @@ def AutoregressivePredictions(model,
                 
             # Else, write forecast to zarr store  
             else:
-                ##--------------------------------------------.
-                # Chunk the dataset
-                for var, chunk in chunks.items():
-                    ds[var] = ds[var].chunk(chunk)  
-                ##--------------------------------------------.
-                # Specify compressor 
-                for var, comp in compressor.items(): 
-                    ds[var].encoding['compressor'] = comp
-                ##--------------------------------------------. 
-                # Write / Append data to zarr store 
+                # - Decide wheter to create or append to a Zarr Store
                 if not os.path.exists(zarr_fpath):
-                    ds.to_zarr(zarr_fpath, mode='w') # Create
-                else:                        
-                    ds.to_zarr(zarr_fpath, append_dim='forecast_reference_time') # Append
+                    append = False 
+                else: 
+                    append = True 
+                # Write data
+                write_zarr(zarr_fpath = zarr_fpath, 
+                           ds = ds,
+                           chunks = chunks, default_chunks = default_chunks, 
+                           compressor = compressor, default_compressor = default_compressor, 
+                           consolidated = True, 
+                           append = append,
+                           append_dim = 'forecast_reference_time', 
+                           show_progress = False)
                                 
     ##-------------------------------------------------------------------------.
     if zarr_fpath is not None:
@@ -557,8 +554,7 @@ def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem 
                       'forecast_reference_time': -1,
                       'leadtime': 1}
     # Check chunking
-    variable_names = list(ds.data_vars.keys())
-    chunks = check_chunks(chunks=chunks, default_chunks=default_chunks, variable_names=variable_names) 
+    chunks = check_chunks(ds=ds, chunks=chunks, default_chunks=default_chunks) 
     ##------------------------------------------------------------------------.
     # Rechunk Dataset (on disk)
     rechunk_Dataset(ds=ds, chunks=chunks, 
@@ -572,7 +568,7 @@ def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem 
     ds_verification = reshape_forecasts_for_verification(ds)
     ##------------------------------------------------------------------------.
     # Remove 'chunks' key in encoding (bug in xarray-dask-zarr)
-    for var in variable_names:
+    for var in list(ds_verification.data_vars.keys()):
         ds_verification[var].encoding.pop('chunks')
     
     ##------------------------------------------------------------------------.

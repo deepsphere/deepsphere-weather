@@ -5,66 +5,16 @@ Created on Sun Jan  3 18:46:41 2021
 
 @author: ghiggi
 """
-import zarr
 import os
 import time
+import numcodecs
+import zarr
 import xarray as xr
 from modules.utils_io import check_AR_Datasets
 from dask.diagnostics import ProgressBar
 from modules.utils_zarr import check_chunks
 from modules.utils_zarr import check_compressor
-
-##----------------------------------------------------------------------------.   
-def _write_zarr(zarr_fpath, ds, chunks="auto",
-                compressor="auto", 
-                consolidated=True, append=False):
-    """Write Xarray Dataset to zarr with custom chunks and compressor per Dataset variable."""
-    ### - Define file chunking  
-    default_chunks = {'node': -1,
-                      'time': 72,
-                      'feature': 1}
-    chunks = check_chunks(chunks = chunks, 
-                          default_chunks = default_chunks,
-                          variable_names = list(ds.data_vars.keys())) 
-    
-    ##------------------------------------------------------------------------.
-    # - Define compressor and filters
-    default_compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
-    compressor = check_compressor(compressor = compressor,  
-                                  default_compressor = default_compressor,
-                                  variable_names = list(ds.data_vars.keys()))
-    
-    ##------------------------------------------------------------------------.
-    # - Add chunk encoding the dataset
-    for var, chunk in chunks.items():
-        ds[var] = ds[var].chunk(chunk)  
-    # - Add compressor encoding to each DataArray
-    for var, comp in compressor.items(): 
-        ds[var].encoding['compressor'] = comp
-        
-    ##------------------------------------------------------------------------.
-    ### - Write zarr files
-    # - Define zarr store  
-    zarr_store = zarr.DirectoryStore(zarr_fpath)  
-    # - Write data to new zarr store 
-    if not append: 
-        r = ds.to_zarr(store=zarr_store, 
-                       mode='w', # overwrite if exists already
-                       synchronizer=None, group=None, 
-                       consolidated = consolidated,
-                       compute=False) 
-        with ProgressBar():
-            r.compute()   
-    # - Append data to existing zarr store 
-    # ---> !!! Do not check if data are repeated !!! 
-    else: 
-        r = ds.to_zarr(zarr_store,
-                       append_dim="time",
-                       mode="a", 
-                       consolidated = consolidated, 
-                       compute=False) 
-        with ProgressBar():
-            r.compute()   
+from modules.utils_zarr import write_zarr
             
 ##----------------------------------------------------------------------------.   
 def pl_to_zarr(ds,
@@ -75,6 +25,7 @@ def pl_to_zarr(ds,
                chunks="auto", compressor="auto",
                consolidated = True, 
                append = False, 
+               show_progress = True, 
                attrs={}):
     """Convert pressure level data netCDFs to zarr.
     
@@ -152,13 +103,23 @@ def pl_to_zarr(ds,
     ### - Write Zarr store
     # - Add attributes 
     ds.attrs = attrs
+    # - Define default chunks and compressor 
+    default_chunks = {'node': -1,
+                      'time': 72,
+                      'feature': 1}
+    default_compressor = numcodecs.Blosc(cname="zstd", clevel=3, shuffle=2)
     # - Write data
-    _write_zarr(zarr_fpath=zarr_fpath, 
-                ds = ds, 
-                chunks = chunks,
-                compressor = compressor,
-                consolidated = consolidated,
-                append = append)
+    write_zarr(zarr_fpath=zarr_fpath, 
+               ds = ds,  
+               chunks = chunks,
+               default_chunks = default_chunks, 
+               compressor = compressor,
+               default_compressor = default_compressor,
+               consolidated = consolidated,
+               show_progress = show_progress, 
+               append = append,
+               append_dim = "time")
+
     ##------------------------------------------------------------------------.
     return None
 
@@ -169,6 +130,7 @@ def toa_to_zarr(ds,
                chunks="auto", compressor="auto",
                consolidated = True, 
                append = False, 
+               show_progress = True, 
                attrs={}):
     """Convert TOA data netCDFs to zarr."""
     ##------------------------------------------------------------------------.  
@@ -221,13 +183,22 @@ def toa_to_zarr(ds,
     ### - Write Zarr store
     # - Add attributes 
     ds.attrs = attrs
+    # - Define default chunks and compressor 
+    default_chunks = {'node': -1,
+                      'time': 72,
+                      'feature': 1}
+    default_compressor = numcodecs.Blosc(cname="zstd", clevel=3, shuffle=2)
     # - Write data
-    _write_zarr(zarr_fpath=zarr_fpath, 
-                ds = ds, 
-                chunks = chunks,
-                compressor = compressor,
-                consolidated = consolidated,
-                append = append)
+    write_zarr(zarr_fpath=zarr_fpath, 
+               ds = ds,  
+               chunks = chunks,
+               default_chunks = default_chunks, 
+               compressor = compressor,
+               default_compressor = default_compressor,
+               consolidated = consolidated,
+               show_progress = show_progress, 
+               append = append,
+               append_dim = "time")
     ##------------------------------------------------------------------------.
     return None
 
