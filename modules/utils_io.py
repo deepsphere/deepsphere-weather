@@ -5,6 +5,7 @@ Created on Mon Jan 18 23:56:40 2021
 
 @author: ghiggi
 """
+import datetime
 import numpy as np 
 import xarray as xr
 
@@ -15,8 +16,51 @@ def is_dask_DataArray(da):
     else: 
         return False
 
+def _check_timesteps(timesteps):
+    """Check timesteps object and return a numpy array."""
+    if isinstance(timesteps, str): 
+        timesteps = np.array([np.datetime64(timesteps)])
+        return timesteps
+    if timesteps is None: 
+        raise ValueError("'timesteps' is None.")
+    if len(timesteps) == 0: 
+        raise ValueError("'timesteps' is empty.")
+    elif isinstance(timesteps, (np.datetime64, datetime.datetime)):
+        timesteps = np.array([timesteps])
+        return timesteps 
+    elif isinstance(timesteps, list): 
+        if all([isinstance(v, (np.datetime64, datetime.datetime)) for v in timesteps]):
+            timesteps = np.array(timesteps)
+            return timesteps
+        else: 
+            raise ValueError("The list must contain np.datetime64 or datetime.datetime objects.")
+    elif isinstance(timesteps, np.ndarray):
+        if isinstance(timesteps[0], np.datetime64):
+            return timesteps
+        else:
+            raise ValueError("The numpy array must contain datetime objects.")
+    else: 
+        raise ValueError("Unvalid timesteps specification.")
+    
+def _get_subset_timesteps_idxs(timesteps, subset_timesteps, strict_match=True):
+    """Check subset_timesteps are within timesteps and return the matching indices."""
+    subset_timesteps = _check_timesteps(subset_timesteps)
+    timesteps = _check_timesteps(timesteps)
+    subset_timesteps = subset_timesteps.astype(timesteps.dtype) # same precision required for comparison
+    subset_idxs = np.array([idx for idx, v in enumerate(timesteps) if v in set(subset_timesteps)])  
+    if subset_idxs.size == 0:
+        raise ValueError("The 'subset_timesteps' are not within the available 'timesteps'.")
+    if len(subset_idxs) != len(subset_timesteps):
+        timesteps_not_in = subset_timesteps[np.isin(subset_timesteps, timesteps, invert=True)] 
+        if strict_match:
+            raise ValueError("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))       
+        else:
+            raise Warning("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))
+    return subset_idxs
+
 def check_no_missing_timesteps(timesteps, verbose=True):
-    """Check if there are missing timesteps in a numpy datetime64 array."""
+    """Check if there are missing timesteps in a list or numpy datetime64 array."""
+    timesteps = _check_timesteps(timesteps) 
     # Check if there are data
     if timesteps.size == 0: 
         raise ValueError("No data available !")
@@ -127,6 +171,13 @@ def check_AR_DataArrays(da_training_dynamic,
                         da_static = None,
                         verbose = False):
     """Check DataArrays required for AR training and predictions."""
+    ##------------------------------------------------------------------------.
+    # Check da_dynamic is provided 
+    if not isinstance(da_training_dynamic, xr.DataArray):   
+        raise ValueError("The dynamic DataArray is necessary for AR models.")
+    if da_validation_bc is not None and not isinstance(da_validation_dynamic, xr.DataArray):   
+        raise ValueError("The validation dynamic DataArray is necessary for AR models.")
+    ##------------------------------------------------------------------------.
     # Check dimension names 
     _check_AR_DataArray_dimnames(da_dynamic=da_training_dynamic,
                                  da_bc=da_training_bc,
@@ -251,10 +302,14 @@ def check_AR_Datasets(ds_training_dynamic,
 # Retrieve input-output dims 
 def get_AR_model_diminfo(da_dynamic, da_static=None, da_bc=None, AR_settings=None):
     """Retrieve dimension information for AR DeepSphere models.""" 
+    ##------------------------------------------------------------------------.
     # Required dimensions
     time_dim='time'
     node_dim='node'
     variable_dim='feature'
+    ##------------------------------------------------------------------------.
+    if not isinstance(da_dynamic, xr.DataArray): 
+        raise ValueError("The dynamic DataArray is necessary for AR models.")
     ##------------------------------------------------------------------------.
     # Dynamic variables 
     check_dimnames_DataArray(da = da_dynamic, da_name = "dynamic DataArray",
