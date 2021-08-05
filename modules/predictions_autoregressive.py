@@ -40,34 +40,10 @@ from modules.utils_swag import bn_update
 # conda install -c conda-forge cfgrib
 # conda install -c conda-forge rechunker
 
-##----------------------------------------------------------------------------.
-### Standard format for coordinates 
-# import cf2cdm
-# dir(cf2cdm.datamodels)
-# cf2cdm.translate_coords(ds, cf2cdm.CDS)
-# cf2cdm.translate_coords(ds, cf2cdm.ECMWF)
-
-# CDS coordinates 
-# - realization              int64  
-# - forecast_reference_time  datetime64[ns]     # (base time)
-# - leadtime                 timedelta64[ns]    
-# - lat                      float64
-# - lon                      float64
-# - time                     datetime64[ns]     # aka forecasted_time
-# -->  - leadtime_idx 
-
-##----------------------------------------------------------------------------.
-# ## Predictions with Dask cluster 
-# https://examples.dask.org/machine-learning/torch-prediction.html
-
-# Terminology to maybe change 
-# scaler_transform
-# scaler_inverse
 #----------------------------------------------------------------------------.
 ###############
 ### Checks ####
 ###############
-##----------------------------------------------------------------------------.
 def check_timedelta_unit(timedelta_unit):
     """Check timedelta_unit validity."""
     if not isinstance(timedelta_unit, str):
@@ -89,16 +65,132 @@ def get_timedelta_types():
                        'year': 'timedelta64[Y]'}
     return timedelta_types
 
+##----------------------------------------------------------------------------.
+#########################
+### Prediction utils ####
+#########################
+def get_dict_Y_pred_selection(dim_info,
+                              dict_forecast_rel_idx_Y,
+                              keep_first_prediction = True): 
+    # dict_forecast_rel_idx_Y = get_dict_Y(AR_iterations = AR_iterations,
+    #                                      forecast_cycle = forecast_cycle, 
+    #                                      output_k = output_k)                                      
+    # Retrieve the time dimension index in the predicted Y tensors
+    time_dim = dim_info['time']
+    # Retrieve AR iterations 
+    AR_iterations = max(list(dict_forecast_rel_idx_Y.keys()))
+    # Initialize a general subset indexing
+    all_subset_indexing = [slice(None) for i in range(len(dim_info))]
+    # Retrieve all output k 
+    all_output_k = np.unique(np.stack(dict_forecast_rel_idx_Y.values()).flatten())
+    # For each output k, search which AR iterations predict such output k
+    # - {output_k: [AR_iteration with output_k]}
+    dict_k_occurence = {k: [] for k in all_output_k}
+    for AR_iteration, leadtimes in dict_forecast_rel_idx_Y.items():
+        for leadtime in leadtimes:
+            dict_k_occurence[leadtime].append(AR_iteration)
+    # For each output k, choose if keep the first or last prediction
+    if keep_first_prediction:
+        dict_k_selection = {leadtime: min(dict_k_occurence[leadtime]) for leadtime in dict_k_occurence.keys()}
+    else: 
+        dict_k_selection = {leadtime: max(dict_k_occurence[leadtime]) for leadtime in dict_k_occurence.keys()}
+    # Build {AR_iteration: [(leadtime, subset_indexing), (...,...)]}
+    dict_Y_pred_selection = {AR_iteration: [] for AR_iteration in range(AR_iterations + 1)}
+    for leadtime, AR_iteration in dict_k_selection.items():
+        # Retrieve tuple (leadtime, Y_tensor_indexing)
+        leadtime_slice_idx = np.argwhere(dict_forecast_rel_idx_Y[AR_iteration] == leadtime)[0][0]                 
+        subset_indexing = all_subset_indexing.copy()
+        subset_indexing[time_dim] = leadtime_slice_idx
+        dict_Y_pred_selection[AR_iteration].append((leadtime, subset_indexing))
+    return dict_Y_pred_selection 
+
+def create_ds_forecast(dict_Y_predicted_per_leadtime, 
+                       forecast_reference_times,
+                       latitudes,
+                       longitudes, 
+                       features, 
+                       leadtimes,
+                       dim_info):
+    """Create the forecast xarray Dataset stacking the tensors in dict_Y_predicted_per_leadtime.""" 
+    # Stack forecast leadtimes 
+    list_to_stack = [] 
+    available_leadtimes = list(dict_Y_predicted_per_leadtime.keys()) 
+    for leadtime in available_leadtimes:
+        # Append the tensor slice to the list 
+        list_to_stack.append(dict_Y_predicted_per_leadtime[leadtime])
+        # - Remove tensor from dictionary 
+        del dict_Y_predicted_per_leadtime[leadtime]
+    Y_forecasts = np.stack(list_to_stack, axis=dim_info['time'])  
+        ##----------------------------------------------------------------.
+    ### Create xarray Dataset of forecasts
+    da=xr.DataArray(Y_forecasts,           
+                    dims=['forecast_reference_time', 'leadtime', 'node', 'feature'],
+                    coords={'leadtime': leadtimes, 
+                            'forecast_reference_time': forecast_reference_times, 
+                            'lon': ('node', longitudes),
+                            'lat': ('node', latitudes), 
+                            'feature': features})
+    # - Transform to dataset (to save to zarr)
+    ds = da.to_dataset(dim='feature')
+    return ds 
+
+def rescale_forecasts(ds, scaler, reconcat=True):
+    """Apply the scaler inverse transform to the forecast xarray Dataset."""
+    # - Apply scaler 
+    # --> scaler.inverse_transform(ds).compute() works only for GlobalScalers
+    # --> Need to create the time dimension to apply correctly TemporalScalers
+    ds['time'] = ds['leadtime'] + ds['forecast_reference_time']
+    ds = ds.set_coords('time')
+    l_rescaled_ds = []
+    # - Iterate over each forecast 
+    for i in range(len(ds['forecast_reference_time'])):
+        tmp_ds = ds.isel(forecast_reference_time=i).swap_dims({"leadtime": "time"})
+        l_rescaled_ds.append(scaler.inverse_transform(tmp_ds).swap_dims({"time": "leadtime"}).drop('time'))
+    if reconcat is True:               
+        ds = xr.concat(l_rescaled_ds, dim='forecast_reference_time')
+        return ds 
+    else: 
+        return l_rescaled_ds
+
+
+def rescale_forecasts_and_write_zarr(ds, scaler, zarr_fpath,
+                                     chunks = None, default_chunks = None, 
+                                     compressor = None, default_compressor = None,
+                                     rounding = None, 
+                                     consolidated = True, 
+                                     append = True,
+                                     append_dim = 'forecast_reference_time', 
+                                     show_progress = False):
+    """Apply the scaler inverse transform to the forecast Dataset and write it to Zarr."""
+    # It apply the scaler to each single forecast_reference_time and write it directly to disk.
+    ds['time'] = ds['leadtime'] + ds['forecast_reference_time']
+    ds = ds.set_coords('time')
+    # - Iterate over each forecast 
+    for i in range(len(ds['forecast_reference_time'])):
+        ds_tmp = ds.isel(forecast_reference_time=i).swap_dims({"leadtime": "time"})
+        ds_tmp = scaler.inverse_transform(ds_tmp).swap_dims({"time": "leadtime"}).drop('time')
+        write_zarr(zarr_fpath = zarr_fpath, 
+                   ds = ds_tmp,
+                   chunks = chunks, default_chunks = default_chunks, 
+                   compressor = compressor, default_compressor = default_compressor,
+                   rounding = rounding, 
+                   consolidated = consolidated, 
+                   append = append,
+                   append_dim = append_dim, 
+                   show_progress = show_progress)
+        
 #-----------------------------------------------------------------------------.
+############################
+### Prediction Wrappers ####
+############################
 def AutoregressivePredictions(model, 
                               # Data
                               da_dynamic,
                               da_static = None,              
                               da_bc = None, 
                               # Scaler options
-                              scaler = None,
-                              scaler_transform = True,  # transform_input ???
-                              scaler_inverse = True,    # backtransform_predictions ????
+                              scaler_transform = None,  
+                              scaler_inverse = None,    
                               # Dataloader options
                               batch_size = 64, 
                               num_workers = 0,
@@ -114,23 +206,45 @@ def AutoregressivePredictions(model,
                               forecast_cycle = 1,                           
                               AR_iterations = 50, 
                               stack_most_recent_prediction = True,
+                              # Prediction options 
+                              forecast_reference_times = None, 
+                              keep_first_prediction = True, 
+                              AR_blocks = None,
                               # Save options 
                               zarr_fpath = None, 
                               rounding = None,
                               compressor = "auto",
-                              chunks = "auto",
-                              timedelta_unit='hour'):
-    """AutoregressivePredictions.
+                              chunks = "auto"):
+    """Wrapper to generate weather forecasts following CDS Common Data Model (CDM).
     
-    leadtime_idx = 0 correspond to the first forecast timestep
-    leadtime = 0 correspond to the ground truth 
-    leadtime = forecast_cycle correspond to the first forecast timestep
-    forecast_reference_time = time at 'leadtime = 0' 
+    CDS coordinate             dtype               Synonims
+    -------------------------------------------------------------------------
+    - realization              int64  
+    - forecast_reference_time  datetime64[ns]      (base time)
+    - leadtime                 timedelta64[ns]    
+    - lat                      float64
+    - lon                      float64
+    - time                     datetime64[ns]      (forecasted_time/valid_time)
     
-    Currently works only if the model predict on timestep at each forecast cycle ! (no multi-temporal output)
+    To convert to ECMWF Common Data Model use the following code:
+    import cf2cdm
+    cf2cdm.translate_coords(ds_forecasts, cf2cdm.ECMWF)
+ 
+    Terminology
+    - Forecasts reference time: The time of the analysis from which the forecast was made
+    - (Validity) Time: The time represented by the forecast
+    - Leadtime: The time interval between the forecast reference time and the (validity) time. 
+    
+    Coordinates notes:
+    - output_k = 0 correspond to the first forecast leadtime 
+    - leadtime = 0 is not forecasted. It correspond to the analysis forecast_reference_time 
+    - In the ECMWF CMD, forecast_reference_time is termed 'time', 'time' termed 'valid_time'!
+    
+    Prediction settings 
+    - AR_blocks = None (or AR_blocks = AR_iterations + 1) run all AR_iterations in a single run.
+    - AR_blocks < AR_iterations + 1:  run AR_iterations per AR_block of AR_iteration
     """
-    ##------------------------------------------------------------------------.
-    # Work only if output_k are not replicated and are already time-ordered  !
+    # Possible speed up: rescale only after all batch have been processed ... 
     ##------------------------------------------------------------------------.
     ## Checks arguments 
     device = check_device(device)
@@ -152,54 +266,55 @@ def AutoregressivePredictions(model,
     # Check that DataArrays are valid 
     check_AR_DataArrays(da_training_dynamic = da_dynamic,
                         da_training_bc = da_bc,
-                        da_static = da_static)     
+                        da_static = da_static)
     ##------------------------------------------------------------------------.
-    # Check zarr settings 
-    # If zarr fpath provided, create the required folder   
-    if zarr_fpath is not None:
+    # Check Zarr settings 
+    WRITE_TO_ZARR = zarr_fpath is not None 
+    if WRITE_TO_ZARR:
+        # - If zarr fpath provided, create the required folder  
         if not os.path.exists(os.path.dirname(zarr_fpath)):
             os.makedirs(os.path.dirname(zarr_fpath))
-    if zarr_fpath is not None: 
-        variable_names = da_dynamic['feature'].values.tolist()
-        ##--------------------------------------------------------------------.
-        # Set default chunks and compressors 
+        # - Set default chunks and compressors 
         default_chunks = {'node': -1,
                           'forecast_reference_time': 1,
                           'leadtime': 1}
         default_compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
-        
-        compressor = check_compressor(compressor = compressor,  
-                                      default_compressor = default_compressor,
-                                      variable_names = variable_names)
-
-        # Check rounding 
+        # - Check rounding settings
         rounding = check_rounding(rounding = rounding,
-                                  variable_names = variable_names)
-
-    ##------------------------------------------------------------------------.            
-    ### Check timedelta_unit
-    timedelta_unit = check_timedelta_unit(timedelta_unit=timedelta_unit)
-
+                                  variable_names = da_dynamic['feature'].values.tolist())
+    ##------------------------------------------------------------------------.
+    # Check AR_blocks 
+    if not isinstance(AR_blocks, (int, type(None))):
+        raise TypeError("'AR_blocks' must be int or None.")
+    if not WRITE_TO_ZARR and isinstance(AR_blocks, int):
+        raise ValueError("If 'zarr_fpath' not specified, 'AR_blocks' must be None.")
+    if AR_blocks is None: 
+        AR_blocks = AR_iterations + 1
+    if AR_blocks > AR_iterations + 1:
+        raise ValueError("'AR_blocks' must be equal or smaller to 'AR_iterations'")
+    PREDICT_AR_BLOCKS = AR_blocks != (AR_iterations + 1)
+    ##------------------------------------------------------------------------.    
+    ### Retrieve dimension info of the forecast 
+    latitudes = da_dynamic['lat'].values
+    longitudes = da_dynamic['lon'].values
+    features = da_dynamic['feature'] 
+    
     ##------------------------------------------------------------------------. 
-    ### Prepare scalers for transform and inverse 
-    if scaler is not None:
-        if scaler_transform:
-            scaler_transform = scaler
-        else: 
-            scaler_transform = None
-        if scaler_inverse:   
-            scaler_inverse = scaler 
-        else: 
-            scaler_inverse = None
-    else: 
-        scaler_transform = None 
-        scaler_inverse = None                   
-    ##------------------------------------------------------------------------.                            
+    ### Define DataLoader subset_timesteps  
+    subset_timesteps = None 
+    if forecast_reference_times is not None:
+        t_res_timedelta = np.diff(da_dynamic.time.values)[0] 
+        subset_timesteps = forecast_reference_times + -1*max(input_k)*t_res_timedelta
+         
+    ##------------------------------------------------------------------------.                                 
     ### Create training Autoregressive Dataset and DataLoader    
     dataset = AutoregressiveDataset(da_dynamic = da_dynamic,  
                                     da_bc = da_bc,
                                     da_static = da_static,
                                     scaler = scaler_transform, 
+                                    # Dataset options 
+                                    subset_timesteps = subset_timesteps, 
+                                    training_mode = False, 
                                     # Autoregressive settings  
                                     input_k = input_k,
                                     output_k = output_k,
@@ -210,9 +325,8 @@ def AutoregressivePredictions(model,
                                     device = device,
                                     # Precision settings
                                     numeric_precision = numeric_precision)
-    
     dataloader = AutoregressiveDataLoader(dataset = dataset, 
-                                          batch_size = batch_size,  
+                                          batch_size = batch_size, 
                                           drop_last_batch = False, 
                                           random_shuffle = False,
                                           num_workers = num_workers,
@@ -222,146 +336,145 @@ def AutoregressivePredictions(model,
                                           asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
                                           device = device)
     ##------------------------------------------------------------------------.
-    # Retrieve dimension info of the forecast 
-    nodes = da_dynamic.node
-    features = da_dynamic.feature 
-    
-    t_res_timedelta = np.diff(da_dynamic.time.values)[0]*forecast_cycle   
-    t_res_timedelta = t_res_timedelta.astype(get_timedelta_types()[timedelta_unit])    
-
-    ##------------------------------------------------------------------------.
-    # Initialize 
+    ### Start forecasting
+    # - Initialize 
+    t_i = time.time()
     model.to(device)  
     model.eval()
-    
-    t_i = time.time()
-    
     list_ds = []
+    FIRST_PREDICTION = True
     with torch.set_grad_enabled(False):
         ##--------------------------------------------------------------------.     
         # Iterate along training batches       
-        for batch_dict in dataloader: 
-            # batch_dict = next(iter(batch_dict))
+        for batch_count, batch_dict in enumerate(dataloader): 
+            # batch_dict = next(iter(dataloader))
+            ##----------------------------------------------------------------.
+            ### Retrieve forecast informations 
+            dim_info = batch_dict['dim_info'] 
+            forecast_time_info = batch_dict['forecast_time_info']  
+            forecast_reference_times = forecast_time_info["forecast_reference_time"] 
+            dict_forecast_leadtime = forecast_time_info["dict_forecast_leadtime"]
+            dict_forecast_rel_idx_Y = forecast_time_info["dict_forecast_rel_idx_Y"]
+            leadtimes = np.unique(np.stack(dict_forecast_leadtime.values()).flatten())
+            ##----------------------------------------------------------------.
+            ### Retrieve dictionary providing at each AR iteration 
+            #   the tensor slice indexing to obtain a "regular" forecasts
+            if FIRST_PREDICTION: 
+                dict_Y_pred_selection = get_dict_Y_pred_selection(dim_info = dim_info,
+                                                                  dict_forecast_rel_idx_Y = dict_forecast_rel_idx_Y,
+                                                                  keep_first_prediction = keep_first_prediction)
+                FIRST_PREDICTION = False 
             ##----------------------------------------------------------------.      
-            ### Perform autoregressive loop
+            ### Perform autoregressive forecasting
             dict_Y_predicted = {}
-            for i in range(AR_iterations+1):
+            dict_Y_predicted_per_leadtime = {}
+            AR_counter_per_block = 0  
+            previous_block_AR_iteration = 0 
+            for AR_iteration in range(AR_iterations+1):
                 # Retrieve X and Y for current AR iteration
                 # - Torch Y stays in CPU with training_mode=False
-                torch_X, _ = get_AR_batch(AR_iteration = i, 
+                torch_X, _ = get_AR_batch(AR_iteration = AR_iteration, 
                                           batch_dict = batch_dict, 
                                           dict_Y_predicted = dict_Y_predicted,
                                           device = device, 
-                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                                          training_mode=False)
+                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer)
+                                         
                 ##------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
-                dict_Y_predicted[i] = model(torch_X)
+                dict_Y_predicted[AR_iteration] = model(torch_X)
                 ##------------------------------------------------------------.
-                # Remove unnecessary variables 
-                # --> TODO: pass to CPU? Add remove_unused from GPU? 
-                # torch.cuda.synchronize()
+                # Select required tensor slices (along time dimension) for final forecast
+                if len(dict_Y_pred_selection[AR_iteration]) > 0: 
+                    for leadtime, subset_indexing in dict_Y_pred_selection[AR_iteration]:
+                        dict_Y_predicted_per_leadtime[leadtime] = dict_Y_predicted[AR_iteration][subset_indexing].cpu().numpy()
+                ##------------------------------------------------------------.
+                # Remove unnecessary variables on GPU 
+                remove_unused_Y(AR_iteration = AR_iteration, 
+                                dict_Y_predicted = dict_Y_predicted,
+                                dict_Y_to_remove = batch_dict['dict_Y_to_remove']) 
                 del torch_X
-                # print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
+                # TODO CHECK ON GPU: the follow should be stable across iterations
+                # torch.cuda.synchronize()
+                # print("{}: {:.2f} MB".format(AR_iteration, torch.cuda.memory_allocated()/1000/1000)) 
+                ##------------------------------------------------------------.
+                # Create and save a forecast Dataset after each AR_block AR_iterations 
+                AR_counter_per_block += 1 
+                if AR_counter_per_block == AR_blocks:
+                    block_slice = slice(previous_block_AR_iteration, AR_iteration+1)
+                    ds = create_ds_forecast(dict_Y_predicted_per_leadtime = dict_Y_predicted_per_leadtime,
+                                            leadtimes = leadtimes[block_slice],
+                                            forecast_reference_times = forecast_reference_times,
+                                            longitudes = longitudes,
+                                            latitudes = latitudes,
+                                            features = features, 
+                                            dim_info = dim_info) 
+                    # Reset AR_counter_per_block
+                    AR_counter_per_block = 0 
+                    previous_block_AR_iteration = AR_iteration + 1
+                    # --------------------------------------------------------.
+                    # If predicting blocks of AR_iterations 
+                    # - Write AR blocks temporary to disk (and append progressively)
+                    if PREDICT_AR_BLOCKS: # (WRITE_TO_ZARR=True implicit)
+                        tmp_AR_block_zarr_fpath = os.path.join(os.path.dirname(zarr_fpath), "tmp_AR_blocks.zarr")
+                        write_zarr(zarr_fpath = tmp_AR_block_zarr_fpath, 
+                                   ds = ds,
+                                   chunks = chunks, default_chunks = default_chunks, 
+                                   compressor = compressor, default_compressor = default_compressor,
+                                   rounding = rounding, 
+                                   consolidated = True, 
+                                   append = True,
+                                   append_dim = 'leadtime', 
+                                   show_progress = False)   
+                    # --------------------------------------------------------.        
+            ##--------------------------------------.-------------------------.
+            # Clean memory 
+            del dict_Y_predicted    
+            del dict_Y_predicted_per_leadtime
                 
             ##----------------------------------------------------------------.
-            # Retrieve forecast informations 
-            dim_info = batch_dict['dim_info'] 
-            forecast_time_info = batch_dict['forecast_time_info']
-            
-            forecast_reference_time = forecast_time_info["forecast_reference_time"] - t_res_timedelta
-            
-            ##----------------------------------------------------------------.
-            ### Select needed leadtime 
-            # TODO c 
-            # - Args to choose which leadtime to select (when multiple are availables)
-            # - Select Y to stack (along time dimension)
-            # [forecast_time, leadtime, node, feature]
-            # dict_forecast_leadtime_idx = forecast_time_info["dict_forecast_leadtime_idx"]
-            # dict_Y_forecasted = dict_Y_predicted  # just keep required value in dim 1, already ordered
-            
-            ##----------------------------------------------------------------.
-            # Create forecast tensors
-            Y_forecasts = torch.cat(list(dict_Y_predicted.values()), dim=dim_info['time'])  
-
-            ##----------------------------------------------------------------.
-            # Create numpy array 
-            # .detach() should not be necessary if grad_disabled 
-            if Y_forecasts.is_cuda: 
-                Y_forecasts = Y_forecasts.cpu().numpy()
-            else:
-                Y_forecasts = Y_forecasts.numpy()
-                
-            ##----------------------------------------------------------------.
-            # Remove unused tensors 
-            del dict_Y_predicted
-       
-            ##----------------------------------------------------------------.
-            ### Create xarray Dataset of forecasts
-            # - Retrieve coords 
-            # - TODO currently works only if predict on timestep at each forecast cycle !
-            leadtime_idx = np.arange(Y_forecasts.shape[1]) # TODO generalize position
-            leadtime = (leadtime_idx + 1) * t_res_timedelta # start at 'forecast_cycle' hours
-
-            # - Create xarray DataArray 
-            da=xr.DataArray(Y_forecasts,           
-                            dims=['forecast_reference_time', 'leadtime', 'node', 'feature'],
-                            coords={'leadtime': leadtime, 
-                                    'forecast_reference_time': forecast_reference_time, 
-                                    'node': nodes, 
-                                    'feature': features})
-            # - Transform to dataset (to save to zarr)
-            ds = da.to_dataset(dim='feature')
-            
-            ##----------------------------------------------------------------.
-            # Retransform data to original dimensions           
-            if scaler_inverse is not None: 
-                # - Apply scaler 
-                # --> scaler.inverse_transform(ds).compute() works only for GlobalScalers
-                # --> Need to create the time dimension to apply correctly TemporalScalers
-                ds['time'] = ds['leadtime'] + ds['forecast_reference_time']
-                ds = ds.set_coords('time')
-                l_rescaled_ds = []
-                for i in range(len(ds['forecast_reference_time'])):
-                    tmp_ds = ds.isel(forecast_reference_time=i).swap_dims({"leadtime": "time"})
-                    l_rescaled_ds.append(scaler_inverse.inverse_transform(tmp_ds).swap_dims({"time": "leadtime"}).drop('time'))
-                ds = xr.concat(l_rescaled_ds, dim='forecast_reference_time')
-            ##----------------------------------------------------------------.
-            # Rounding (if required)
-            if rounding is not None: 
-                if isinstance(rounding, int):
-                    ds = ds.round(decimals=rounding)   
-                elif isinstance(rounding, dict):
-                    for var, decimal in rounding.items():
-                        if decimal is not None: 
-                            ds[var] = ds[var].round(decimal)                
+            ### Post-processing 
+            # - Retransform data to original dimensions (and write to Zarr optionally)   
+            if WRITE_TO_ZARR:
+                if PREDICT_AR_BLOCKS:
+                    # - Read the temporary AR_blocks saved on disk 
+                    ds = xr.open_zarr(tmp_AR_block_zarr_fpath)
+                if scaler_inverse is not None: 
+                    # TODO: Here an error occur if chunk forecast_reference_time > 1
+                    # --> Applying the inverse scaler means processing each
+                    #     forecast_reference_time separately
+                    # ---> A solution would be to stack all forecasts together before
+                    #      write to disk ... but this would consume memory and time.
+                    rescale_forecasts_and_write_zarr(ds = ds,
+                                                     scaler = scaler_inverse,
+                                                     zarr_fpath = zarr_fpath, 
+                                                     chunks = chunks, default_chunks = default_chunks, 
+                                                     compressor = compressor, default_compressor = default_compressor,
+                                                     rounding = rounding,             
+                                                     consolidated = True, 
+                                                     append = True,
+                                                     append_dim = 'forecast_reference_time', 
+                                                     show_progress = False)
                 else: 
-                    raise NotImplementedError("'rounding' should be int, dict or None.")
-                
-            ##----------------------------------------------------------------.
-            # If zarr_fpath not provided, keep predictions in memory 
-            if zarr_fpath is None:
-                list_ds.append(ds)
-                
-            # Else, write forecast to zarr store  
-            else:
-                # - Decide wheter to create or append to a Zarr Store
-                if not os.path.exists(zarr_fpath):
-                    append = False 
-                else: 
-                    append = True 
-                # Write data
-                write_zarr(zarr_fpath = zarr_fpath, 
-                           ds = ds,
-                           chunks = chunks, default_chunks = default_chunks, 
-                           compressor = compressor, default_compressor = default_compressor, 
-                           consolidated = True, 
-                           append = append,
-                           append_dim = 'forecast_reference_time', 
-                           show_progress = False)
-                                
-    ##-------------------------------------------------------------------------.
-    if zarr_fpath is not None:
+                    write_zarr(zarr_fpath = zarr_fpath, 
+                               ds = ds,
+                               chunks = chunks, default_chunks = default_chunks, 
+                               compressor = compressor, default_compressor = default_compressor,
+                               rounding = rounding, 
+                               consolidated = True, 
+                               append = True,
+                               append_dim = 'forecast_reference_time', 
+                               show_progress = False) 
+                if PREDICT_AR_BLOCKS:
+                    shutil.rmtree(tmp_AR_block_zarr_fpath)
+                    
+            else: 
+                if scaler_inverse is not None: 
+                    ds = rescale_forecasts(ds=ds, scaler=scaler_inverse, reconcat=True)
+                list_ds.append(ds)   
+                    
+    ##------------------------------------------------------------------------.
+    # Re-read the forecast dataset
+    if WRITE_TO_ZARR:
         ds_forecasts = xr.open_zarr(zarr_fpath, chunks="auto")
     else: 
         ds_forecasts = xr.merge(list_ds)
@@ -371,140 +484,6 @@ def AutoregressivePredictions(model,
     ##------------------------------------------------------------------------.    
     return ds_forecasts  
  
-#----------------------------------------------------------------------------.
-def AutoregressiveSWAGPredictions(model, exp_dir, 
-                                # Data
-                                da_training_dynamic,
-                                da_test_dynamic = None,
-                                da_static = None,              
-                                da_training_bc = None,         
-                                da_test_bc = None, 
-                                # Scaler options
-                                scaler = None,
-                                scaler_transform = True,  # transform_input ???
-                                scaler_inverse = True,    # backtransform_predictions ????
-                                # Dataloader options
-                                batch_size = 64, 
-                                num_workers = 0,
-                                prefetch_factor = 2, 
-                                prefetch_in_GPU = False,  
-                                pin_memory = False,
-                                asyncronous_GPU_transfer = True,
-                                device = 'cpu',
-                                numeric_precision = "float32", 
-                                # Autoregressive settings  
-                                input_k = [-3,-2,-1], 
-                                output_k = [0],
-                                forecast_cycle = 1,                           
-                                AR_iterations = 50, 
-                                stack_most_recent_prediction = True,
-                                # SWAG settings
-                                no_cov_mat=False,
-                                sampling_scale = 0.1,
-                                nb_samples = 10,
-                                # Save options  
-                                rounding = None,
-                                compressor = "auto",
-                                chunks = "auto",
-                                timedelta_unit='hour'):
-    
-    sampling_scale_str = str(sampling_scale).replace(".", "")
-    
-    for i in range(1, nb_samples+1): 
-        print(f"- Sample {i}")
-        forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_temp{i}.zarr")
-        with torch.no_grad():
-            model.sample(sampling_scale, cov=(no_cov_mat))
-
-        bn_update(model,
-                # Data
-                da_dynamic = da_training_dynamic,
-                da_static = da_static,              
-                da_bc = da_training_bc,          
-                scaler = scaler, 
-                # Dataloader options
-                device = device,
-                batch_size = batch_size,  # number of forecasts per batch
-                num_workers = num_workers, 
-                # tune_num_workers = False, 
-                prefetch_factor = prefetch_factor, 
-                prefetch_in_GPU = prefetch_in_GPU,  
-                pin_memory = pin_memory,
-                asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                numeric_precision = numeric_precision, 
-                # Autoregressive settings  
-                input_k = input_k, 
-                output_k = output_k, 
-                forecast_cycle = forecast_cycle,                         
-                AR_iterations = AR_iterations, 
-                stack_most_recent_prediction = stack_most_recent_prediction
-                )
-
-
-        ds_forecasts = AutoregressivePredictions(model = model, 
-                                                # Data
-                                                da_dynamic = da_test_dynamic,
-                                                da_static = da_static,              
-                                                da_bc = da_test_bc, 
-                                                scaler = scaler,
-                                                scaler_transform = scaler_transform,  # transform_input ???
-                                                scaler_inverse = scaler_inverse,    # backtransform_predictions ????
-                                                # Dataloader options
-                                                device = device,
-                                                batch_size = 50,  # number of forecasts per batch
-                                                num_workers = num_workers, 
-                                                # tune_num_workers = False, 
-                                                prefetch_factor = prefetch_factor, 
-                                                prefetch_in_GPU = prefetch_in_GPU,  
-                                                pin_memory = pin_memory,
-                                                asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                                                numeric_precision = numeric_precision, 
-                                                # Autoregressive settings
-                                                input_k = input_k, 
-                                                output_k = output_k, 
-                                                forecast_cycle = forecast_cycle,                         
-                                                stack_most_recent_prediction = stack_most_recent_prediction, 
-                                                AR_iterations = 20,        # How many time to autoregressive iterate
-                                                # Save options 
-                                                zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
-                                                rounding = rounding,             # Default None. Accept also a dictionary 
-                                                compressor = compressor,      # Accept also a dictionary per variable
-                                                chunks = chunks,          
-                                                timedelta_unit=timedelta_unit)
-
-    ##-------------------------------------------------------------------------.
-    # Ensemble the predicitons along dim "member"
-    zarr_members_fpaths = glob.glob(os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_*"))
-    list_ds_member = [xr.open_zarr(fpath) for fpath in zarr_members_fpaths]
-    ds_ensemble = xr.concat(list_ds_member, dim="member")
-    
-    del list_ds_member
-        
-    ##-------------------------------------------------------------------------.
-    # Save ensemble
-    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}.zarr")
-    if not os.path.exists(forecast_zarr_fpath):
-        ds_ensemble.to_zarr(forecast_zarr_fpath, mode='w') # Create
-    else:                        
-        ds_ensemble.to_zarr(forecast_zarr_fpath, append_dim='member') # Append
-    ds_ensemble = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
-
-    ##-------------------------------------------------------------------------.
-    # Remove individual members
-    for member in zarr_members_fpaths:
-        shutil.rmtree(member)
-    
-    ##-------------------------------------------------------------------------.
-    # Compute median of ensemble
-    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_median.zarr")
-    df_median = ds_ensemble.median(dim="member")
-    df_median.to_zarr(forecast_zarr_fpath, mode='w') # Create
-    df_median = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
-    
-    del ds_ensemble
-
-    return df_median
-
 #----------------------------------------------------------------------------.
 def reshape_forecasts_for_verification(ds):
     """Process a Dataset with forecasts in the format required for verification."""
@@ -583,3 +562,140 @@ def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem 
     ##------------------------------------------------------------------------.
     # Return the Dataset for verification
     return ds_verification
+
+#----------------------------------------------------------------------------.
+def AutoregressiveSWAGPredictions(model, exp_dir, 
+                                  # Data
+                                  da_training_dynamic,
+                                  da_test_dynamic = None,
+                                  da_static = None,              
+                                  da_training_bc = None,         
+                                  da_test_bc = None, 
+                                  # Scaler options
+                                  scaler_transform = None,   
+                                  scaler_inverse = None,     
+                                  # Dataloader options
+                                  batch_size = 64, 
+                                  num_workers = 0,
+                                  prefetch_factor = 2, 
+                                  prefetch_in_GPU = False,  
+                                  pin_memory = False,
+                                  asyncronous_GPU_transfer = True,
+                                  device = 'cpu',
+                                  numeric_precision = "float32", 
+                                  # Autoregressive settings  
+                                  input_k = [-3,-2,-1], 
+                                  output_k = [0],
+                                  forecast_cycle = 1,                           
+                                  AR_iterations = 50, 
+                                  stack_most_recent_prediction = True,
+                                  # Prediction options 
+                                  forecast_reference_times = None, 
+                                  keep_first_prediction = True, 
+                                  AR_blocks = None,
+                                  # SWAG settings
+                                  no_cov_mat=False,
+                                  sampling_scale = 0.1,
+                                  nb_samples = 10,
+                                  # Save options  
+                                  rounding = None,
+                                  compressor = "auto",
+                                  chunks = "auto"):
+                                      
+    sampling_scale_str = str(sampling_scale).replace(".", "")
+    
+    for i in range(1, nb_samples+1): 
+        print(f"- Sample {i}")
+        forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_temp{i}.zarr")
+        with torch.no_grad():
+            model.sample(sampling_scale, cov=(no_cov_mat))
+
+        bn_update(model,
+                # Data
+                da_dynamic = da_training_dynamic,
+                da_static = da_static,              
+                da_bc = da_training_bc,          
+                scaler = scaler_transform, 
+                # Dataloader options
+                device = device,
+                batch_size = batch_size,  # number of forecasts per batch
+                num_workers = num_workers, 
+                # tune_num_workers = False, 
+                prefetch_factor = prefetch_factor, 
+                prefetch_in_GPU = prefetch_in_GPU,  
+                pin_memory = pin_memory,
+                asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                numeric_precision = numeric_precision, 
+                # Autoregressive settings  
+                input_k = input_k, 
+                output_k = output_k, 
+                forecast_cycle = forecast_cycle,                         
+                AR_iterations = AR_iterations, 
+                stack_most_recent_prediction = stack_most_recent_prediction
+                )
+
+
+    _ = AutoregressivePredictions(model = model, 
+                                  # Data
+                                  da_dynamic = da_test_dynamic,
+                                  da_static = da_static,              
+                                  da_bc = da_test_bc, 
+                                  scaler_transform = scaler_transform,   
+                                  scaler_inverse = scaler_inverse,    
+                                  # Dataloader options
+                                  device = device,
+                                  batch_size = batch_size,  # number of forecasts per batch
+                                  num_workers = num_workers, 
+                                  # tune_num_workers = False, 
+                                  prefetch_factor = prefetch_factor, 
+                                  prefetch_in_GPU = prefetch_in_GPU,  
+                                  pin_memory = pin_memory,
+                                  asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                  numeric_precision = numeric_precision, 
+                                  # Autoregressive settings
+                                  input_k = input_k, 
+                                  output_k = output_k, 
+                                  forecast_cycle = forecast_cycle,                         
+                                  stack_most_recent_prediction = stack_most_recent_prediction, 
+                                  AR_iterations = AR_iterations,        # How many time to autoregressive iterate
+                                  # Prediction options 
+                                  forecast_reference_times = forecast_reference_times, 
+                                  keep_first_prediction = keep_first_prediction, 
+                                  AR_blocks = AR_blocks,
+                                  # Save options 
+                                  zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
+                                  rounding = rounding,             # Default None. Accept also a dictionary 
+                                  compressor = compressor,      # Accept also a dictionary per variable
+                                  chunks = chunks)         
+
+    ##-------------------------------------------------------------------------.
+    # Ensemble the predicitons along dim "member"
+    zarr_members_fpaths = glob.glob(os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_*"))
+    list_ds_member = [xr.open_zarr(fpath) for fpath in zarr_members_fpaths]
+    ds_ensemble = xr.concat(list_ds_member, dim="member")
+    
+    del list_ds_member
+        
+    ##-------------------------------------------------------------------------.
+    # Save ensemble
+    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}.zarr")
+    if not os.path.exists(forecast_zarr_fpath):
+        ds_ensemble.to_zarr(forecast_zarr_fpath, mode='w') # Create
+    else:                        
+        ds_ensemble.to_zarr(forecast_zarr_fpath, append_dim='member') # Append
+    ds_ensemble = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
+
+    ##-------------------------------------------------------------------------.
+    # Remove individual members
+    for member in zarr_members_fpaths:
+        shutil.rmtree(member)
+    
+    ##-------------------------------------------------------------------------.
+    # Compute median of ensemble
+    forecast_zarr_fpath = os.path.join(exp_dir, f"model_predictions/spatial_chunks/test_pred_{sampling_scale_str}_median.zarr")
+    df_median = ds_ensemble.median(dim="member")
+    del ds_ensemble
+    df_median.to_zarr(forecast_zarr_fpath, mode='w') # Create
+    df_median = xr.open_zarr(forecast_zarr_fpath, chunks="auto")
+    
+    return df_median
