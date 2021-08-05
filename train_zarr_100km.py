@@ -220,13 +220,13 @@ def main(cfg_path, exp_dir, data_dir):
     print_model_description(cfg)
     print_dim_info(dim_info)  
     
-    from modules.utils_config import get_pytorch_model
-    model = get_pytorch_model(module_with_custom_models = my_architectures,
-                              model_settings = model_settings,
-                              training_settings = training_settings)
     ##------------------------------------------------------------------------.
     ### Define the model architecture  
     # - TODO: improve with utils_config.get_pytorch_model
+    # from modules.utils_config import get_pytorch_model
+    # model = get_pytorch_model(module_with_custom_models = my_architectures,
+    #                           model_settings = model_settings,
+    #                           training_settings = training_settings)
     DeepSphereModelClass = getattr(my_architectures, model_settings['architecture_name'])
     # - Retrieve required model arguments
     model_keys = ['dim_info', 'sampling', 'resolution',
@@ -449,7 +449,8 @@ def main(cfg_path, exp_dir, data_dir):
                                              da_dynamic = da_test_dynamic,
                                              da_static = da_static,              
                                              da_bc = da_test_bc, 
-                                             scaler = scaler,
+                                             scaler_transform = scaler,
+                                             scaler_inverse = scaler,
                                              # Dataloader options
                                              device = device,
                                              batch_size = 50,  # number of forecasts per batch

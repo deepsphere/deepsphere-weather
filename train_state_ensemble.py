@@ -484,7 +484,8 @@ def main(cfg_path, exp_dir, data_dir, nb_models):
                                                 da_dynamic = da_test_dynamic,
                                                 da_static = da_static,              
                                                 da_bc = da_test_bc, 
-                                                scaler = scaler,
+                                                scaler_transform = scaler,
+                                                scaler_inverse = scaler,
                                                 # Dataloader options
                                                 device = device,
                                                 batch_size = 50,  # number of forecasts per batch
