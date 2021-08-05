@@ -257,17 +257,23 @@ def check_rounding(rounding, variable_names):
 def write_zarr(zarr_fpath, ds, 
                chunks="auto", default_chunks = None, 
                compressor="auto", default_compressor = None, 
+               rounding = None, 
                consolidated=True, 
                append=False, append_dim = None, 
                show_progress=True):
     """Write Xarray Dataset to zarr with custom chunks and compressor per Dataset variable."""
     # Good to know: chunks=None: keeps current chunks, chunks='auto' rely on xarray defaults
+    # append=True: if zarr_fpath do not exists, set to False (for the first write)
     ##-------------------------------------------------------------------------.
+    ### Check append options 
+    if not os.path.exists(zarr_fpath):
+        append = False
     if append:
         if not isinstance(append_dim, str):
             raise TypeError("Please specify the 'append_dim' (as a string).")
     else:
         append_dim = None
+
     ##------------------------------------------------------------------------.
     ### - Define file chunking  
     chunks = check_chunks(ds, chunks = chunks, 
@@ -280,16 +286,36 @@ def write_zarr(zarr_fpath, ds,
                                   variable_names = list(ds.data_vars.keys()))
     
     ##------------------------------------------------------------------------.
+    # - Define rounding option 
+    rounding = check_rounding(rounding = rounding,
+                              variable_names = list(ds.data_vars.keys()))
+    
+    ##------------------------------------------------------------------------.
+    # - Rounding (if required)
+    if rounding is not None: 
+        if isinstance(rounding, int):
+            ds = ds.round(decimals=rounding)   
+        elif isinstance(rounding, dict):
+            for var, decimal in rounding.items():
+                if decimal is not None: 
+                    ds[var] = ds[var].round(decimal)                
+        else: 
+            raise NotImplementedError("'rounding' should be int, dict or None.")
+    ##------------------------------------------------------------------------.        
     # - Remove previous encoding filters
     # - https://github.com/pydata/xarray/issues/3476
     # for var in ds.data_vars.keys(): 
     #     ds[var].encoding['filters'] = None
     for dim in list(ds.dims.keys()): 
-        ds[dim].encoding['filters'] = None # Without this, bug when coords are objects
+        ds[dim].encoding['filters'] = None # Without this, bug when coords are str objects
+    
+    ##------------------------------------------------------------------------.
     # - Add chunk encoding the dataset
     for var, chunk in chunks.items():
         if chunk is not None: 
             ds[var] = ds[var].chunk(chunk)  
+            
+    ##------------------------------------------------------------------------.
     # - Add compressor encoding to each DataArray
     for var, comp in compressor.items(): 
         ds[var].encoding['compressor'] = comp
@@ -600,6 +626,7 @@ def _get_blosc_compressors(clevels=[0,1,3,5,9]):
 def _get_lmza_compressors(clevels=[0,1,3,5,9]): 
     # - preset: compression level between 0 and 9 
     # - dist: distance between bytes to be subtracted (default 1)
+    # Cannot specify filters except with FORMAT_RAW
     import lzma
     delta_dist = [None, 1,2,4]
     possible_args = list(itertools.product(clevels, delta_dist))
@@ -616,12 +643,14 @@ def _get_lmza_compressors(clevels=[0,1,3,5,9]):
     return compressors 
 
 def _get_zip_compressors(clevels=[0,1,3,5,9]):
+    # - BZ2 do not accept clevel = 0
     compressors = {}
     for clevel in clevels:
         k_name = "GZip" + "_cl" + str(clevel)       
         compressors[k_name] = numcodecs.gzip.GZip(level=clevel)
-        k_name = "BZ2" + "_cl" + str(clevel)           
-        compressors[k_name] = numcodecs.bz2.BZ2(level=clevel)
+        if clevel > 0:
+            k_name = "BZ2" + "_cl" + str(clevel)           
+            compressors[k_name] = numcodecs.bz2.BZ2(level=clevel)
     return compressors
  
 def _get_zfpy_compressors():
@@ -634,7 +663,7 @@ def _get_zfpy_compressors():
 
 def _getlossless_compressors(clevels=[0,1,3,5,9]):
     compressors = _get_blosc_compressors(clevels=clevels)
-    compressors.update(_get_lmza_compressors(clevels=clevels))
+    # compressors.update(_get_lmza_compressors(clevels=clevels))
     compressors.update(_get_zip_compressors(clevels=clevels))
     # compressors.update(_get_zfpy_compressors())
     return compressors  
