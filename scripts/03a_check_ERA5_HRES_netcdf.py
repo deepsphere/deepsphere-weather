@@ -6,6 +6,8 @@ Created on Fri Jul 30 17:12:06 2021
 @author: ghiggi
 """
 import os
+import sys
+sys.path.append('../')
 import numpy as np
 import xarray as xr
 import dask
