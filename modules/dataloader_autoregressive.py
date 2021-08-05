@@ -22,6 +22,8 @@ from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_io import is_dask_DataArray
 from modules.utils_io import check_AR_DataArrays
+from modules.utils_io import _check_timesteps
+from modules.utils_io import _get_subset_timesteps_idxs
 from modules.utils_torch import get_torch_dtype
 from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
@@ -30,17 +32,20 @@ from modules.utils_torch import check_prefetch_in_GPU
 from modules.utils_torch import check_prefetch_factor
 from modules.utils_torch import get_time_function
 
+### Assumptions 
+# - Currently da_dynamic and da_bc must have same number of timesteps 
+# --> The dataloader loads the same positional indices along the time dimension
+
+### Possible speedups
+# collate_fn
+# - Code in collate_fn can be thread parallelized per data type and per forecast iterations 
+
 ##----------------------------------------------------------------------------.
 # TODO DataLoader Options    
 # - sampler                    # Provide this option? To generalize outside batch samples?  
 # - worker_init_fn             # To initialize dask scheduler? To set RNG?
-##----------------------------------------------------------------------------.
-### Possible speedups
-# collate_fn
-# - Check if collate_fn is applied not in parallel out of the multiprocess loop 
-# - Code in collate_fn can be parallelized per data type and per forecast iterations)
 
-#-----------------------------------------------------------------------------. 
+#-----------------------------------------------------------------------------.       
 # ############################# 
 ### Autoregressive Dataset ####
 # #############################   
@@ -60,6 +65,9 @@ class AutoregressiveDataset(Dataset):
                  da_bc = None, 
                  da_static = None,
                  scaler = None, 
+                 # Setting for optional time subsets
+                 subset_timesteps = None, 
+                 training_mode = True, 
                  # GPU settings 
                  device = 'cpu',
                  # Precision settings
@@ -79,7 +87,11 @@ class AutoregressiveDataset(Dataset):
             The default is None.
         scaler : xscaler 
             xscaler object to transform the DataArrays.
-             The default is None.
+            The default is None.
+        subset_timesteps : np.array with datetime
+            Allows to restrict the timesteps that the DataLoader will load.
+        training_mode : bool
+            When training_mode = True (default), the dataloader loads also the ground truth Y. 
         input_k : list
             Indices representing predictors past timesteps.
         output_k : list
@@ -107,6 +119,10 @@ class AutoregressiveDataset(Dataset):
         # Checks device
         device = check_device(device)
         self.device = device
+        # Check training_mode 
+        if not isinstance(training_mode, bool): 
+            raise TypeError("'training_mode must be either True or False.")
+        self.training_mode = training_mode 
         ## -------------------------------------------------------------------.
         ### - Initialize autoregressive configs   
         self.input_k = input_k 
@@ -137,10 +153,15 @@ class AutoregressiveDataset(Dataset):
         ### - Assign dynamic and bc data
         self.da_dynamic = da_dynamic 
         self.da_bc = da_bc 
-        
+        ##--------------------------------------------------------------------.
+        ### - Build dictionary of DataArray availability 
+        data_availability = {}
+        data_availability['static'] = da_static is not None
+        data_availability['bc'] = da_bc is not None
+        self.data_availability = data_availability
         ##--------------------------------------------------------------------.
         ### Load static tensor into GPU (and expand over the time dimension) 
-        if da_static is not None:
+        if data_availability['static']:
             # - Apply scaler 
             if self.scaler is not None:
                 da_static = self.scaler.transform(da_static, variable_dim='feature').compute()
@@ -170,8 +191,19 @@ class AutoregressiveDataset(Dataset):
             self.torch_static = None
             
         ##--------------------------------------------------------------------.
+        ### - Add forecast reference times idxs for tailored forecast predictions 
+        # - This it restrics the idxs in update_indexes() that will be loaded
+        subset_idxs = None
+        if subset_timesteps is not None:
+            timesteps = da_dynamic['time'].values
+            subset_timesteps = np.array(subset_timesteps)
+            subset_idxs = _get_subset_timesteps_idxs(timesteps, subset_timesteps, strict_match=True) 
+            self.subset_timesteps = timesteps[subset_idxs]                                        
+        self.subset_idxs = subset_idxs
+        
+        ##--------------------------------------------------------------------.
         ### - Generate indexing
-        self.n_timesteps = da_dynamic.shape[0]
+        self.n_timesteps = da_dynamic.shape[0] # subset_idxs refers to range(0, n_timesteps)
         self.update_indexing()
         
         ##--------------------------------------------------------------------.    
@@ -208,34 +240,49 @@ class AutoregressiveDataset(Dataset):
         # - If not preloaded in CPU, load the zarr chunks (with dask)  
         if is_dask_DataArray(da_dynamic_subset): 
             da_dynamic_subset = da_dynamic_subset.compute()
-        # - Loop over leadtimes and store Numpy arrays in a dictionary(leadtime)
+        ## -------------------------------------------------------------------.
+        ### Loop over leadtimes and store Numpy arrays in a dictionary(leadtime)
+        # - Extract numpy array from DataArray and convert to Torch Tensor
+        # - X_dynamic 
         dict_X_dynamic_data = {}
-        dict_Y_data = {}
         for i in range(self.AR_iterations + 1): 
-            # Extract numpy array from DataArray and conver to Torch Tensor
-            dict_Y_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).values), dtype=self.torch_dtype, device='cpu')
+            # X_dynamic
             if self.dict_rel_idx_X_dynamic[i] is not None:
                 dict_X_dynamic_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_X_dynamic[i]).values), dtype=self.torch_dtype, device='cpu')
             else: 
                 dict_X_dynamic_data[i] = None
+        # - Y 
+        if self.training_mode:
+            dict_Y_data = {}
+            for i in range(self.AR_iterations + 1): 
+                dict_Y_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).values), dtype=self.torch_dtype, device='cpu')
+        else: 
+            dict_Y_data = None
         ##--------------------------------------------------------------------.
         ## Retrieve forecast time infos     
+        # - Forecast start time 
+        forecast_start_time = self.da_dynamic.isel(time=xr_idx_k_0).time.values
         # - Forecast reference time 
-        forecast_reference_time = self.da_dynamic.isel(time=xr_idx_k_0).time.values
+        reference_time_idx = xr_idx_k_0 + max(self.input_k)
+        forecast_reference_time = self.da_dynamic.isel(time=reference_time_idx).time.values
         # - Forecast leadtime_idx 
-        dict_forecast_leadtime_idx = self.dict_rel_idx_Y
-        # - Forecasted time
+        dict_forecast_rel_idx_Y = self.dict_rel_idx_Y
+        # - Forecasted time and forecast leadtime 
         dict_forecasted_time = {}
+        dict_forecast_leadtime = {}
         for i in range(self.AR_iterations + 1): 
             dict_forecasted_time[i] = da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).time.values 
+            dict_forecast_leadtime[i] = dict_forecasted_time[i] - forecast_reference_time
         # - Create forecast_time_info dictionary 
-        forecast_time_info = {'forecast_reference_time': forecast_reference_time,
-                              'dict_forecast_leadtime_idx': dict_forecast_leadtime_idx,
+        forecast_time_info = {'forecast_start_time': forecast_start_time,
+                              'forecast_reference_time': forecast_reference_time,
+                              'dict_forecast_rel_idx_Y': dict_forecast_rel_idx_Y,
+                              'dict_forecast_leadtime': dict_forecast_leadtime, 
                               'dict_forecasted_time': dict_forecasted_time}
          
         ## -------------------------------------------------------------------.
         ### Retrieve boundary conditions data (if provided)
-        if self.da_bc is not None: 
+        if self.data_availability['bc']: 
             xr_idx_bc_required = xr_idx_k_0 + self.rel_idx_bc_required  
             # - Subset the xarray Datarray (need for all autoregressive iterations)
             da_bc_subset = self.da_bc.isel(time=xr_idx_bc_required)
@@ -257,13 +304,17 @@ class AutoregressiveDataset(Dataset):
         
         ## -------------------------------------------------------------------.
         # Return the sample dictionary  
-        return {'X_dynamic': dict_X_dynamic_data, 'X_bc': dict_X_bc_data, 
+        return {'X_dynamic': dict_X_dynamic_data, 
+                'X_bc': dict_X_bc_data, 
                 'Y': dict_Y_data, 
                 'dict_Y_to_stack': self.dict_Y_to_stack,
                 'dict_Y_to_remove': self.dict_Y_to_remove,
+                'AR_iterations': self.AR_iterations,
                 'dim_info': self.dim_info,
                 'forecast_time_info': forecast_time_info,
-                'AR_iterations': self.AR_iterations}
+                'training_mode': self.training_mode, 
+                'data_availability': self.data_availability
+                }
     
     def update_indexing(self):
         """Update indices."""
@@ -288,11 +339,23 @@ class AutoregressiveDataset(Dataset):
         idx_end = get_last_valid_idx(output_k = output_k,
                                      forecast_cycle = forecast_cycle, 
                                      AR_iterations = AR_iterations)
-        self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end - 1)]
-        self.idx_start = idx_start
-        self.idx_end = idx_end
-        self.n_samples = len(self.idxs)
         
+        # - Define valid idx for training (and prediction)
+        subset_idxs = self.subset_idxs
+        if subset_idxs is not None:
+            subset_timesteps = self.subset_timesteps
+            if any(subset_idxs < idx_start):
+                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
+                                 list(subset_timesteps[subset_idxs < idx_start]))
+            if any(subset_idxs > n_timesteps - idx_end):
+                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
+                                 list(subset_timesteps[subset_idxs > idx_end]))            
+            self.idxs = subset_idxs
+        else: 
+            self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end - 1)]
+       
+        # - Compute the number of samples available
+        self.n_samples = len(self.idxs)
         if self.n_samples == 0: 
             raise ValueError("No samples available. Maybe reduce number of AR iterations.")
         ##--------------------------------------------------------------------.
@@ -332,7 +395,6 @@ class AutoregressiveDataset(Dataset):
         if self.AR_iterations != new_AR_iterations:                
             # Update AR iterations
             self.AR_iterations = new_AR_iterations
-            
             # Update valid idxs and rel_idx_dictionaries 
             self.update_indexing()
                 
@@ -345,6 +407,7 @@ def autoregressive_collate_fn(list_samples,
                               device = 'cpu'):        
     """Stack the list of samples into batch of data."""
     # list_samples is a list of what returned by __get_item__ of AutoregressiveDataset
+    # To debug: list_samples = [dataset.__getitem__(0), dataset.__getitem__(1)]
     ##------------------------------------------------------------------------.
     # Retrieve other infos
     dict_Y_to_stack = list_samples[0]['dict_Y_to_stack']
@@ -352,76 +415,89 @@ def autoregressive_collate_fn(list_samples,
     dim_info = list_samples[0]['dim_info']
     AR_iterations = list_samples[0]['AR_iterations']
     batch_dim = dim_info['sample']
+    training_mode = list_samples[0]['training_mode']
+    data_availability = list_samples[0]['data_availability']
+
     ##------------------------------------------------------------------------.
     # Retrieve the different data (and forecast time info)
     list_X_dynamic_samples = []
     list_X_bc_samples = []
     list_Y_samples = []
     
+    list_forecast_start_time = []
     list_forecast_reference_time = []
-    list_dict_forecasted_time = []
-    dict_forecast_leadtime_idx = list_samples[0]['forecast_time_info']['dict_forecast_leadtime_idx']
-
+    dict_forecast_leadtime = list_samples[0]['forecast_time_info']['dict_forecast_leadtime']
+    dict_forecast_rel_idx_Y = list_samples[0]['forecast_time_info']['dict_forecast_rel_idx_Y']
     for dict_samples in list_samples:
         list_X_dynamic_samples.append(dict_samples['X_dynamic'])
         list_X_bc_samples.append(dict_samples['X_bc'])
         list_Y_samples.append(dict_samples['Y'])
         # Forecast time info 
+        list_forecast_start_time.append(dict_samples['forecast_time_info']['forecast_start_time'])
         list_forecast_reference_time.append(dict_samples['forecast_time_info']['forecast_reference_time'])
-        list_dict_forecasted_time.append(dict_samples['forecast_time_info']['dict_forecasted_time'])
+    
+    ##------------------------------------------------------------------------. 
+    # Assemble forecast_time_info   
+    forecast_reference_time = np.stack(list_forecast_reference_time)
+    forecast_start_time = np.stack(list_forecast_start_time)
+    forecast_time_info = {"forecast_reference_time": forecast_reference_time,
+                          "forecast_start_time": forecast_start_time,
+                          "dict_forecast_leadtime": dict_forecast_leadtime,
+                          "dict_forecast_rel_idx_Y": dict_forecast_rel_idx_Y}
+    
     ##------------------------------------------------------------------------.  
     ### Batch data togethers   
-    # - Process X_dynamic and Y
+    # - Process X_dynamic  
     dict_X_dynamic_batched = {}
-    dict_Y_batched = {}
     for i in range(AR_iterations+1):
-        if pin_memory:
-            # Y
-            dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim).pin_memory()  
-            # X dynamic 
-            list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
-            if len(list_X_dynamic_tensors) > 0: 
-                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=batch_dim).pin_memory()
-            else: # when no X dynamic (after some AR iterations)
-                dict_X_dynamic_batched[i] = None
-        else: 
-            # Y
-            dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim)    
-            # X dynamic 
-            list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
-            if len(list_X_dynamic_tensors) > 0: 
-                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=batch_dim) 
-            else: # when no X dynamic (after some AR iterations)
-                dict_X_dynamic_batched[i] = None
-                
-    # - Process X_bc
-    dict_X_bc_batched = {}  
-    for i in range(AR_iterations+1):
-        if len(list_X_bc_samples) != 0 and list_X_bc_samples[0].get(i, None) is not None: 
+        # X dynamic 
+        list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
+        if len(list_X_dynamic_tensors) > 0: 
             if pin_memory:
-                dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim).pin_memory()
+                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=batch_dim).pin_memory()
             else: 
-                dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim) 
-        else:
-            dict_X_bc_batched[i] = None
-    ##------------------------------------------------------------------------. 
-    # Assemble forecast_time_info 
-    # dict_forecast_leadtime_idx
-    # list_dict_forecasted_time 
-    forecast_reference_time = np.stack(list_forecast_reference_time)
-    forecast_time_info = {"forecast_reference_time": forecast_reference_time,
-                          "dict_forecast_leadtime_idx": dict_forecast_leadtime_idx}
- 
-    ##------------------------------------------------------------------------.
-    # Prefetch to GPU if asked
-    if prefetch_in_GPU:
+                dict_X_dynamic_batched[i] = torch.stack(list_X_dynamic_tensors, dim=batch_dim) 
+            if prefetch_in_GPU:
+                dict_X_dynamic_batched[i] = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)  
+        else: # when no X dynamic (after some AR iterations)
+            dict_X_dynamic_batched[i] = None
+    ##------------------------------------.        
+    # - Process Y
+    if training_mode:
+        dict_Y_batched = {}
         for i in range(AR_iterations+1):
-            dict_X_dynamic_batched[i] = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)  
-            dict_Y_batched[i] = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)       
-            if dict_X_bc_batched[i] is not None:
-                dict_X_bc_batched[i] = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer) 
+            if pin_memory:
+                dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim).pin_memory()  
+            else: 
+                dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim)  
+            if prefetch_in_GPU:
+                dict_Y_batched[i] = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
+    else:
+        dict_Y_batched = None
+        
+    ##-------------------------------------.            
+    # - Process X_bc
+    if data_availability['bc']: 
+        dict_X_bc_batched = {}  
+        for i in range(AR_iterations+1):
+            if len(list_X_bc_samples) != 0 and list_X_bc_samples[0] is not None: 
+                if pin_memory:
+                    dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim).pin_memory()
+                else: 
+                    dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim) 
+                if prefetch_in_GPU:
+                    if dict_X_bc_batched[i] is not None:
+                        dict_X_bc_batched[i] = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)  
+            else:
+                dict_X_bc_batched[i] = None
+    else: 
+        dict_X_bc_batched = None
+    ##------------------------------------------------------------------------.
+    # - Prefetch static to GPU if asked
+    if prefetch_in_GPU:            
         if torch_static is not None: 
             torch_static = torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer) 
+    
     ##------------------------------------------------------------------------.   
     # Return dictionary of batched data 
     batch_dict = {'X_dynamic': dict_X_dynamic_batched, 
@@ -432,6 +508,8 @@ def autoregressive_collate_fn(list_samples,
                   'forecast_time_info': forecast_time_info,
                   'dict_Y_to_remove': dict_Y_to_remove,
                   'dict_Y_to_stack': dict_Y_to_stack,
+                  'training_mode': training_mode, 
+                  'data_availability': data_availability, 
                   'prefetched_in_GPU': prefetch_in_GPU}
     
     return batch_dict
@@ -551,8 +629,7 @@ def get_AR_batch(AR_iteration,
                  batch_dict, 
                  dict_Y_predicted,
                  device = 'cpu', 
-                 asyncronous_GPU_transfer = True,
-                 training_mode=True):
+                 asyncronous_GPU_transfer = True):
     """Create X and Y Torch Tensors for a specific AR iteration."""
     i = AR_iteration
     ##------------------------------------------------------------------------.
@@ -564,49 +641,58 @@ def get_AR_batch(AR_iteration,
     # batch_dim = dim_info['sample']  
     # node_dim = dim_info['node']  
  
-   
     ##------------------------------------------------------------------------.
     ## Get dictionary with batched data for all forecast iterations 
-    torch_static = batch_dict['X_static']
+    torch_static = batch_dict['X_static']   # Can be None if no static data specified 
     dict_X_dynamic_batched = batch_dict['X_dynamic']
-    dict_X_bc_batched = batch_dict['X_bc']
-    dict_Y_batched = batch_dict['Y']
+    dict_X_bc_batched = batch_dict['X_bc']  # Can be None if no bc data specified 
+    dict_Y_batched = batch_dict['Y']        # Can be None if training_mode = False 
     prefetched_in_GPU = batch_dict["prefetched_in_GPU"]
+    training_mode = batch_dict['training_mode']
+    # data_availability = batch_dict['data_availability'] 
     ##------------------------------------------------------------------------.
     # Check if static and bc data are available 
     static_is_available = torch_static is not None
-    bc_is_available = dict_X_bc_batched[i] is not None
+    if dict_X_bc_batched is None: 
+        bc_is_available = False 
+    else: 
+        bc_is_available = dict_X_bc_batched[i] is not None
    
     ##------------------------------------------------------------------------.
     # Retrieve info and data for current iteration 
     list_tuple_idx_to_stack = batch_dict['dict_Y_to_stack'][i]
     
     ##------------------------------------------------------------------------.
-    # Transfer into GPU (if available, or not prefetched in GPU)
-    if not prefetched_in_GPU:
-        # X_dynamic
-        if dict_X_dynamic_batched[i] is not None:
+    ### Prepare torch Tensor available in GPU 
+    # - X_dynamic 
+    if dict_X_dynamic_batched[i] is not None:
+        if not prefetched_in_GPU:
             torch_X = dict_X_dynamic_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
-        else:
-            torch_X = None
-        # X_static 
-        if torch_static is not None: 
-            torch_static = torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer)
-        # X_bc
-        if bc_is_available:
-            torch_X_bc = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
-        # Y 
-        if training_mode:
-            torch_Y = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)   
-        else: # prediction mode 
-            torch_Y = None  
-            
-    # Or retrieve the prefetched in GPU data
+        else: 
+            torch_X = dict_X_dynamic_batched[i]
     else:
-        torch_X = dict_X_dynamic_batched[i]
-        if bc_is_available:
+        torch_X = None
+    ##--------------------------------------------.
+    # - X_static
+    if torch_static is not None: 
+        if not prefetched_in_GPU:
+            torch_static = torch_static.to(device=device, non_blocking=asyncronous_GPU_transfer)
+    ##--------------------------------------------.
+    # - X_bc 
+    if bc_is_available:
+        if not prefetched_in_GPU:
+            torch_X_bc = dict_X_bc_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
+        else: 
             torch_X_bc = dict_X_bc_batched[i]
-        torch_Y = dict_Y_batched[i] 
+    ##--------------------------------------------.
+    # - Y 
+    if training_mode:
+        if not prefetched_in_GPU:
+            torch_Y = dict_Y_batched[i].to(device=device, non_blocking=asyncronous_GPU_transfer)
+        else:
+            torch_Y = dict_Y_batched[i] 
+    else: # prediction mode 
+        torch_Y = None         
     ##-------------------------------------------------------------------------.
     # Stack together data required for the current forecast 
     # --> Previous predictions to stack are already in the GPU
@@ -641,7 +727,8 @@ def get_AR_batch(AR_iteration,
     ##------------------------------------------------------------------------.
     # - Remove unused torch Tensors 
     del dict_X_dynamic_batched[i]   
-    del dict_Y_batched[i]            
+    if training_mode:
+        del dict_Y_batched[i]            
     if bc_is_available:
         del torch_X_bc
         del dict_X_bc_batched[i]    
