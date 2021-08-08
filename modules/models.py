@@ -16,7 +16,16 @@ from modules.utils_models import get_pygsp_graph_fun
 from modules.utils_models import get_pygsp_graph_params
 from modules.utils_models import check_conv_type
 from modules.utils_torch import get_torch_dtype
-import igl # conda install igl
+
+def _import_igl():
+    try:
+        import igl
+    except Exception as e:
+        raise ImportError('Cannot import igl. Build a knn graph '
+                          'instead of a mesh graph or install it with '
+                          'conda install igl. '
+                          'Original exception: {}'.format(e))
+    return igl
 
 def triangulate(graph):
     sv = SphericalVoronoi(graph.coords)
@@ -24,6 +33,7 @@ def triangulate(graph):
     return sv.points, sv._simplices
 
 def compute_cotan_laplacian(graph, return_mass=False):
+    igl = _import_igl()
     v, f = triangulate(graph)
     L = -igl.cotmatrix(v, f)
     assert len((L - L.T).data) == 0
@@ -31,7 +41,7 @@ def compute_cotan_laplacian(graph, return_mass=False):
     # M = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_BARYCENTRIC)
     if return_mass:
         # Eliminate zeros for speed (appears for equiangular).
-        L.eliminate_zeros()  
+        L.eliminate_zeros()
         return L, M
     else:
         Minv = sparse.diags(1 / M.diagonal())

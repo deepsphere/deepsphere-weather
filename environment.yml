@@ -54,6 +54,7 @@ dependencies:
   - healpy=1.14.0
   - heapdict=1.0.1
   - icu=58.2
+  - igl=2.2.1
   - importlib-metadata=3.3.0
   - importlib_metadata=3.3.0
   - iniconfig=1.1.1
