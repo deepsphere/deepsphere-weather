@@ -65,7 +65,7 @@ def get_variable_interp_method_dict():
     """Interpolation method dictionary for each variable."""
     d = {'dynamic_variables': 'conservative',
          'topography': 'conservative',
-         'land_sea_mask': 'largest_area_fraction',
+         'land_sea_mask': 'conservative',
          'soil_type': 'largest_area_fraction'}
     return d
 
