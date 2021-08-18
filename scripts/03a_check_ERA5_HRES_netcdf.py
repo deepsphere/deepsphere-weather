@@ -28,8 +28,8 @@ spherical_samplings = [
     'Healpix_100km'
 ]  
 
-spherical_samplings = ['Healpix_100km']
-sampling = spherical_samplings[0]
+# spherical_samplings = ['Healpix_100km']
+# sampling = spherical_samplings[0]
 
 for sampling in spherical_samplings:
     print("Preprocessing", sampling, "data")

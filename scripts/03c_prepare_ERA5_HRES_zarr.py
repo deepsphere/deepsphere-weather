@@ -6,15 +6,18 @@ Created on Thu Jul 29 15:13:48 2021
 @author: ghiggi
 """
 import os
-os.chdir('/home/ghiggi/Projects/deepsphere-weather')
+import sys
+import shutil
+sys.path.append('../')
 import zarr
 import glob
 import numpy as np
 import xarray as xr
 from modules.utils_io import check_no_missing_timesteps 
+from modules.utils_zarr import rechunk_Dataset
 from modules.my_io import pl_to_zarr  
 from modules.my_io import toa_to_zarr
-from modules.utils_zarr import rechunk_Dataset
+
 
 ## Define data directory
 # raw_dataset_dirpath = "/home/ghiggi/Projects/DeepSphere/data/raw/ERA5_HRES"
@@ -33,20 +36,20 @@ spherical_samplings = [
     'Equiangular_400km_tropics',
     'Cubed_400km',
     # # 100 km 
-    'Healpix_100km'
+    # 'Healpix_100km'
 ] 
-
-spherical_samplings = ['Healpix_100km']
-sampling = spherical_samplings[0]
 
 # - Global settings 
 NOVERTICAL_DIMENSION = True # --> Each pressure level treated as a feature 
-STACK_VARIABLES = True     # --> Create a DataArray with all features along the "feature" dimension
+STACK_VARIABLES = True      # --> Create a DataArray with all features along the "feature" dimension
 start_time = '1980-01-01T07:00:00'
-end_time = '2000-12-31T23:00:00'
-
-start_time = '2005-01-01T00:00:00'
 end_time = '2018-12-31T23:00:00'
+
+# spherical_samplings = ['Healpix_100km']
+# sampling = spherical_samplings[0]
+
+# start_time = '2005-01-01T00:00:00'
+# end_time = '2018-12-31T23:00:00'
 
 # - Define variable dictionary 
 pl_var_dict = {'var129': 'z',
@@ -59,7 +62,7 @@ static_var_dict = {'var172': 'lsm',
 
 # - Define chunking option for the various samplings
 chunks_400km = {'node': -1,
-                'time': 8760*10, # expects to be preloaded in memory since small !!!
+                'time': 24*365*10, # expects to be preloaded in memory since small !!!
                 'feature': 1} 
 chunks_100km = {'node': -1,
                 'time': 72,  # TODO OPTIMIZATION
@@ -74,8 +77,8 @@ chunks_dict = {'Healpix_400km': chunks_400km,
                } 
                          
 # - Define compressor option for the various samplings 
-compressor_400km = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
-compressor_100km = zarr.Blosc(cname="zstd", clevel=3, shuffle=2) # TODO OPTIMIZATION
+compressor_400km = zarr.Blosc(cname="lz4", clevel=0, shuffle=2)
+compressor_100km = zarr.Blosc(cname="lz4", clevel=0, shuffle=2)  
 compressor_dict = {'Healpix_400km': compressor_400km,
                    'Icosahedral_400km': compressor_400km,
                    'O24': compressor_400km,
@@ -117,29 +120,37 @@ for sampling in spherical_samplings:
     # - Check there are not missing timesteps 
     check_no_missing_timesteps(timesteps=ds.time.values)
     # - Unstack pressure levels dimension, create a feature dimension and save to zarr
-    # --> Perform unstacking year per year block 
-    block_size = 24*30*2 # TODO depending on sampling 
-    n_blocks = int(len(ds.time)/block_size + 1)
-    append = False
-    if os.path.exists(dynamic_zarr_fpath):
-        append = True
-    for i in range(n_blocks):
-        print(i,"/", n_blocks)
-        slice_start = block_size*i
-        slice_end = block_size*(i+1)
-        if i == n_blocks - 1:
-            slice_end = None
-        tmp_ds = ds.isel(time=slice(slice_start,slice_end))
+    if sampling in ['Healpix_100km']:
+        # --> Perform unstacking year per year block 
+        block_size = 24*30*2 # TODO depending on sampling 
+        n_blocks = int(len(ds.time)/block_size + 1)
+        append = False
+        if os.path.exists(dynamic_zarr_fpath):
+            append = True
+        for i in range(n_blocks):
+            print(i,"/", n_blocks)
+            slice_start = block_size*i
+            slice_end = block_size*(i+1)
+            if i == n_blocks - 1:
+                slice_end = None
+            tmp_ds = ds.isel(time=slice(slice_start,slice_end))
+            pl_to_zarr(ds = tmp_ds, 
+                       zarr_fpath = dynamic_zarr_fpath, 
+                       var_dict = pl_var_dict, 
+                       unstack_plev = NOVERTICAL_DIMENSION, 
+                       stack_variables = STACK_VARIABLES, 
+                       chunks = chunks_dict[sampling], 
+                       compressor = compressor_dict[sampling],
+                       append = append)
+            append = True
+    else:
         pl_to_zarr(ds = tmp_ds, 
                    zarr_fpath = dynamic_zarr_fpath, 
                    var_dict = pl_var_dict, 
                    unstack_plev = NOVERTICAL_DIMENSION, 
                    stack_variables = STACK_VARIABLES, 
                    chunks = chunks_dict[sampling], 
-                   compressor = compressor_dict[sampling],
-                   append = append)
-        append = True
-        
+                   compressor = compressor_dict[sampling])
     ##------------------------------------------------------------------------. 
     ### TOA 
     print("- Zarrify TOA data")
@@ -175,23 +186,35 @@ for sampling in spherical_samplings:
     ds = ds.drop_vars(['hyai','hybi','hyam','hybm'])
     ds = ds.rename({'ncells': 'node'})
     ds = ds.rename(static_var_dict)
+    #-----------------------------------------.
+    # - Fix orography to be 0 lower bound 
+    da_orog = ds['orog'].load() 
+    da_orog[da_orog < 0] = 0
+    ds['orog'] = da_orog
+    #-----------------------------------------.
+    # - Add latitude and longitude feature 
+    ds['sin_latitude'] =  np.sin(ds['lat'])
+    ds['sin_longitude'] = np.sin(ds['lon']/np.pi)
+    ds['cos_longitude'] = np.sin(ds['lon']/np.pi)
+    #-----------------------------------------.
     # - Stack all variables into the 'feature' dimension
-    da_stacked = ds.to_stacked_array(new_dim="feature", variable_dim='variable', 
-                                     sample_dims=list(ds.dims.keys()), 
-                                     name = 'data')
-    # - Remove MultiIndex for compatibility with netCDF and Zarr
-    da_stacked = da_stacked.reset_index('feature')
-    da_stacked = da_stacked.set_index(feature='variable', append=True)
-    # - Remove attributes from DataArray 
-    da_stacked.attrs = {}
-    da_stacked.encoding = {}
-    # - Reshape to Dataset
-    ds = da_stacked.to_dataset() 
+    # da_stacked = ds.to_stacked_array(new_dim="feature", variable_dim='variable', 
+    #                                  sample_dims=list(ds.dims.keys()), 
+    #                                  name = 'data')
+    # # - Remove MultiIndex for compatibility with netCDF and Zarr
+    # da_stacked = da_stacked.reset_index('feature')
+    # da_stacked = da_stacked.set_index(feature='variable', append=True)
+    # # - Remove attributes from DataArray 
+    # da_stacked.attrs = {}
+    # da_stacked.encoding = {}
+    # # - Reshape to Dataset
+    # ds = da_stacked.to_dataset() 
     # - Write to zarr     
     ds.to_zarr(static_zarr_fpath)
  
 #-----------------------------------------------------------------------------.
 # Rechunk dynamic and bc data across space for efficient time statistics 
+spherical_samplings = ['Healpix_100km']
 for sampling in spherical_samplings:
     print("Rechunking", sampling, "data")
     ##------------------------------------------------------------------------.   
@@ -208,12 +231,13 @@ for sampling in spherical_samplings:
     ### Define chunks 
     chunks = {'node': 1,    # chunked across space (each pixel)
               'time': -1,   # unchunked across time
-              'feature': -1}
+              'feature': 1}
     
     ##------------------------------------------------------------------------.
     ### Rechunk Zarr data
     # Open dynamic dataset and rechunk 
-    ds_dynamic = xr.open_zarr(dynamic_spacechunked_zarr_fpath) 
+    ds_dynamic = xr.open_zarr(dynamic_timechunked_zarr_fpath) 
+    ds_dynamic['feature'] = ds_dynamic['feature'].astype(str)
     rechunk_Dataset(ds = ds_dynamic,
                     chunks = chunks, 
                     target_store = dynamic_spacechunked_zarr_fpath, 
@@ -222,12 +246,13 @@ for sampling in spherical_samplings:
     
     # Open TOA dataset and rechunk 
     ds_bc = xr.open_zarr(toa_timechunked_zarr_fpath) 
-    rechunk_Dataset(ds = ds_dynamic,
+    ds_bc['feature'] = ds_bc['feature'].astype(str)
+    rechunk_Dataset(ds = ds_bc,
                     chunks = chunks, 
                     target_store = toa_spacechunked_zarr_fpath, 
                     temp_store = os.path.join(tmp_fpath, "tmp_store.zarr"), 
                     max_mem = '2GB')
- 
+   
 #-----------------------------------------------------------------------------.
 
  
