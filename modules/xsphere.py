@@ -531,7 +531,10 @@ def _contour(darray,
         function returns
     """
     ##------------------------------------------------------------------------.
-    # Checks 
+    # Check is a DataArray 
+    if not isinstance(darray, xr.DataArray):
+        raise TypeError("Provide a DataArray to xsphere._plot()")
+    # Check plot_type 
     if not isinstance(plot_type, str):
         raise TypeError("'plot_type' must be a string: either 'contour' or 'tricontour'")
     if plot_type not in ['contour','tricontour']:
@@ -798,6 +801,9 @@ def _contourf(darray,
         The same type of primitive artist that the wrapped matplotlib
         function returns
     """
+    # Check is a DataArray 
+    if not isinstance(darray, xr.DataArray):
+        raise TypeError("Provide a DataArray to xsphere._plot()")
     # Checks plot_type
     if not isinstance(plot_type, str):
         raise TypeError("'plot_type' must be a string: either 'contourf' or 'tricontourf'")
@@ -1025,6 +1031,9 @@ def _plot(darray,
         The same type of primitive artist that the wrapped matplotlib
         function returns
     """
+    # Check is a DataArray 
+    if not isinstance(darray, xr.DataArray):
+        raise TypeError("Provide a DataArray to xsphere._plot()")
     # Check ax
     if ax is None and row is None and col is None: 
         raise ValueError("'ax' must be specified when not plotting a FacetGrids.")

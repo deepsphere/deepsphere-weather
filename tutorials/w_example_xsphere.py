@@ -6,7 +6,7 @@ Created on Tue Jan 19 14:31:51 2021
 @author: ghiggi
 """
 import os
-os.chdir('/home/ghiggi/Projects/weather_prediction')
+os.chdir('/home/ghiggi/Projects/deepsphere-weather')
 import cartopy
 import cartopy.crs as ccrs
 import numpy as np
