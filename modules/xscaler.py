@@ -23,7 +23,7 @@ import os
 # - Add lw and up to std scalers (avoid outliers alter the distribution)
 # - In TemporalScalers, when new_data contain new time_groupby indices values, insert NaN values
 #     in mean_, std_  for the missing time_groupby values
-
+# - check_time_groups might also check that t_res specified is > to t_res data
 ##----------------------------------------------------------------------------.
 # # Loop over each variable (for Datasets)
 # gs = GlobalStandardScaler(data=ds)
@@ -375,7 +375,7 @@ def check_reference_period(reference_period):
 def check_spatial_dim(spatial_dim, data):
     """Check that a valid spatial dimension is specified."""
     # Check type
-    if isinstance(spatial_dim, str):
+    if not isinstance(spatial_dim, str):
         raise TypeError("Specify 'spatial_dim' as a string.")  
     # Check validity
     coords = list(data.coords.keys())
@@ -2212,8 +2212,8 @@ def HovmollerDiagram(data,
         DESCRIPTION. The default is None.
     time_average_before_binning : bool, optional
         If 'time_groups' is provided, wheter to average data over time groups before
-        or after computation of the Hovmoller diagram.
-        The default is True.
+        or after computation of the Hovmoller diagram. 
+        The default is True. 
     variable_dim : str, optional
         If data is a DataArray, 'variable_dim' is used to reshape the tensor to 
         an xr.Dataset with as variables the values of 'variable_dim' 
@@ -2223,13 +2223,13 @@ def HovmollerDiagram(data,
     -------
     xr.Data.Array or xr.Data.Array
         An Hovmoller diagram.
-
+  
     """
     ##----------------------------------------------------------------.   
     # Check data is an xarray Dataset or DataArray  
     if not (isinstance(data, xr.Dataset) or isinstance(data, xr.DataArray)):
         raise TypeError("'data' must be an xarray Dataset or xarray DataArray.")
-                 
+                    
     # - Checks for Dataset 
     if isinstance(data, xr.Dataset):
         # Check variable_dim is not specified ! 
@@ -2251,14 +2251,14 @@ def HovmollerDiagram(data,
     ##----------------------------------------------------------------.   
     # - Check for spatial_dim  
     spatial_dim = check_spatial_dim(spatial_dim, data)
- 
+
     # - If spatial_dim is not a dimension-coordinate, swap dimensions
     dims = np.array(list(data.dims))
     if not np.all(np.isin(spatial_dim, dims)):
         dim_tuple = data[spatial_dim].dims
         if len(dim_tuple) != 1:
             raise ValueError("{} 'spatial_dim' coordinate must be 1-dimensional."
-                             .format(spatial_dim))
+                                .format(spatial_dim))
         data = data.swap_dims({dim_tuple[0]: spatial_dim})
     ##----------------------------------------------------------------.
     # - Check for bin_width and bin_edges 
@@ -2277,7 +2277,7 @@ def HovmollerDiagram(data,
     bin_edges[0] -= tol
     bin_edges[-1] += tol
     # - Check bin_edges validity (at least 2 bins) 
-    bin_edges = check_bin_edges(bin_edges, lb=min_val, up=max_val)
+    bin_edges = check_bin_edges(bin_edges, lb=min_val, ub=max_val)
     ##----------------------------------------------------------------.
     # Check time_dim  
     time_dim = check_time_dim(time_dim=time_dim, data=data)
@@ -2286,14 +2286,15 @@ def HovmollerDiagram(data,
     ##----------------------------------------------------------------.
     # Check time_groups 
     time_groups = check_time_groups(time_groups=time_groups)
-    
+
     ##----------------------------------------------------------------.
     # Retrieve indexing for temporal groupby   
     time_groupby_info = get_time_groupby_idx(data=data,
-                                             time_dim=time_dim, 
-                                             time_groups=time_groups)
+                                                time_dim=time_dim, 
+                                                time_groups=time_groups)
     time_groupby_idx = time_groupby_info['time_groupby_idx']
-               
+    time_groupby_dims = time_groupby_info['time_groupby_dims']   
+
     ##-----------------------------------------------------------------.     
     # Optional aggregation over time before binning by spatial_dim  
     if time_average_before_binning and time_groups is not None: 
@@ -2303,15 +2304,21 @@ def HovmollerDiagram(data,
     # Compute average across spatial dimension bins 
     hovmoller = data.groupby_bins(spatial_dim, bin_edges, right=True).mean(spatial_dim).compute()
     hovmoller[spatial_dim + "_bins"] = midpoints
-    
+
     ##-----------------------------------------------------------------. 
     # Optional aggregation over time after binning
     if not time_average_before_binning and time_groups is not None: 
         hovmoller = hovmoller.groupby(time_groupby_idx).mean(time_dim)
-    
+
     ##----------------------------------------------------------------.
-    ## Remove non-dimension (time groupby) coordinate   
+    ## Remove non-dimension (Time_GroupBy) coordinate   
     if time_groups is not None:
+        time_groups_vars = list(time_groups.keys())
+        for time_group in time_groups_vars: 
+            hovmoller[time_group] = time_groupby_dims[time_group]
+            hovmoller = hovmoller.set_coords(time_group)
+        if len(time_groups_vars) == 1: 
+            hovmoller = hovmoller.swap_dims({time_groupby_idx.name: time_groups_vars[0]})
         hovmoller = hovmoller.drop(time_groupby_idx.name)
         
     ##--------------------------------------------------------------------.   
@@ -2324,4 +2331,4 @@ def HovmollerDiagram(data,
     else: 
         return hovmoller 
 
-##----------------------------------------------------------------------------.   
+    ##----------------------------------------------------------------------------.   
