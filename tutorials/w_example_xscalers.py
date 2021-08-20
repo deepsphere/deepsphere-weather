@@ -8,7 +8,7 @@ Created on Thu Jan 28 12:27:05 2021
 import os
 import xarray as xr 
 import numpy as np
-os.chdir("/home/ghiggi/Projects/weather_prediction/")
+os.chdir("/home/ghiggi/Projects/deepsphere-weather/")
 
 from modules.xscaler import LoadScaler
 from modules.xscaler import GlobalStandardScaler
@@ -19,7 +19,7 @@ from modules.xscaler import SequentialScaler
 from modules.my_io import readDatasets   
 
 ##----------------------------------------------------------------------------.
-data_dir = "/home/ghiggi/Projects/DeepSphere/ToyData/Healpix_400km/" # to change to scratch/... 
+data_dir = "/home/ghiggi/Projects/DeepSphere/data/0_ToyData/Healpix_400km/" # to change to scratch/... 
 # - Dynamic data (i.e. pressure and surface levels variables)
 ds_dynamic = readDatasets(data_dir=data_dir, feature_type='dynamic')
 # - Boundary conditions data (i.e. TOA)
@@ -472,3 +472,10 @@ ds_OHE = OneHotEnconding(da_slt, n_categories=None)
 da_slt1 = InvertOneHotEnconding(ds_OHE, name='slt')
 xr.testing.assert_equal(da_slt, da_slt1)
 ##----------------------------------------------------------------------------.
+
+
+
+
+
+
+
