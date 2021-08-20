@@ -208,9 +208,10 @@ def check_AR_iterations(AR_iterations):
         raise ValueError("'AR_iterations' must be a positive integer value")
     if AR_iterations < 0:
         raise ValueError("'AR_iterations' must be a positive integer value")       
-    if (AR_iterations >= 1):
+    if AR_iterations >= 1:
         print(' - Autoregressive training with %d AR iterations --> Specified.'% AR_iterations)
-    return None 
+    AR_iterations = int(AR_iterations)
+    return AR_iterations 
 
 def check_forecast_cycle(forecast_cycle, AR_iterations):
     """Check validity of 'forecast_cycle' argument."""
@@ -220,16 +221,17 @@ def check_forecast_cycle(forecast_cycle, AR_iterations):
         raise ValueError("'forecast_cycle' must be a positive integer value")
     if forecast_cycle < 1:
         raise ValueError("'forecast_cycle' must be equal or longer than 1")  
-    if AR_iterations >= 1:
-        print(' - Forecast cycle of %d --> Specified.'% forecast_cycle)     
-    return None   
+    if forecast_cycle >= 1:
+        print(' - Forecast cycle of %d --> Specified.'% forecast_cycle)    
+    forecast_cycle = int(forecast_cycle)
+    return forecast_cycle   
 
 def check_AR_settings(input_k, output_k, forecast_cycle, AR_iterations, stack_most_recent_prediction):
     """Check that AR settings arguments are valid."""
     input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
     output_k = check_output_k(output_k=output_k)
-    check_AR_iterations(AR_iterations=AR_iterations)
-    check_forecast_cycle(forecast_cycle=forecast_cycle, AR_iterations=AR_iterations) 
+    AR_iterations = check_AR_iterations(AR_iterations=AR_iterations)
+    forecast_cycle = check_forecast_cycle(forecast_cycle=forecast_cycle, AR_iterations=AR_iterations) 
     ##------------------------------------------------------------------------.
     # Check autoregressive training is feasible
     if AR_iterations >= 1:

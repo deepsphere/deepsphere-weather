@@ -22,6 +22,7 @@ from modules.utils_autoregressive import get_dict_stack_info
 from modules.utils_autoregressive import check_AR_settings
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
+from modules.utils_autoregressive import check_AR_iterations
 from modules.utils_zarr import check_chunks
 from modules.utils_zarr import check_compressor
 from modules.utils_zarr import check_rounding
@@ -82,7 +83,7 @@ def get_dict_Y_pred_selection(dim_info,
     # Initialize a general subset indexing
     all_subset_indexing = [slice(None) for i in range(len(dim_info))]
     # Retrieve all output k 
-    all_output_k = np.unique(np.stack(dict_forecast_rel_idx_Y.values()).flatten())
+    all_output_k = np.unique(np.stack(list(dict_forecast_rel_idx_Y.values())).flatten())
     # For each output k, search which AR iterations predict such output k
     # - {output_k: [AR_iteration with output_k]}
     dict_k_occurence = {k: [] for k in all_output_k}
@@ -169,6 +170,7 @@ def rescale_forecasts_and_write_zarr(ds, scaler, zarr_fpath,
     for i in range(len(ds['forecast_reference_time'])):
         ds_tmp = ds.isel(forecast_reference_time=i).swap_dims({"leadtime": "time"})
         ds_tmp = scaler.inverse_transform(ds_tmp).swap_dims({"time": "leadtime"}).drop('time')
+        ds_tmp = ds_tmp.expand_dims('forecast_reference_time')  
         write_zarr(zarr_fpath = zarr_fpath, 
                    ds = ds_tmp,
                    chunks = chunks, default_chunks = default_chunks, 
@@ -256,12 +258,13 @@ def AutoregressivePredictions(model,
     # Check that autoregressive settings are valid 
     # - input_k and output_k must be numpy arrays hereafter ! 
     input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
-    output_k = check_output_k(output_k = output_k) 
+    output_k = check_output_k(output_k = output_k)
     check_AR_settings(input_k = input_k,
                       output_k = output_k,
                       forecast_cycle = forecast_cycle,                           
                       AR_iterations = AR_iterations, 
                       stack_most_recent_prediction = stack_most_recent_prediction)
+    AR_iterations = int(AR_iterations)
     ##------------------------------------------------------------------------.
     # Check that DataArrays are valid 
     check_AR_DataArrays(da_training_dynamic = da_dynamic,
@@ -284,8 +287,10 @@ def AutoregressivePredictions(model,
                                   variable_names = da_dynamic['feature'].values.tolist())
     ##------------------------------------------------------------------------.
     # Check AR_blocks 
-    if not isinstance(AR_blocks, (int, type(None))):
+    if not isinstance(AR_blocks, (int, float, type(None))):
         raise TypeError("'AR_blocks' must be int or None.")
+    if isinstance(AR_blocks, float):
+        AR_blocks = int(AR_blocks)
     if not WRITE_TO_ZARR and isinstance(AR_blocks, int):
         raise ValueError("If 'zarr_fpath' not specified, 'AR_blocks' must be None.")
     if AR_blocks is None: 
@@ -355,7 +360,7 @@ def AutoregressivePredictions(model,
             forecast_reference_times = forecast_time_info["forecast_reference_time"] 
             dict_forecast_leadtime = forecast_time_info["dict_forecast_leadtime"]
             dict_forecast_rel_idx_Y = forecast_time_info["dict_forecast_rel_idx_Y"]
-            leadtimes = np.unique(np.stack(dict_forecast_leadtime.values()).flatten())
+            leadtimes = np.unique(np.stack(list(dict_forecast_leadtime.values())).flatten())
             ##----------------------------------------------------------------.
             ### Retrieve dictionary providing at each AR iteration 
             #   the tensor slice indexing to obtain a "regular" forecasts
@@ -393,9 +398,11 @@ def AutoregressivePredictions(model,
                                 dict_Y_predicted = dict_Y_predicted,
                                 dict_Y_to_remove = batch_dict['dict_Y_to_remove']) 
                 del torch_X
-                # TODO CHECK ON GPU: the follow should be stable across iterations
+                ##------------------------------------------------------------.
+                # The following code can be used to verify that no leak of memory occurs 
                 # torch.cuda.synchronize()
                 # print("{}: {:.2f} MB".format(AR_iteration, torch.cuda.memory_allocated()/1000/1000)) 
+                
                 ##------------------------------------------------------------.
                 # Create and save a forecast Dataset after each AR_block AR_iterations 
                 AR_counter_per_block += 1 
