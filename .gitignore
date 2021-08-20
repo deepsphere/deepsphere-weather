@@ -11,6 +11,8 @@ test*
 /tmp/
 /figs/figs/
 /scripts_dev/
+/scripts_dev/
+/dask-worker-space/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
