@@ -7,16 +7,19 @@ Created on Thu Jul 29 15:13:48 2021
 """
 import os
 import sys
-import shutil
 sys.path.append('../')
+import time 
 import zarr
 import glob
+import dask
 import numpy as np
 import xarray as xr
+from dask.distributed import Client, LocalCluster
 from modules.utils_io import check_no_missing_timesteps 
 from modules.utils_zarr import rechunk_Dataset
-from modules.my_io import pl_to_zarr  
-from modules.my_io import toa_to_zarr
+from modules.utils_zarr import write_zarr
+from modules.my_io import reformat_pl  
+from modules.my_io import reformat_toa
 
 
 ## Define data directory
@@ -29,7 +32,7 @@ zarr_dataset_dirpath = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
 # Define spherical samplings
 spherical_samplings = [ 
     # 400 km 
-    'Healpix_400km', 
+    # 'Healpix_400km', 
     'Icosahedral_400km',
     'O24',
     'Equiangular_400km',
@@ -42,14 +45,15 @@ spherical_samplings = [
 # - Global settings 
 NOVERTICAL_DIMENSION = True # --> Each pressure level treated as a feature 
 STACK_VARIABLES = True      # --> Create a DataArray with all features along the "feature" dimension
+SHOW_PROGRESS = True        # --> Report progress 
 start_time = '1980-01-01T07:00:00'
 end_time = '2018-12-31T23:00:00'
 
-# spherical_samplings = ['Healpix_100km']
-# sampling = spherical_samplings[0]
-
-# start_time = '2005-01-01T00:00:00'
-# end_time = '2018-12-31T23:00:00'
+# - Dask settings 
+# cluster = LocalCluster(n_workers = 30,       # n processes
+#                         threads_per_worker=1, # n_workers*threads_per_worker
+#                         processes=True, memory_limit='132GB')
+# client = Client(cluster)
 
 # - Define variable dictionary 
 pl_var_dict = {'var129': 'z',
@@ -62,7 +66,7 @@ static_var_dict = {'var172': 'lsm',
 
 # - Define chunking option for the various samplings
 chunks_400km = {'node': -1,
-                'time': 24*365*10, # expects to be preloaded in memory since small !!!
+                'time': 24*365*1, # we assume to load the 400 km in memory 
                 'feature': 1} 
 chunks_100km = {'node': -1,
                 'time': 72,  # TODO OPTIMIZATION
@@ -77,7 +81,7 @@ chunks_dict = {'Healpix_400km': chunks_400km,
                } 
                          
 # - Define compressor option for the various samplings 
-compressor_400km = zarr.Blosc(cname="lz4", clevel=0, shuffle=2)
+compressor_400km = zarr.Blosc(cname="zstd", clevel=0, shuffle=1)
 compressor_100km = zarr.Blosc(cname="lz4", clevel=0, shuffle=2)  
 compressor_dict = {'Healpix_400km': compressor_400km,
                    'Icosahedral_400km': compressor_400km,
@@ -89,9 +93,16 @@ compressor_dict = {'Healpix_400km': compressor_400km,
                    } 
 
 #----------------------------------------------------------------------------.
+# start_time = '2005-01-01T00:00:00'
+# end_time = '2018-12-31T23:00:00'
+# spherical_samplings = ['Healpix_100km']
+# sampling = spherical_samplings[0]
+
 # Process all data for model training  
 for sampling in spherical_samplings:
-    print("Preprocessing", sampling, "data")
+    print("==================================================================")
+    print("Preprocessing", sampling, "raw data")
+    t_i = time.time()
     ##------------------------------------------------------------------------.   
     ### Define directories 
     # - Raw data 
@@ -106,7 +117,7 @@ for sampling in spherical_samplings:
     
     ##------------------------------------------------------------------------.   
     ### Pressure levels
-    print("- Zarrify pressure levels data")
+    print(" - Zarrify pressure levels data")
     # - Retrieve all raw netCDF files 
     pl_fpaths = sorted(glob.glob(raw_pl_dirpath + "/pl_*.nc"))
     # - Open all netCDF4 files
@@ -134,26 +145,36 @@ for sampling in spherical_samplings:
             if i == n_blocks - 1:
                 slice_end = None
             tmp_ds = ds.isel(time=slice(slice_start,slice_end))
-            pl_to_zarr(ds = tmp_ds, 
-                       zarr_fpath = dynamic_zarr_fpath, 
-                       var_dict = pl_var_dict, 
-                       unstack_plev = NOVERTICAL_DIMENSION, 
-                       stack_variables = STACK_VARIABLES, 
+            ds = reformat_pl(ds = tmp_ds, 
+                             var_dict = pl_var_dict, 
+                             unstack_plev = NOVERTICAL_DIMENSION, 
+                             stack_variables = STACK_VARIABLES)
+            # - Write data
+            write_zarr(zarr_fpath = dynamic_zarr_fpath, 
+                       ds = ds,  
                        chunks = chunks_dict[sampling], 
                        compressor = compressor_dict[sampling],
-                       append = append)
+                       consolidated = True,
+                       show_progress = SHOW_PROGRESS, 
+                       append = append,
+                       append_dim = "time")
             append = True
     else:
-        pl_to_zarr(ds = tmp_ds, 
-                   zarr_fpath = dynamic_zarr_fpath, 
-                   var_dict = pl_var_dict, 
-                   unstack_plev = NOVERTICAL_DIMENSION, 
-                   stack_variables = STACK_VARIABLES, 
+        ds = reformat_pl(ds = ds, 
+                         var_dict = pl_var_dict, 
+                         unstack_plev = NOVERTICAL_DIMENSION, 
+                         stack_variables = STACK_VARIABLES)
+        # - Write data to zarr
+        write_zarr(zarr_fpath = dynamic_zarr_fpath, 
+                   ds = ds,  
                    chunks = chunks_dict[sampling], 
-                   compressor = compressor_dict[sampling])
+                   compressor = compressor_dict[sampling],
+                   consolidated = True,
+                   append = False, 
+                   show_progress = SHOW_PROGRESS) 
     ##------------------------------------------------------------------------. 
     ### TOA 
-    print("- Zarrify TOA data")
+    print(" - Zarrify TOA data")
     # - Retrieve all raw netCDF files 
     toa_fpaths = sorted(glob.glob(raw_toa_dirpath + "/toa_*.nc"))
     # - Open all netCDF4 files
@@ -161,18 +182,22 @@ for sampling in spherical_samplings:
     ds = ds.sel(time=slice(start_time,end_time))
     # - Check there are not missing timesteps 
     check_no_missing_timesteps(timesteps=ds.time.values)
-    # - Stack TOA into 'feature' dimension and save to zarr 
-    toa_to_zarr(ds = ds, 
-                zarr_fpath = toa_zarr_fpath, 
-                var_dict = toa_var_dict, 
-                stack_variables = STACK_VARIABLES, 
-                chunks = chunks_dict[sampling], 
-                compressor = compressor_dict[sampling],
-                append = False)
-
+    # - Stack TOA into 'feature' dimension  
+    ds = reformat_toa(ds = ds, 
+                      var_dict = toa_var_dict, 
+                      stack_variables = STACK_VARIABLES)
+    # - Write data to zarr
+    write_zarr(zarr_fpath = toa_zarr_fpath, 
+               ds = ds,  
+               chunks = chunks_dict[sampling], 
+               compressor = compressor_dict[sampling],
+               consolidated = True,
+               show_progress = SHOW_PROGRESS, 
+               append = False)
+             
     ##------------------------------------------------------------------------.  
     ### Static features 
-    print("- Zarrify static data")
+    print(" - Zarrify static data")
     # - Retrieve all raw netCDF files 
     static_fpaths = glob.glob(static_dirpath + "/*/*.nc", recursive=True) 
     l_ds = []
@@ -211,12 +236,31 @@ for sampling in spherical_samplings:
     # ds = da_stacked.to_dataset() 
     # - Write to zarr     
     ds.to_zarr(static_zarr_fpath)
+    #-------------------------------------------------------------------------.
+    # Report elapsed time 
+    print("---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
+    print("==================================================================")
+    #-------------------------------------------------------------------------.
+#-----------------------------------------------------------------------------.
  
 #-----------------------------------------------------------------------------.
 # Rechunk dynamic and bc data across space for efficient time statistics 
-spherical_samplings = ['Healpix_100km']
+spherical_samplings = [ 
+    'Healpix_100km',
+     # 400 km 
+    'Healpix_400km', 
+    'Icosahedral_400km',
+    'O24',
+    'Equiangular_400km',
+    'Equiangular_400km_tropics',
+    'Cubed_400km',
+     # # 100 km 
+     # 'Healpix_100km'
+] 
 for sampling in spherical_samplings:
-    print("Rechunking", sampling, "data")
+    print("==================================================================")
+    print("Rechunking", sampling, "data over space")
+    t_i = time.time()
     ##------------------------------------------------------------------------.   
     ### Define directories 
     # - Source "time-chunked" zarr data 
@@ -252,9 +296,12 @@ for sampling in spherical_samplings:
                     target_store = toa_spacechunked_zarr_fpath, 
                     temp_store = os.path.join(tmp_fpath, "tmp_store.zarr"), 
                     max_mem = '2GB')
-   
+   #-------------------------------------------------------------------------.
+    # Report elapsed time 
+    print("---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
+    print("==================================================================")
+    #-------------------------------------------------------------------------.
 #-----------------------------------------------------------------------------.
 
- 
 
- 
+

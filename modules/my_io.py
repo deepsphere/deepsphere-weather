@@ -8,47 +8,30 @@ Created on Sun Jan  3 18:46:41 2021
 import os
 import time
 import numcodecs
-import zarr
 import xarray as xr
 from modules.utils_io import check_AR_Datasets
-from dask.diagnostics import ProgressBar
-from modules.utils_zarr import check_chunks
-from modules.utils_zarr import check_compressor
 from modules.utils_zarr import write_zarr
             
 ##----------------------------------------------------------------------------.   
-def pl_to_zarr(ds,
-               zarr_fpath, 
+def reformat_pl(ds,
                var_dict = None, 
                unstack_plev = True, 
-               stack_variables = True, 
-               chunks="auto", compressor="auto",
-               consolidated = True, 
-               append = False, 
-               show_progress = True, 
-               attrs={}):
-    """Convert pressure level data netCDFs to zarr.
+               stack_variables = True):
+    """Reformat raw pressure level data netCDFs.
     
     unstack_plev: bool
          If True, it suppress the vertical dimension and it treats every 
            <variable>-<pressure level> as a separate feature
          If False, it keeps the vertical (pressure) dimension
     stack_variables: bool
-        If True, all Dataset variables are stacked across a new 'feature' dimension        
+        If True, all Dataset variables are stacked across a new 'feature' dimension       
     """
     ##------------------------------------------------------------------------.  
     # Check arguments
-    if not isinstance(attrs, dict):
-        raise TypeError("attrs must be a dictionary")
     if var_dict is not None:
         if not isinstance(var_dict, dict):
             raise TypeError("var_dict must be a dictionary") 
-    if not zarr_fpath.endswith(".zarr"):
-        zarr_fpath = zarr_fpath + ".zarr"
-    if not append:
-        if os.path.exists(zarr_fpath):
-            raise ValueError(zarr_fpath + " already exists !")
-
+            
     # Drop information related to mesh vertices 
     ds = ds.drop_vars(['lon_bnds', 'lat_bnds'])
     # Drop lat lon info of nodes 
@@ -88,7 +71,7 @@ def pl_to_zarr(ds,
         # - Remove MultiIndex for compatibility with netCDF and Zarr
         da_stacked = da_stacked.reset_index('feature')
         da_stacked = da_stacked.set_index(feature='variable', append=True)
-        
+        da_stacked['feature'] = da_stacked['feature'].astype(str)
         # - Remove attributes from DataArray 
         da_stacked.attrs = {}
         # - Reshape to Dataset
@@ -100,51 +83,17 @@ def pl_to_zarr(ds,
         ds = ds.transpose('time', 'node', ...)
         
     ##------------------------------------------------------------------------.
-    ### - Write Zarr store
-    # - Add attributes 
-    ds.attrs = attrs
-    # - Define default chunks and compressor 
-    default_chunks = {'node': -1,
-                      'time': 72,
-                      'feature': 1}
-    default_compressor = numcodecs.Blosc(cname="zstd", clevel=3, shuffle=2)
-    # - Write data
-    write_zarr(zarr_fpath=zarr_fpath, 
-               ds = ds,  
-               chunks = chunks,
-               default_chunks = default_chunks, 
-               compressor = compressor,
-               default_compressor = default_compressor,
-               consolidated = consolidated,
-               show_progress = show_progress, 
-               append = append,
-               append_dim = "time")
+    return ds 
 
-    ##------------------------------------------------------------------------.
-    return None
-
-def toa_to_zarr(ds,
-               zarr_fpath, 
-               var_dict = None, 
-               stack_variables = True, 
-               chunks="auto", compressor="auto",
-               consolidated = True, 
-               append = False, 
-               show_progress = True, 
-               attrs={}):
-    """Convert TOA data netCDFs to zarr."""
+def reformat_toa(ds,
+                 var_dict = None, 
+                 stack_variables = True):
+    """Reformat raw TOA data netCDFs."""   
     ##------------------------------------------------------------------------.  
     # Check arguments
-    if not isinstance(attrs, dict):
-        raise TypeError("attrs must be a dictionary")
     if var_dict is not None:
         if not isinstance(var_dict, dict):
             raise TypeError("var_dict must be a dictionary") 
-    if not zarr_fpath.endswith(".zarr"):
-        zarr_fpath = zarr_fpath + ".zarr"
-    if not append:
-        if os.path.exists(zarr_fpath):
-            raise ValueError(zarr_fpath + " already exists !")
     ##------------------------------------------------------------------------.
     # Drop information related to mesh vertices 
     ds = ds.drop_vars(['lon_bnds', 'lat_bnds'])
@@ -168,7 +117,7 @@ def toa_to_zarr(ds,
         # - Remove MultiIndex for compatibility with netCDF and Zarr
         da_stacked = da_stacked.reset_index('feature')
         da_stacked = da_stacked.set_index(feature='variable', append=True)
-        
+        da_stacked['feature'] = da_stacked['feature'].astype(str)
         # - Remove attributes from DataArray 
         da_stacked.attrs = {}
         # - Reshape to Dataset
@@ -178,29 +127,8 @@ def toa_to_zarr(ds,
     else: 
         # - Reorder dimension as requested by PyTorch input 
         ds = ds.transpose('time', 'node', ...)
-        
     ##------------------------------------------------------------------------.
-    ### - Write Zarr store
-    # - Add attributes 
-    ds.attrs = attrs
-    # - Define default chunks and compressor 
-    default_chunks = {'node': -1,
-                      'time': 72,
-                      'feature': 1}
-    default_compressor = numcodecs.Blosc(cname="zstd", clevel=3, shuffle=2)
-    # - Write data
-    write_zarr(zarr_fpath=zarr_fpath, 
-               ds = ds,  
-               chunks = chunks,
-               default_chunks = default_chunks, 
-               compressor = compressor,
-               default_compressor = default_compressor,
-               consolidated = consolidated,
-               show_progress = show_progress, 
-               append = append,
-               append_dim = "time")
-    ##------------------------------------------------------------------------.
-    return None
+    return ds 
 
 ### OLD 
 ##----------------------------------------------------------------------------.
