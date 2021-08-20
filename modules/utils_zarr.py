@@ -265,8 +265,20 @@ def write_zarr(zarr_fpath, ds,
     # Good to know: chunks=None: keeps current chunks, chunks='auto' rely on xarray defaults
     # append=True: if zarr_fpath do not exists, set to False (for the first write)
     ##-------------------------------------------------------------------------.
-    ### Check append options 
-    if not os.path.exists(zarr_fpath):
+    ### Check zarr_fpath and append options
+    # - Check fpath
+    if not zarr_fpath.endswith(".zarr"):
+        zarr_fpath = zarr_fpath + ".zarr"
+    # - Check append options
+    ZARR_EXIST = os.path.exists(zarr_fpath)
+    if not isinstance(append, bool):
+        raise TypeError("'append' must be either True or False'.")
+    # If append = False and a Zarr store already exist --> Raise Error 
+    if not append and ZARR_EXIST:
+        raise ValueError(zarr_fpath + " already exists!")
+    # If the Zarr store do not exist yet but append = True, append is turned to False 
+    # --> Useful when calling this function to write data subset by subset
+    if append and not ZARR_EXIST:
         append = False
     if append:
         if not isinstance(append_dim, str):
@@ -496,32 +508,33 @@ def get_memory_size_zarr_coordinates(fpath, isel_dict={}):
     ds = ds.isel(isel_dict)
     return get_memory_size_dataset_coordinates(ds)
 
-def get_memory_size_array_chunk(da):
-    """Return the size in MB of a single chunk."""
-    if isinstance(da, xr.DataArray):
+def get_memory_size_chunk(x):
+    """Return the size in MB of a single chunk.
+    
+    If x is an xr.Dataset, it returns a dictionary with the chunk size of each variable. 
+    """
+    if isinstance(x, xr.Dataset):
+        size_dict = {}
+        for var in list(x.data_vars.keys()):
+            size_dict[var] = get_memory_size_chunk(x[var])
+        return size_dict
+    if isinstance(x, xr.DataArray):
         # If chunked: return the size of the chunk 
-        if da.chunks is not None: 
-            isel_dict = {dim: slice(0, chunks[0]) for dim, chunks in zip(da.dims, da.chunks)}
-            da = da.isel(isel_dict)
-            return da.nbytes/1024/1024
+        if x.chunks is not None: 
+            isel_dict = {dim: slice(0, chunks[0]) for dim, chunks in zip(x.dims, x.chunks)}
+            x = x.isel(isel_dict)
+            return x.nbytes/1024/1024
         # If not chunked, return the size of the entire array
         else: 
-            return da.nbytes/1024/1024
-    elif isinstance(da, dask.array.core.Array):
-        # slice_list = [slice(None, chunk[0]) for chunk in da.chunks]
-        # da[*slice_list]
+            return x.nbytes/1024/1024
+    elif isinstance(x, dask.array.core.Array):
+        # slice_list = [slice(None, chunk[0]) for chunk in x.chunks]
+        # x[*slice_list]
         raise NotImplementedError("Dask arrays")
-    elif isinstance(da, np.ndarray):
-        return da.nbytes/1024/1024
+    elif isinstance(x, np.ndarray):
+        return x.nbytes/1024/1024
     else: 
-        raise NotImplementedError("What array you provided?")
-
-def get_memory_size_dataset_chunks(ds):
-    """Return the size in MB of a single chunk for each Dataset variable."""
-    size_dict = {}
-    for var in list(ds.data_vars.keys()):
-        size_dict[var] = get_memory_size_array_chunk(ds[var])
-    return size_dict
+        raise NotImplementedError("What array you provided?")  
 
 #-----------------------------------------------------------------------------.
 #### IO Timing  
@@ -533,7 +546,7 @@ def get_reading_time(fpath, isel_dict={}, n_repetitions=5):
         ds.load()
         return None
     times = []
-    for i in range(n_repetitions):
+    for i in range(1, n_repetitions):
         t_i = time.time() 
         _load(fpath, isel_dict)
         times.append(time.time() - t_i)
@@ -553,7 +566,7 @@ def get_writing_time(ds, fpath,
                      n_repetitions=5, remove_last=True):
     """Return the writing time of a Dataset."""
     times = []
-    for i in range(n_repetitions):
+    for i in range(1, n_repetitions):
         t_i = time.time() 
         write_zarr(zarr_fpath = fpath, 
                    ds = ds,
