@@ -11,20 +11,44 @@ import numpy as np
 from collections import Counter
 from abc import ABC, abstractmethod
 from scipy import sparse
+from scipy.spatial import SphericalVoronoi
 from torch.nn import functional as F
 from modules import remap
 from sparselinear import SparseLinear
-### TODO:
-# - Better explain ratio for equiangular
-# - Generalize precision of chev_conv 
-# - How to set weights precision of pytorch Conv2d ? 
-# - --> torch.set_default_dtype()
-# - https://discuss.pytorch.org/t/training-with-half-precision/11815/9
-
 ##----------------------------------------------------------------------------.
 # ##############################
 #### Laplacian computations ####
 # ##############################
+def _import_igl():
+    try:
+        import igl
+    except Exception as e:
+        raise ImportError('Cannot import igl. Build a knn graph '
+                          'instead of a mesh graph or install it with '
+                          'conda install igl. '
+                          'Original exception: {}'.format(e))
+    return igl
+
+def triangulate(graph):
+    sv = SphericalVoronoi(graph.coords)
+    assert sv.points.shape[0] == graph.n_vertices
+    return sv.points, sv._simplices
+
+def compute_cotan_laplacian(graph, return_mass=False):
+    igl = _import_igl()
+    v, f = triangulate(graph)
+    L = -igl.cotmatrix(v, f)
+    assert len((L - L.T).data) == 0
+    M = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_VORONOI)
+    # M = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_BARYCENTRIC)
+    if return_mass:
+        # Eliminate zeros for speed (appears for equiangular).
+        L.eliminate_zeros()
+        return L, M
+    else:
+        Minv = sparse.diags(1 / M.diagonal())
+        return Minv @ L
+    
 def estimate_lmax(laplacian, tol=5e-3):
     """Estimate the Laplacian's largest eigenvalue."""
     # eigs(Minv @ L) is faster than eigsh(L, M) and we use Minv @ L to convolve
@@ -67,7 +91,7 @@ def prepare_torch_laplacian(laplacian, torch_dtype):
 # ################################
 #### Graph Convolution layer  ####
 # ################################
-def cheb_conv(laplacian, inputs, weight):
+def conv_cheb(laplacian, inputs, weight):
     """Chebyshev convolution.
     
     Parameters
@@ -84,22 +108,33 @@ def cheb_conv(laplacian, inputs, weight):
     x : torch.Tensor
         Inputs after applying Chebyshev convolution.
     """
-    B, V, Fin1 = inputs.shape
-    # print('B: {}, V. {}, Fin: {}'.format(B,V,Fin1))
-    Fin, K, Fout = weight.shape
-    # print('Fin: {}, K: {}, Fout: {}'.format(Fin, K, Fout))
-    assert Fin1 == Fin
+    # Terminology
     # B = batch size
-    # V = nb vertices
+    # V = nb vertices (nodes)
     # Fin = nb input features
     # Fout = nb output features
     # K = order of Chebyshev polynomials (kenel size)
-
-    # transform to Chebyshev basis    
+    ##------------------------------------------------------------------------.
+    # Get input tensor shape 
+    B, V, Fin1 = inputs.shape
+    # print('B: {}, V. {}, Fin: {}'.format(B,V,Fin1))
+    ##------------------------------------------------------------------------.
+    # Get weight tensor shape
+    Fin, K, Fout = weight.shape
+    # print('Fin: {}, K: {}, Fout: {}'.format(Fin, K, Fout))
+    ##------------------------------------------------------------------------.
+    # Check the tensor shape is correct 
+    if not Fin1 == Fin:
+        raise ValueError("Input tensor shape does not match the expected shape: \n" +
+                         "- Input tensor shape :{} \n".format(Fin1) + 
+                         "- Expected tensor shape :{} \n".format(Fin))
+    ##------------------------------------------------------------------------.  
+    # Transform to Chebyshev basis    
     x0 = inputs.permute(1, 2, 0).contiguous()  # V x Fin x B
     x0 = x0.view([V, Fin * B])  # V x Fin*B
     x = x0.unsqueeze(0)  # 1 x V x Fin*B
-
+    ##------------------------------------------------------------------------.
+    # Perform sparse matrix multiplications 
     if K > 1:
         x1 = torch.sparse.mm(laplacian, x0)  # V x Fin*B
         x = torch.cat((x, x1.unsqueeze(0)), 0)  # 2 x V x Fin*B
@@ -107,27 +142,32 @@ def cheb_conv(laplacian, inputs, weight):
         x2 = 2 * torch.sparse.mm(laplacian, x1) - x0
         x = torch.cat((x, x2.unsqueeze(0)), 0)  # M x Fin*B
         x0, x1 = x1, x2
-
+    ##------------------------------------------------------------------------.
     x = x.view([K, V, Fin, B])  # K x V x Fin x B
     x = x.permute(3, 1, 2, 0).contiguous()  # B x V x Fin x K
     x = x.view([B * V, Fin * K])  # B*V x Fin*K
-
+    ##------------------------------------------------------------------------.
     # Linearly compose Fin features to get Fout features
     weight = weight.view(Fin * K, Fout)
     x = x.matmul(weight)  # B*V x Fout
     x = x.view([B, V, Fout])  # B x V x Fout
-
+    ##------------------------------------------------------------------------.
     return x
 
 class ConvCheb(torch.nn.Module):
-    """Graph convolutional layer.
+    """Graph Convolutional Layer.
 
     PyTorch implementation of a convolutional neural network on graphs based on
     Chebyshev polynomials of the graph Laplacian.
+    
     See https://arxiv.org/abs/1606.09375 for details.
     Copyright 2018 Michaël Defferrard.
     Released under the terms of the MIT license.
-
+    
+    It expects the input data to have dimensions: 
+      
+        (n_signals, n_vertices, n_features) aka (sample, node, time-feature)   
+        
     Parameters
     ----------
     in_channels : int
@@ -150,46 +190,56 @@ class ConvCheb(torch.nn.Module):
     bias : bool
         Whether to add a bias term.
     conv : callable
-        Function which will perform the actual convolution.
+        Function which will perform the actual convolution. Default to Chebyshev 
+        convolution.
     """
-    # TODO: take torch_dtype as argument to set precision of weights) ! 
-    def __init__(self, in_channels, out_channels, kernel_size, laplacian, bias=True,
-                 conv=cheb_conv, **kwargs):
+    
+    def __init__(self, in_channels, out_channels, kernel_size, laplacian,
+                 bias=True, conv = conv_cheb, **kwargs):
         super().__init__()
 
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
-        self.register_buffer(f'laplacian', laplacian)
-        self._conv = conv
-
-        # shape = (kernel_size, out_channels, in_channels)
+        # - Define the Chebyshev Convolution
+        self.conv = conv
+        # - Add the laplacina as a buffer (to not be considered a model parameter)
+        self.register_buffer('laplacian', laplacian)
+        # - Define the weights 
         shape = (in_channels, kernel_size, out_channels)
         self.weight = torch.nn.Parameter(torch.Tensor(*shape))
-
+        # - Define the bias parameters 
         if bias:
             self.bias = torch.nn.Parameter(torch.Tensor(out_channels))
         else:
             self.register_parameter('bias', None)
-
+        # - Initialize parameters
         self.reset_parameters()
 
-    def reset_parameters(self, activation='relu', fan='in',
+    def reset_parameters(self, 
+                         activation='relu',
+                         fan='in',
                          distribution='normal'):
         """Reset weight and bias.
 
-        * Kaiming / He is given by `activation='relu'`, `fan='in'` or
-        `fan='out'`, and `distribution='normal'`.
-        * Xavier / Glorot is given by `activation='linear'`, `fan='avg'`,
-          and `distribution='uniform'`.
-        * LeCun is given by `activation='linear'` and `fan='in'`.
+        * Kaiming / He initialization is given by:
+            - `activation='relu'`
+            - `fan='in'` or `fan='out'`
+            - `distribution='normal'`
+        * Xavier / Glorot initialization is given by:
+            - `activation='linear'` 
+            - `fan='avg'` 
+            - `distribution='uniform'`
+        * LeCun is given by:
+            - `activation='linear'` 
+            - `fan='in'`.
 
-        Motivation based on inits from PyTorch, TensorFlow, Keras.
+        Motivation based on initalizations from PyTorch, TensorFlow, Keras.
 
         Parameters
         ----------
-        activation : {'relu', 'linear', 'sigmoid', 'tanh'}
-            Select the activation function your are using.
+        activation : str
+            Name of a torch.nn.functional activation function
         fan : {'in', 'out', 'avg'}
             Select `'in'` to preserve variance in the forward pass.
             Select `'out'` to preserve variance in the backward pass.
@@ -215,14 +265,20 @@ class ConvCheb(torch.nn.Module):
             fan = (self.in_channels + self.out_channels) / 2 * self.kernel_size
         else:
             raise ValueError('unknown fan')
-
-        if activation == 'relu':
-            scale = 2  # relu kills half the activations, from He et al.
-        elif activation in ['linear', 'sigmoid', 'tanh']:
+        
+        if activation in ['relu', 'celu', 'selu', 'prelu','hardswish', 'mish',
+                          'silu','gelu','softplus', 'softmax','logsigmoid',
+                          'relu6', # upper bounded at 6
+                          'rrlu', 'leaky_relu', 'elu']:  
+            # relu kills half the activations, from He et al.
+            scale = 2  
+        elif activation in ['linear', 'hardshrink ',
+                            'sigmoid', 'hardsigmoid', 
+                            'tanh', 'hardtanh', 'softsign']:
             # sigmoid and tanh are linear around 0
             scale = 1  # from Glorot et al.
         else:
-            raise ValueError('unknown activation')
+            raise ValueError('Unknown activation')
 
         if distribution == 'normal':
             std = math.sqrt(scale / fan)
@@ -231,7 +287,7 @@ class ConvCheb(torch.nn.Module):
             limit = math.sqrt(3 * scale / fan)
             self.weight.data.uniform_(-limit, limit)
         else:
-            raise ValueError('unknown distribution')
+            raise ValueError('Unknown distribution')
 
         if self.bias is not None:
             self.bias.data.fill_(0)
@@ -261,12 +317,10 @@ class ConvCheb(torch.nn.Module):
 
         Parameters
         ----------
-        laplacian : sparse matrix of shape n_vertices x n_vertices
-            Encode the graph structure.
         inputs : tensor of shape n_signals x n_vertices x n_features
             Data, i.e., features on the vertices.
         """
-        outputs = self._conv(self.laplacian, inputs, self.weight)
+        outputs = self.conv(self.laplacian, inputs, self.weight)
         if self.bias is not None:
             outputs += self.bias
         return outputs
@@ -275,34 +329,57 @@ class ConvCheb(torch.nn.Module):
 # ######################################
 #### Equiangular Convolution layer  ####
 # ######################################  
-def reformat(x):
-    """Reformat the input from a 4D tensor to a 3D tensor."""
-    x = x.permute(0, 2, 3, 1)
-    N, D1, D2, Feat = x.size()
-    x = x.view(N, D1 * D2, Feat)
-    return x
-
-def equiangular_dimension_unpack(nodes, ratio):
-    """Calculate the two underlying dimensions from the total number of nodes."""
+def get_nlat_nlon(n_nodes, lonlat_ratio):
+    """Calculate the width (longitudes) and height (latitude) of an equiangular grid provided in 1D.
+    
+    Parameters
+    ----------
+    lonlat_ratio : int
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        A ratio of 2 means the equiangular grid has the same resolution
+        in latitude and longitude.
+    """
     # ratio = n_lon/n_lat (width/height)
-    n_lat = int((nodes / ratio) ** 0.5)
-    n_lon = int((nodes * ratio) ** 0.5)
-    if n_lat * n_lon != nodes: # Try to correct n_lat or n_lon if ratio is wrong
-        if nodes % n_lat == 0:
-            n_lon = nodes // n_lat
-        if nodes % n_lon == 0:
-            n_lat = nodes // n_lon
-    assert n_lat * n_lon == nodes, f'Unable to unpack nodes: {nodes}, ratio: {ratio}'
+    n_lat = int((n_nodes / lonlat_ratio) ** 0.5)
+    n_lon = int((n_nodes * lonlat_ratio) ** 0.5)
+    if n_lat * n_lon != n_nodes: # Try to correct n_lat or n_lon if ratio is wrong
+        if n_nodes % n_lat == 0:
+            n_lon = n_nodes // n_lat
+        if n_nodes % n_lon == 0:
+            n_lat = n_nodes // n_lon
+    assert n_lat * n_lon == n_nodes, f'Unable to unpack nodes: {n_nodes}, lonlat_ratio: {lonlat_ratio}'
     return n_lat, n_lon
 
-def equiangular_calculator(tensor, ratio):
-    batchsize, nodes, features = tensor.size()
-    n_lat, n_lon = equiangular_dimension_unpack(nodes, ratio)
-    tensor = tensor.view(batchsize, n_lat, n_lon, features)
+def equiangular_1d_to_2d(tensor, lonlat_ratio):
+    """Reformat the input from a 3D tensor to a 4D tensor.
+    
+    Shapes: (sample, node, time-feature) --> (sample, lat, lon, time-feature)
+    """
+    batch_size, n_nodes, features = tensor.size()
+    n_lat, n_lon = get_nlat_nlon(n_nodes, lonlat_ratio)
+    tensor = tensor.view(batch_size, n_lat, n_lon, features)
     return tensor
 
+def equiangular_2d_to_1d(x): 
+    """Reformat the input from a 4D tensor to a 3D tensor.
+    
+    Shapes: (sample, lat, lon, time-feature) --> (sample, node, time-feature)
+    """
+    batch_size, n_lat, n_lon, features = x.size()
+    x = x.view(batch_size, n_lat * n_lon, features)
+    return x
+
 class Conv2dEquiangular(torch.nn.Module):
-    """Equiangular 2D Convolutional layer, periodic in the longitude (width) dimension.
+    """Equiangular 2D Convolutional layer.
+    
+    Enable to treat the equiangular spherical sampling as: 
+    - planar 2D projection (when periodic_padding=False)
+    - cylindrical projection (when periodic_padding=True)  
+    
+    When periodic_padding=True no "borders" exists along the longitude (width) dimension.
+           
+    It expects the input data to have dimensions: (sample, node, time-feature)
 
     Parameters
     ----------
@@ -313,27 +390,36 @@ class Conv2dEquiangular(torch.nn.Module):
     kernel_size : int
         Width of the square convolutional kernel.
         The actual size of the kernel is kernel_size**2
-    ratio : int
-        ratio = H // W. Aspect ratio to reorganize the equiangular map from 1D to 2D
-    periodic : bool
-        whether to use periodic padding. (default: True)
+    lonlat_ratio : int
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        A ratio of 2 means the equiangular grid has the same resolution
+        in latitude and longitude.
+    periodic_padding : bool
+        whether to use periodic padding along the longitude dimension. (default: True)
     """
-    ## TODO: accept torch.dtype as argument to set the weights 
-    def __init__(self, in_channels, out_channels, kernel_size, ratio, periodic, **kwargs):
+    
+    def __init__(self, in_channels, out_channels, kernel_size, lonlat_ratio, periodic_padding, bias, **kwargs):
         super().__init__()
-        self.ratio = ratio
-        self.periodic = periodic
+        self.lonlat_ratio = lonlat_ratio
+        self.periodic_padding = periodic_padding
 
         self.kernel_size = kernel_size
         self.pad_width = int((self.kernel_size - 1) / 2)
-        # TODO: Pass also ** kwargs ? Or just add self.bias args?  
-        self.conv = torch.nn.Conv2d(in_channels, out_channels, self.kernel_size)  # TODO
-
+        
+        self.conv = torch.nn.Conv2d(in_channels = in_channels, 
+                                    out_channels = out_channels, 
+                                    kernel_size = self.kernel_size,
+                                    bias = bias,
+                                    **kwargs)
+        # Re-initialize parameters 
         torch.nn.init.xavier_uniform_(self.conv.weight)
         torch.nn.init.zeros_(self.conv.bias)
 
-    def periodicPad(self, x, width, periodic=True):       
+    def periodic_pad(self, x, width, periodic_padding=True):       
         """Periodic padding function.
+        
+        When periodic_padding=True no "borders" exists along the longitude (width) dimension. 
 
         Parameters
         ----------
@@ -341,17 +427,17 @@ class Conv2dEquiangular(torch.nn.Module):
             The tensor format should be N * C * H * W
         width : int
             The padding width.
-        periodic: bool
-            Whether to use periodic padding. 
+        periodic_padding: bool
+            Whether to use periodic padding along the longitude dimension. 
             If False, the function is same as ZeroPad2D. 
-            The default is True
+            The default is True.
         
         Returns
         -------
         padded : torch.tensor 
             Return the padded tensor.   
         """
-        if periodic:
+        if periodic_padding:
             x = torch.cat((x[:, :, :, -width:], x, x[:, :, :, :width]), dim=3)
             padded = F.pad(x, (0, 0, width, width), 'constant', 0)
         else:
@@ -360,13 +446,13 @@ class Conv2dEquiangular(torch.nn.Module):
 
     def forward(self, x):
         """Perform convolution."""
-        x = equiangular_calculator(x, self.ratio)
+        x = equiangular_1d_to_2d(x, self.lonlat_ratio)
         x = x.permute(0, 3, 1, 2)
 
-        x = self.periodicPad(x, self.pad_width, self.periodic)
+        x = self.periodic_pad(x, self.pad_width, self.periodic_padding)
         x = self.conv(x)
-
-        x = reformat(x)
+        x = x.permute(0, 2, 3, 1)
+        x = equiangular_2d_to_1d(x)
         return x
 
 #----------------------------------------------------------------------------.
@@ -378,9 +464,9 @@ def _build_interpolation_matrix(src_graph, dst_graph):
     ds = remap.compute_interpolation_weights(src_graph=src_graph,
                                              dst_graph=dst_graph, 
                                              method='conservative',
-                                             normalization='fracarea') # destarea’
+                                             normalization='fracarea') 
 
-    # Sanity checks.
+    # Sanity checks
     np.testing.assert_allclose(ds.src_grid_center_lat, src_graph.signals['lat'])
     np.testing.assert_allclose(ds.src_grid_center_lon, src_graph.signals['lon'])
     np.testing.assert_allclose(ds.dst_grid_center_lat, dst_graph.signals['lat'])
@@ -393,22 +479,23 @@ def _build_interpolation_matrix(src_graph, dst_graph):
     col = ds.src_address
     row = ds.dst_address
     dat = ds.remap_matrix.squeeze()
+    
     # CDO indexing starts at 1
     row = np.array(row) - 1
     col = np.array(col) - 1
     weights = sparse.csr_matrix((dat, (row, col)))
     assert weights.shape == (dst_graph.n_vertices, src_graph.n_vertices)
 
-    # Destination pixels are normalized to 1 (row-sum = 1).
-    # Weights represent the fractions of area attributed to source pixels.
+    # Destination pixels are normalized to 1 (row-sum = 1)
+    # Weights represent the fractions of area attributed to source pixels
     np.testing.assert_allclose(weights.sum(axis=1), 1)
-    # Interpolation is conservative: it preserves area.
+    # Interpolation is conservative: it preserves area
     np.testing.assert_allclose(weights.T @ ds.dst_grid_area, ds.src_grid_area)
 
-    # Unnormalize.
+    # Unnormalize
     weights = weights.multiply(ds.dst_grid_area.values[:, np.newaxis])
 
-    # Another way to assert that the interpolation is conservative.
+    # Another way to assert that the interpolation is conservative
     np.testing.assert_allclose(np.asarray(weights.sum(1)).squeeze(), ds.dst_grid_area)
     np.testing.assert_allclose(np.asarray(weights.sum(0)).squeeze(), ds.src_grid_area)
 
@@ -439,9 +526,11 @@ class EquiangularMaxPool(torch.nn.MaxPool1d):
     
     Parameters
     ----------
-    ratio : float
-        Ratio between latitude and longitude dimensions of the data.
-        Ratio of 2 means same resolution in latitude and longitude.
+    lonlat_ratio : int
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        A ratio of 2 means the equiangular grid has the same resolution
+        in latitude and longitude.
     kernel_size : int
         Pooling kernel width
     return_indices : bool (default : True)
@@ -449,8 +538,8 @@ class EquiangularMaxPool(torch.nn.MaxPool1d):
         maximum value retained at pooling. Useful to unpool. The default is True.
     """
 
-    def __init__(self, ratio, kernel_size, return_indices=True, *args, **kwargs):
-        self.ratio = ratio
+    def __init__(self, lonlat_ratio, kernel_size, return_indices=True, *args, **kwargs):
+        self.lonlat_ratio = lonlat_ratio
         kernel_size = int(kernel_size ** 0.5)
         super().__init__(kernel_size=kernel_size, return_indices=return_indices)
 
@@ -469,14 +558,15 @@ class EquiangularMaxPool(torch.nn.MaxPool1d):
         indices : list(int)
             Indices of the pooled pixels.
         """
-        x = equiangular_calculator(x, self.ratio)
+        x = equiangular_1d_to_2d(x, self.lonlat_ratio)
         x = x.permute(0, 3, 1, 2)
 
         if self.return_indices:
             x, indices = F.max_pool2d(x, self.kernel_size, return_indices=self.return_indices)
         else:
             x = F.max_pool2d(x, self.kernel_size)
-        x = reformat(x)
+        x = x.permute(0, 2, 3, 1)
+        x = equiangular_2d_to_1d(x)
 
         if self.return_indices:
             return x, indices
@@ -488,15 +578,17 @@ class EquiangularMaxUnpool(torch.nn.MaxUnpool1d):
     
     Parameters
     ----------
-    ratio : float
-        Ratio between latitude and longitude dimensions of the data.
-        Ratio of 2 means same resolution in latitude and longitude.
+    lonlat_ratio : int
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        A ratio of 2 means the equiangular grid has the same resolution
+        in latitude and longitude.
     kernel_size : int
         Pooling kernel width
     """
 
-    def __init__(self, ratio, kernel_size, *args, **kwargs):
-        self.ratio = ratio
+    def __init__(self, lonlat_ratio, kernel_size, *args, **kwargs):
+        self.lonlat_ratio =lonlat_ratio
         kernel_size = int(kernel_size ** 0.5)
         super().__init__(kernel_size=(kernel_size, kernel_size))
 
@@ -516,10 +608,11 @@ class EquiangularMaxUnpool(torch.nn.MaxUnpool1d):
             Unpooling output tensor output of shape batch x unpooled pixels x features
          
         """
-        x = equiangular_calculator(x, self.ratio)
+        x = equiangular_1d_to_2d(x, self.lonlat_ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.max_unpool2d(x, indices, self.kernel_size)
-        x = reformat(x)
+        x = x.permute(0, 2, 3, 1)
+        x = equiangular_2d_to_1d(x)
         return x
 
 
@@ -528,15 +621,17 @@ class EquiangularAvgPool(torch.nn.AvgPool1d):
     
     Parameters
     ----------
-    ratio : float
-        Ratio between latitude and longitude dimensions of the data.
-        Ratio of 2 means same resolution in latitude and longitude.
+    lonlat_ratio : int
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        A ratio of 2 means the equiangular grid has the same resolution
+        in latitude and longitude.
     kernel_size : int
         Pooling kernel width
     """
 
-    def __init__(self, ratio, kernel_size, *args, **kwargs):
-        self.ratio = ratio
+    def __init__(self, lonlat_ratio, kernel_size, *args, **kwargs):
+        self.lonlat_ratio = lonlat_ratio
         kernel_size = int(kernel_size ** 0.5)
         super().__init__(kernel_size=(kernel_size, kernel_size))
 
@@ -554,10 +649,11 @@ class EquiangularAvgPool(torch.nn.AvgPool1d):
             Pooling output tensor of shape batch x pooled pixels x features 
         
         """
-        x = equiangular_calculator(x, self.ratio)
+        x = equiangular_1d_to_2d(x, self.lonlat_ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.avg_pool2d(x, self.kernel_size)
-        x = reformat(x)
+        x = x.permute(0, 2, 3, 1)
+        x = equiangular_2d_to_1d(x)
 
         return x, None
 
@@ -567,15 +663,17 @@ class EquiangularAvgUnpool(torch.nn.Module):
     
     Parameters
     ----------
-    ratio : float
-        Ratio between latitude and longitude dimensions of the data.
-        Ratio of 2 means same resolution in latitude and longitude.
+    lonlat_ratio : int
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        A ratio of 2 means the equiangular grid has the same resolution
+        in latitude and longitude.
     kernel_size : int
         Pooling kernel width
     """
 
-    def __init__(self, ratio, kernel_size, *args, **kwargs):
-        self.ratio = ratio
+    def __init__(self, lonlat_ratio, kernel_size, *args, **kwargs):
+        self.lonlat_ratio = lonlat_ratio
         self.kernel_size = int(kernel_size ** 0.5)
         super().__init__()
 
@@ -593,10 +691,11 @@ class EquiangularAvgUnpool(torch.nn.Module):
             Unpooling output tensor output of shape batch x unpooled pixels x features
          
         """
-        x = equiangular_calculator(x, self.ratio)
+        x = equiangular_1d_to_2d(x, self.lonlat_ratio)
         x = x.permute(0, 3, 1, 2)
         x = F.interpolate(x, scale_factor=(self.kernel_size, self.kernel_size), mode="nearest")
-        x = reformat(x)
+        x = x.permute(0, 2, 3, 1)
+        x = equiangular_2d_to_1d(x)
         return x
 
 
@@ -894,7 +993,6 @@ class GeneralMaxValUnpool(RemapBlock):
         return x_unpooled
     
 ##----------------------------------------------------------------------------.
-# TODO: reason why you defined for unpool? 
 class GeneralLearnableUnpool(SparseLinear):
     """Generalized Learnable Unooling."""
     
@@ -997,16 +1095,18 @@ class GeneralConvBlock(ABC, torch.nn.Module):
     def getConvLayer(in_channels: int,
                      out_channels: int,
                      kernel_size: int,
-                     conv_type: str = 'graph', **kwargs):
+                     conv_type: str = 'graph',
+                     **kwargs):
         """Retrieve the required ConvLayer."""        
-        # TODO: add torch.dtype argument ! 
         conv_type = conv_type.lower()
         conv = None
         if conv_type == 'graph':
             assert 'laplacian' in kwargs
+            _ = kwargs.pop('lonlat_ratio')
+            _ = kwargs.pop('periodic_padding')
             conv = get_conv_fun(conv_type)(in_channels, out_channels, kernel_size, **kwargs)
         elif conv_type == 'image':
-            assert 'ratio' in kwargs
+            assert 'lonlat_ratio' in kwargs
             conv = get_conv_fun(conv_type)(in_channels, out_channels, kernel_size, **kwargs)
         else:
             raise ValueError("{} conv_type is not supported. Choose either 'graph' or 'image'".format(conv_type))
