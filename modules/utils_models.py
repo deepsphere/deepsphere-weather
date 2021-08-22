@@ -54,6 +54,17 @@ def check_pool_method(pool_method):
     pool_method = pool_method.lower()
     return(pool_method)
 
+def check_skip_connection(skip_connection):
+    """Check skip connection type."""
+    if not isinstance(skip_connection, (str, type(None))):
+        raise TypeError("'skip_connection' must be a string.")
+    if skip_connection is None: 
+        skip_connection = 'none'
+    valid_options = ('none','stack','sum','avg')
+    if skip_connection not in valid_options:
+        raise ValueError("'skip_connection' must be one of {}".format(valid_options))
+    return skip_connection
+        
 def check_resolution(resolution):
     """Check valid resolution."""
     if not isinstance(resolution, Iterable):
