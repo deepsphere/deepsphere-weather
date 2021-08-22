@@ -5,6 +5,7 @@ Created on Tue Jan 19 00:07:05 2021
 
 @author: ghiggi
 """
+import os
 import time
 import pickle
 import numpy as np
@@ -107,7 +108,7 @@ def plot_loss(iterations,
 class AR_TrainingInfo():
     """Training info Object."""
     
-    def __init__(self, AR_iterations, epochs, AR_scheduler):
+    def __init__(self, AR_iterations, epochs, ar_scheduler):
         # TODO
         # - loss per variable 
         # Initialize training info 
@@ -162,7 +163,7 @@ class AR_TrainingInfo():
         self.AR_weights_per_AR_iteration = AR_weights_per_AR_iteration
         ##--------------------------------------------------------------------. 
         # - Initialize the AR scheduler pickle
-        self.AR_scheduler = pickle.dumps(AR_scheduler)
+        self.ar_scheduler = pickle.dumps(ar_scheduler)
         
     ##------------------------------------------------------------------------.
     def step(self): 
@@ -188,7 +189,7 @@ class AR_TrainingInfo():
     ##------------------------------------------------------------------------.    
     def update_training_stats(self, total_loss,
                               dict_loss_per_AR_iteration,
-                              AR_scheduler, LR_scheduler=None):
+                              ar_scheduler, LR_scheduler=None):
         """Update training info statistics."""
         # Retrieve current number of AR iterations 
         current_AR_iterations = len(dict_loss_per_AR_iteration) - 1        
@@ -211,11 +212,11 @@ class AR_TrainingInfo():
         # Update AR weights 
         for i in range(current_AR_iterations+1):
             self.AR_weights_per_AR_iteration[i]['iteration'].append(self.iteration)   
-            self.AR_weights_per_AR_iteration[i]['AR_absolute_weights'].append(AR_scheduler.AR_absolute_weights[i])
-            self.AR_weights_per_AR_iteration[i]['AR_weights'].append(AR_scheduler.AR_weights[i])
+            self.AR_weights_per_AR_iteration[i]['AR_absolute_weights'].append(ar_scheduler.AR_absolute_weights[i])
+            self.AR_weights_per_AR_iteration[i]['AR_weights'].append(ar_scheduler.AR_weights[i])
         
         # Pickle AR scheduler
-        self.AR_scheduler = pickle.dumps(AR_scheduler)
+        self.ar_scheduler = pickle.dumps(ar_scheduler)
    
     ##------------------------------------------------------------------------.
     def update_validation_stats(self, total_loss, dict_loss_per_AR_iteration):
@@ -514,3 +515,82 @@ class AR_TrainingInfo():
         else: 
             return ax
         ##--------------------------------------------------------------------.
+        
+    def plots(self, exp_dir=None, ylim=(0,0.06)):
+        ##--------------------------------------------------------------------.   
+        ### - Plot the loss at all AR iterations (in one figure)
+        fig, ax = plt.subplots()
+        for AR_iteration in range(self.AR_iterations+1):
+            ax = self.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+                                                 ax = ax,
+                                                 linestyle="solid",
+                                                 linewidth=0.3,
+                                                 ylim = ylim, 
+                                                 plot_validation = False, 
+                                                 plot_labels = True,
+                                                 plot_legend = False,
+                                                 add_AR_weights_updates=False)
+        leg = ax.legend(labels=list(range(self.AR_iterations + 1)), 
+                        title="AR iteration", 
+                        loc='upper right')
+        # - Make legend line more thick
+        for line in leg.get_lines():
+            line.set_linewidth(2)
+        # - Reset color cycling 
+        plt.gca().set_prop_cycle(None) 
+        for AR_iteration in range(self.AR_iterations+1):
+            ax = self.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+                                                 ax = ax,
+                                                 linestyle="dashed",
+                                                 linewidth=0.3,
+                                                 ylim = ylim, 
+                                                 plot_training = False, 
+                                                 plot_labels = False,
+                                                 plot_legend = False,
+                                                 add_AR_weights_updates=False)  
+        # - Add vertical line when AR iteration is added
+        iterations_of_AR_updates = self.iterations_of_AR_updates()
+        if len(iterations_of_AR_updates) > 0: 
+            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        # - Add title 
+        ax.set_title("Loss evolution at each AR iteration")
+        # - Save figure
+        if exp_dir is not None:
+            fig.savefig(os.path.join(exp_dir, "figs/training_info/Loss_at_all_AR_iterations.png")) 
+        else:
+            plt.show()
+        ##--------------------------------------------------------------------.   
+        ### - Plot the loss at each AR iteration (in separate figures)
+        for AR_iteration in range(self.AR_iterations+1):
+            fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
+            fig = self.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
+                                                  linewidth=0.6,
+                                                  ylim = ylim,
+                                                  title="Loss evolution at AR iteration {}".format(AR_iteration))
+            if exp_dir is not None:
+                fig.savefig(fname) 
+            else:
+                plt.show()
+        ##--------------------------------------------------------------------.
+        ### - Plot total loss 
+        fig = self.plot_total_loss(ylim = ylim, linewidth=0.6)
+        if exp_dir is not None:
+            fig.savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
+        else:
+            plt.show()
+        
+        ##--------------------------------------------------------------------.
+        ### - Plot AR weights normalized 
+        fig = self.plot_AR_weights(normalized=True)
+        if exp_dir is not None:
+            fig.savefig(os.path.join(exp_dir, "figs/training_info/AR_Normalized_Weights.png"))
+        else:
+            plt.show()
+        ### - Plot absolute AR weights  
+        fig = self.plot_AR_weights(normalized=False)
+        if exp_dir is not None:
+            fig.savefig(os.path.join(exp_dir, "figs/training_info/AR_Absolute_Weights.png")) 
+        else:
+            plt.show()
+        ##--------------------------------------------------------------------.
+##----------------------------------------------------------------------------.
