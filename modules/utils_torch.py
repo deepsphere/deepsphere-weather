@@ -5,6 +5,7 @@ Created on Wed Feb  3 17:53:55 2021
 
 @author: ghiggi
 """
+import os
 import random
 import time
 import copy 
@@ -62,35 +63,35 @@ def check_pin_memory(pin_memory, num_workers, device):
         pin_memory = False    
     return pin_memory
 
-def check_prefetch_in_GPU(prefetch_in_GPU, num_workers, device):
-    """Check prefetch_in_GPU possibility."""
-    if not isinstance(prefetch_in_GPU, bool):
-        raise TypeError("'prefetch_in_GPU' must be either True or False. If num_workers > 0, set to False ;) ")
+def check_prefetch_in_gpu(prefetch_in_gpu, num_workers, device):
+    """Check prefetch_in_gpu possibility."""
+    if not isinstance(prefetch_in_gpu, bool):
+        raise TypeError("'prefetch_in_gpu' must be either True or False. If num_workers > 0, set to False ;) ")
     # CPU case
     if device.type == 'cpu':
-        if prefetch_in_GPU:
-            print("- GPU is not available. 'prefetch_in_GPU' set to False.")
-            prefetch_in_GPU = False
+        if prefetch_in_gpu:
+            print("- GPU is not available. 'prefetch_in_gpu' set to False.")
+            prefetch_in_gpu = False
     # GPU case with multiprocess
-    elif num_workers > 0 and prefetch_in_GPU: 
+    elif num_workers > 0 and prefetch_in_gpu: 
         print("- Prefetch in GPU with multiprocessing is currently unstable.\n\
             It is generally not recommended to return CUDA tensors within multi-process data loading\
                 loading because of many subtleties in using CUDA and sharing CUDA tensors.")
-        prefetch_in_GPU = False    
+        prefetch_in_gpu = False    
     else: # num_workers = 0 
-        prefetch_in_GPU = prefetch_in_GPU
-    return prefetch_in_GPU
+        prefetch_in_gpu = prefetch_in_gpu
+    return prefetch_in_gpu
 
-def check_asyncronous_GPU_transfer(asyncronous_GPU_transfer, device):
-    """Check asyncronous_GPU_transfer possibility."""
-    if not isinstance(asyncronous_GPU_transfer, bool):
-        raise TypeError("'asyncronous_GPU_transfer' must be either True or False.")
+def check_asyncronous_gpu_transfer(asyncronous_gpu_transfer, device):
+    """Check asyncronous_gpu_transfer possibility."""
+    if not isinstance(asyncronous_gpu_transfer, bool):
+        raise TypeError("'asyncronous_gpu_transfer' must be either True or False.")
     # CPU case
     if device.type == 'cpu':
-        if asyncronous_GPU_transfer:
-            print("- GPU is not available. 'asyncronous_GPU_transfer' set to False.")
-            asyncronous_GPU_transfer = False
-    return asyncronous_GPU_transfer
+        if asyncronous_gpu_transfer:
+            print("- GPU is not available. 'asyncronous_gpu_transfer' set to False.")
+            asyncronous_gpu_transfer = False
+    return asyncronous_gpu_transfer
 
 def check_prefetch_factor(prefetch_factor, num_workers):     
     """Check prefetch_factor validity."""
@@ -102,7 +103,7 @@ def check_prefetch_factor(prefetch_factor, num_workers):
         prefetch_factor = 2 # bug in pytorch ... need to set to 2 
     return prefetch_factor
 
-def check_AR_training_strategy(AR_training_strategy):
+def check_ar_training_strategy(AR_training_strategy):
     """Check AR training strategy validity."""
     if not isinstance(AR_training_strategy, str):
         raise TypeError("'AR_training_strategy' must be a string: 'RNN' or 'AR'.")
@@ -168,16 +169,28 @@ def torch_dtype_2_tensor_type(dtype, device):
                         }
     return tensor_types[dtype_str] 
 
-def set_pytorch_deterministic(seed=100):
-    """Set seeds for deterministic training with pytorch."""
-    # TODO
-    # - https://pytorch.org/docs/stable/generated/torch.set_deterministic.html#torch.set_deterministic
-    torch.backends.cudnn.deterministic = True
+def set_seeds(seed):
+    #os.environ['PYTHONHASHSEED'] = str(seed)
     torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    return          
+    ## CUDA >10.2 possible addional configs
+    # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
+    # CUBLAS_WORKSPACE_CONFIG =:4096:8 
+    # CUBLAS_WORKSPACE_CONFIG =:16:8
+    ## To retrieve torch seed 
+    # torch.initial_seed()
+    return None      
+
+def set_pytorch_deterministic(seed=100):
+    """Set seeds for deterministic training with pytorch."""
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    set_seeds(seed)
+    return None
+    
  
 def set_pytorch_numeric_precision(numeric_precision, device):
     """Set pytorch numeric precision."""
@@ -185,6 +198,25 @@ def set_pytorch_numeric_precision(numeric_precision, device):
     dtype = get_torch_dtype(numeric_precision)
     torch.set_default_tensor_type(tensor_type) 
     torch.set_default_dtype(dtype)
+    
+
+
+#----------------------------------------------------------------------------.
+def check_models_have_same_weights(model_1, model_2):
+    """Check if two models share the same weights."""
+    models_differ = 0
+    for key_item_1, key_item_2 in zip(model_1.state_dict().items(), model_2.state_dict().items()):
+        if torch.equal(key_item_1[1], key_item_2[1]):
+            pass
+        else:
+            models_differ += 1
+            if (key_item_1[0] == key_item_2[0]):
+                print('Mismtach found at', key_item_1[0])  
+    if models_differ == 0:
+        return True
+    else:
+        print('There are {} differences.'.format(models_differ))
+        return False
     
 #----------------------------------------------------------------------------.
 #############################
@@ -245,6 +277,8 @@ def _generate_forward_hook(handle, summary_forward, m_key):
             summary_forward[m_key]["trainable"] = module.weight.requires_grad
         if hasattr(module, "bias") and hasattr(module.bias, "size"):
             params += torch.prod(torch.LongTensor(list(module.bias.size())))
+        ##----------------------------------------------------------------.
+        #  Ensure params will be a int
         if not isinstance(params, int):
             params = params.item()
         summary_forward[m_key]["nb_params"] = params 
@@ -323,7 +357,6 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
             raise ValueError("input_size must be a list of tuples.")   
     ##------------------------------------------------------------------------.    
     # Check dtypes
-    # - TODO: check dtype validity more robust 
     default_dtype = torch.get_default_dtype()
     if dtypes is None: 
         dtypes = default_dtype
@@ -373,7 +406,9 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
     # Register the hook
     # - Applies register_hook recursively to every submodule
     for idx, module in enumerate(model.modules()):
-        if not (isinstance(module, torch.nn.Sequential) and not isinstance(module, torch.nn.ModuleList)):
+        if not isinstance(module, (torch.nn.Sequential, torch.nn.ModuleList)):
+    # for idx, (nm, module) in enumerate(model.named_children()):
+    #     if not issubclass(type(module), (torch.nn.Sequential, torch.nn.ModuleList)):
             # Define dictionary key name
             class_name = module.__class__.__name__ # str(module.__class__).split(".")[-1].split("'")[0]
             m_key = "%s-%i" % (class_name, idx)
@@ -486,7 +521,8 @@ def profile_layers(model, input_size, batch_size=32, dtypes=None, device=torch.d
     # Return summary
     return table, summary_str, summary
 
-def summarize_model(model, input_size, batch_size=32, dtypes=None, device=torch.device('cpu')):
+def summarize_model(model, input_size, batch_size=32,
+                    dtypes=None, device=torch.device('cpu')):
     """Print a summary of pytorch model structure and memory requirements.
     
     Originally inspired from https://github.com/sksq96/pytorch-summary and
@@ -518,6 +554,7 @@ def summarize_model(model, input_size, batch_size=32, dtypes=None, device=torch.
                                                  dtypes=dtypes)
     print(table)
     print(summary_str)
+    del tmp_model
     return summary
     
 ##----------------------------------------------------------------------------.

@@ -7,46 +7,17 @@ Created on Thu Feb 18 17:51:40 2021
 """
 import pygsp
 import numpy as np
+import torch
 from typing import List
 from abc import ABC, abstractmethod
+from modules.layers import compute_cotan_laplacian
 from modules.layers import prepare_torch_laplacian
 from modules.utils_models import check_sampling
 # from modules.utils_models import get_pygsp_graph
 from modules.utils_models import get_pygsp_graph_fun
 from modules.utils_models import get_pygsp_graph_params
 from modules.utils_models import check_conv_type
-from modules.utils_torch import get_torch_dtype
-
-def _import_igl():
-    try:
-        import igl
-    except Exception as e:
-        raise ImportError('Cannot import igl. Build a knn graph '
-                          'instead of a mesh graph or install it with '
-                          'conda install igl. '
-                          'Original exception: {}'.format(e))
-    return igl
-
-def triangulate(graph):
-    sv = SphericalVoronoi(graph.coords)
-    assert sv.points.shape[0] == graph.n_vertices
-    return sv.points, sv._simplices
-
-def compute_cotan_laplacian(graph, return_mass=False):
-    igl = _import_igl()
-    v, f = triangulate(graph)
-    L = -igl.cotmatrix(v, f)
-    assert len((L - L.T).data) == 0
-    M = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_VORONOI)
-    # M = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_BARYCENTRIC)
-    if return_mass:
-        # Eliminate zeros for speed (appears for equiangular).
-        L.eliminate_zeros()
-        return L, M
-    else:
-        Minv = sparse.diags(1 / M.diagonal())
-        return Minv @ L
-
+ 
 # TODO 
 # - Add RemappingNet (just pooling)
 # - Add DownscalingNet
@@ -77,12 +48,10 @@ class UNet(ABC):
                     sampling: str = 'healpix', 
                     knn: int = 10) -> List["pygsp.graphs"]:
         """Build the graph for each specified resolution."""
-        # Create a list of pygsp graph 
-        # pygsp_graphs_list = [get_pygsp_graph(sampling=sampling, resolution=*res, knn=knn) for res in resolutions]
-
         # Check sampling 
         check_sampling(sampling)
         # Retrieve pygsp function to create the spherical graph
+        # .i.e. pygsp.graphs.SphereHealpix
         graph_initializer = get_pygsp_graph_fun(sampling)
         # Retrieve parameters to customize the spherical graph
         params = get_pygsp_graph_params(sampling)
@@ -95,49 +64,50 @@ class UNet(ABC):
     
     @staticmethod
     def get_laplacian_kernels(graphs: List["pygsp.graphs"],
-                              torch_dtype,
                               gtype='knn'):
         """Compute the laplacian for each specified graph."""
         # TODO 
         # - Add gtype in config file
         assert gtype in ['knn', 'mesh']
+        torch_dtype = torch.get_default_dtype()  
         laplacians_list = [graph.L if gtype == 'knn' else compute_cotan_laplacian(graph, return_mass=False) for graph in graphs]
         laplacians_list = [prepare_torch_laplacian(L, torch_dtype=torch_dtype) for L in laplacians_list]
         return laplacians_list
     
     def init_graph_and_laplacians(self, 
-                                  conv_type,
-                                  resolution,
                                   sampling, 
+                                  resolution,
+                                  conv_type,
                                   knn, 
                                   kernel_size_pooling,
                                   UNet_depth,
-                                  gtype="knn",
-                                  numeric_precision='float32'):
+                                  gtype="knn"):
         """Initialize graph and laplacian.
         
         Parameters
         ----------
-        conv_type : TYPE
-            Convolution type. Either 'graph' or 'image'.
-        resolution : int
-            Resolution of the input tensor.
         sampling : str
             Name of the spherical sampling.
+        resolution : int
+            Resolution of the spherical sampling.
+        conv_type : str, optional
+            Convolution type. Either 'graph' or 'image'.
+            The default is 'graph'.
+            conv_type='image' can be used only when sampling='equiangular'.
         knn : int
             DESCRIPTION.
-        kernel_size_pooling : int
-            DESCRIPTION.
+        gtype : str
+            DESCRIPTION
+        kernel_size_pooling
+            The size of the window to max/avg over.
+            kernel_size_pooling = 4 means halving the resolution when pooling
+            The default is 4.
         UNet_depth : int
             Depth of the UNet.
-        numeric_precision: str
-            Numeric precision for model training.
-            The default is 'float32'.
         """
         # Check inputs 
         sampling = check_sampling(sampling)
         conv_type = check_conv_type(conv_type, sampling)
-        torch_dtype = get_torch_dtype(numeric_precision)
         ##--------------------------------------------------------------------.
         # Define resolutions 
         coarsening = int(np.sqrt(kernel_size_pooling))
@@ -151,7 +121,6 @@ class UNet(ABC):
                                            sampling=sampling,
                                            knn=knn)
             self.laplacians = UNet.get_laplacian_kernels(graphs=self.graphs, 
-                                                         torch_dtype=torch_dtype,
                                                          gtype=gtype)
         # Option for equiangular sampling  
         elif conv_type == 'image':

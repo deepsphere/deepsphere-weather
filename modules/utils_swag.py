@@ -72,9 +72,9 @@ def bn_update(model,
              batch_size = 64, 
              num_workers = 0,
              prefetch_factor = 2, 
-             prefetch_in_GPU = False,  
+             prefetch_in_gpu = False,  
              pin_memory = False,
-             asyncronous_GPU_transfer = True,
+             asyncronous_gpu_transfer = True,
              device = 'cpu',
              numeric_precision = "float32", 
              # Autoregressive settings  
@@ -118,9 +118,9 @@ def bn_update(model,
                                           random_shuffle = False,
                                           num_workers = num_workers,
                                           prefetch_factor = prefetch_factor, 
-                                          prefetch_in_GPU = prefetch_in_GPU,  
+                                          prefetch_in_gpu = prefetch_in_gpu,  
                                           pin_memory = pin_memory,
-                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                          asyncronous_gpu_transfer = asyncronous_gpu_transfer, 
                                           device = device)
 
     n = 0
@@ -140,7 +140,7 @@ def bn_update(model,
                                         batch_dict = batch_dict, 
                                         dict_Y_predicted = dict_Y_predicted,
                                         device = device, 
-                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                        asyncronous_gpu_transfer = asyncronous_gpu_transfer,
                                         training_mode=False)
             
                 input_var = torch.autograd.Variable(torch_X)
@@ -159,7 +159,7 @@ def bn_update(model,
 def bn_update_with_loader(model, 
                           loader, 
                           AR_iterations = 2, 
-                          asyncronous_GPU_transfer = True,
+                          asyncronous_gpu_transfer = True,
                           device = 'cpu',
                           **kwargs):
     if not check_bn(model):
@@ -185,7 +185,7 @@ def bn_update_with_loader(model,
                                         batch_dict = batch_dict, 
                                         dict_Y_predicted = dict_Y_predicted,
                                         device = device, 
-                                        asyncronous_GPU_transfer = asyncronous_GPU_transfer,
+                                        asyncronous_gpu_transfer = asyncronous_gpu_transfer,
                                         training_mode=False)
             
                 input_var = torch.autograd.Variable(torch_X)

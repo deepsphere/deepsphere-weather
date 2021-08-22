@@ -31,8 +31,8 @@ from modules.utils_zarr import write_zarr
 from modules.utils_io import check_AR_DataArrays
 from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
-from modules.utils_torch import check_asyncronous_GPU_transfer
-from modules.utils_torch import check_prefetch_in_GPU
+from modules.utils_torch import check_asyncronous_gpu_transfer
+from modules.utils_torch import check_prefetch_in_gpu
 from modules.utils_torch import check_prefetch_factor
 from modules.utils_swag import bn_update
 
@@ -197,11 +197,10 @@ def AutoregressivePredictions(model,
                               batch_size = 64, 
                               num_workers = 0,
                               prefetch_factor = 2, 
-                              prefetch_in_GPU = False,  
+                              prefetch_in_gpu = False,  
                               pin_memory = False,
-                              asyncronous_GPU_transfer = True,
+                              asyncronous_gpu_transfer = True,
                               device = 'cpu',
-                              numeric_precision = "float32", 
                               # Autoregressive settings  
                               input_k = [-3,-2,-1], 
                               output_k = [0],
@@ -251,8 +250,8 @@ def AutoregressivePredictions(model,
     ## Checks arguments 
     device = check_device(device)
     pin_memory = check_pin_memory(pin_memory=pin_memory, num_workers=num_workers, device=device)  
-    asyncronous_GPU_transfer = check_asyncronous_GPU_transfer(asyncronous_GPU_transfer=asyncronous_GPU_transfer, device=device) 
-    prefetch_in_GPU = check_prefetch_in_GPU(prefetch_in_GPU=prefetch_in_GPU, num_workers=num_workers, device=device) 
+    asyncronous_gpu_transfer = check_asyncronous_gpu_transfer(asyncronous_gpu_transfer=asyncronous_gpu_transfer, device=device) 
+    prefetch_in_gpu = check_prefetch_in_gpu(prefetch_in_gpu=prefetch_in_gpu, num_workers=num_workers, device=device) 
     prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
     ##------------------------------------------------------------------------.
     # Check that autoregressive settings are valid 
@@ -327,18 +326,16 @@ def AutoregressivePredictions(model,
                                     AR_iterations = AR_iterations, 
                                     stack_most_recent_prediction = stack_most_recent_prediction, 
                                     # GPU settings 
-                                    device = device,
-                                    # Precision settings
-                                    numeric_precision = numeric_precision)
+                                    device = device)
     dataloader = AutoregressiveDataLoader(dataset = dataset, 
                                           batch_size = batch_size, 
                                           drop_last_batch = False, 
-                                          random_shuffle = False,
+                                          shuffle = False,
                                           num_workers = num_workers,
                                           prefetch_factor = prefetch_factor, 
-                                          prefetch_in_GPU = prefetch_in_GPU,  
+                                          prefetch_in_gpu = prefetch_in_gpu,  
                                           pin_memory = pin_memory,
-                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer, 
+                                          asyncronous_gpu_transfer = asyncronous_gpu_transfer, 
                                           device = device)
     ##------------------------------------------------------------------------.
     ### Start forecasting
@@ -382,7 +379,7 @@ def AutoregressivePredictions(model,
                                           batch_dict = batch_dict, 
                                           dict_Y_predicted = dict_Y_predicted,
                                           device = device, 
-                                          asyncronous_GPU_transfer = asyncronous_GPU_transfer)
+                                          asyncronous_gpu_transfer = asyncronous_gpu_transfer)
                                          
                 ##------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
@@ -585,11 +582,10 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
                                   batch_size = 64, 
                                   num_workers = 0,
                                   prefetch_factor = 2, 
-                                  prefetch_in_GPU = False,  
+                                  prefetch_in_gpu = False,  
                                   pin_memory = False,
-                                  asyncronous_GPU_transfer = True,
+                                  asyncronous_gpu_transfer = True,
                                   device = 'cpu',
-                                  numeric_precision = "float32", 
                                   # Autoregressive settings  
                                   input_k = [-3,-2,-1], 
                                   output_k = [0],
@@ -629,10 +625,9 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
                 num_workers = num_workers, 
                 # tune_num_workers = False, 
                 prefetch_factor = prefetch_factor, 
-                prefetch_in_GPU = prefetch_in_GPU,  
+                prefetch_in_gpu = prefetch_in_gpu,  
                 pin_memory = pin_memory,
-                asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                numeric_precision = numeric_precision, 
+                asyncronous_gpu_transfer = asyncronous_gpu_transfer,
                 # Autoregressive settings  
                 input_k = input_k, 
                 output_k = output_k, 
@@ -655,10 +650,9 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
                                   num_workers = num_workers, 
                                   # tune_num_workers = False, 
                                   prefetch_factor = prefetch_factor, 
-                                  prefetch_in_GPU = prefetch_in_GPU,  
+                                  prefetch_in_gpu = prefetch_in_gpu,  
                                   pin_memory = pin_memory,
-                                  asyncronous_GPU_transfer = asyncronous_GPU_transfer,
-                                  numeric_precision = numeric_precision, 
+                                  asyncronous_gpu_transfer = asyncronous_gpu_transfer,
                                   # Autoregressive settings
                                   input_k = input_k, 
                                   output_k = output_k, 

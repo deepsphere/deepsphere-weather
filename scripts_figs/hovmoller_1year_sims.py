@@ -71,12 +71,12 @@ model_fpath = os.path.join(model_dir, "model_weights", "model.h5")
 # print_model_description(cfg)
 
 # Some special stuff you might want to adjust 
-cfg['dataloader_settings']["prefetch_in_GPU"] = False  
+cfg['dataloader_settings']["prefetch_in_gpu"] = False  
 cfg['dataloader_settings']["prefetch_factor"] = 2      
 cfg['dataloader_settings']["num_workers"] = 8
 cfg['dataloader_settings']["autotune_num_workers"] = False
 cfg['dataloader_settings']["pin_memory"] = False
-cfg['dataloader_settings']["asyncronous_GPU_transfer"] = True
+cfg['dataloader_settings']["asyncronous_gpu_transfer"] = True
    
 ##------------------------------------------------------------------------.
 ### Retrieve experiment-specific configuration settings   
@@ -187,10 +187,10 @@ forecast_cycle = AR_settings['forecast_cycle']
 # Dataloader options
 device = device
 prefetch_factor = dataloader_settings['prefetch_factor'] 
-prefetch_in_GPU = dataloader_settings['prefetch_in_GPU']  
+prefetch_in_gpu = dataloader_settings['prefetch_in_gpu']  
 pin_memory = dataloader_settings['pin_memory']
-asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer']
-numeric_precision = training_settings['numeric_precision'] 
+asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer']
+numeric_precision = training_settings['numeric_precision']  # to be read from configs 
 # Autoregressive settings                     
 stack_most_recent_prediction = AR_settings['stack_most_recent_prediction']    
 # Save options 
@@ -213,10 +213,9 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                           batch_size = 1,  # number of forecasts per batch
                                           num_workers = dataloader_settings['num_workers'], 
                                           prefetch_factor = dataloader_settings['prefetch_factor'], 
-                                          prefetch_in_GPU = dataloader_settings['prefetch_in_GPU'],  
+                                          prefetch_in_gpu = dataloader_settings['prefetch_in_gpu'],  
                                           pin_memory = dataloader_settings['pin_memory'],
-                                          asyncronous_GPU_transfer = dataloader_settings['asyncronous_GPU_transfer'],
-                                          numeric_precision = training_settings['numeric_precision'], 
+                                          asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'],
                                           # Autoregressive settings
                                           input_k = AR_settings['input_k'], 
                                           output_k = AR_settings['output_k'], 

@@ -649,7 +649,7 @@ def benchmark_global_skills(skills_dict, skills=['BIAS','RMSE','rSD','pearson_R2
     return fig 
 
 #------------------------------------------------------------------------------.
-def create_GIF_forecast_error(GIF_fpath,
+def create_gif_forecast_error(gif_fpath,
                               ds_forecast,
                               ds_obs, 
                               fps = 4, 
@@ -690,12 +690,12 @@ def create_GIF_forecast_error(GIF_fpath,
 
     ##-------------------------------------------------------------------------.
     # Check fpath 
-    if not os.path.exists(os.path.dirname(GIF_fpath)):
-        os.makedirs(os.path.dirname(GIF_fpath))
+    if not os.path.exists(os.path.dirname(gif_fpath)):
+        os.makedirs(os.path.dirname(gif_fpath))
 
     # Remove gif file format 
-    if GIF_fpath[-4:] == ".gif":
-        GIF_fpath = GIF_fpath[:-4]
+    if gif_fpath[-4:] == ".gif":
+        gif_fpath = gif_fpath[:-4]
 
     # Create temporary directory to store temporary GIF image frames
     tmp_dir = tempfile.mkdtemp()
@@ -798,10 +798,10 @@ def create_GIF_forecast_error(GIF_fpath,
     # -r:v 1/4 : write a frame every 4 seconds 
     # -codec:v lix264
     # Create MP4
-    cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, GIF_fpath)
+    cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, gif_fpath)
     subprocess.run(cmd, shell=True)
     # Create GIF
-    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(GIF_fpath, fps, GIF_fpath)
+    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(gif_fpath, fps, gif_fpath)
     subprocess.run(cmd, shell=True)
 
     ##-------------------------------------------------------------------------.
@@ -812,7 +812,7 @@ def create_GIF_forecast_error(GIF_fpath,
 
 
 ##------------------------------------------------------------------------------.
-def create_GIF_forecast_anom_error(GIF_fpath,
+def create_gif_forecast_anom_error(gif_fpath,
                                    ds_forecast,
                                    ds_obs, 
                                    scaler,
@@ -859,12 +859,12 @@ def create_GIF_forecast_anom_error(GIF_fpath,
 
     ##-------------------------------------------------------------------------.
     # Check GIF fpath 
-    if not os.path.exists(os.path.dirname(GIF_fpath)):
-        os.makedirs(os.path.dirname(GIF_fpath))
+    if not os.path.exists(os.path.dirname(gif_fpath)):
+        os.makedirs(os.path.dirname(gif_fpath))
         
     # Check GIF fpath ends with .gif
-    if GIF_fpath[-4:] == ".gif":
-        GIF_fpath = GIF_fpath[:-4]
+    if gif_fpath[-4:] == ".gif":
+        gif_fpath = gif_fpath[:-4]
         
     # Create temporary directory to store temporary GIF image frames
     tmp_dir = tempfile.mkdtemp()
@@ -965,10 +965,10 @@ def create_GIF_forecast_anom_error(GIF_fpath,
     # -r:v 1/4 : write a frame every 4 seconds 
     # -codec:v lix264
     # Create MP4
-    cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, GIF_fpath)
+    cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, gif_fpath)
     subprocess.run(cmd, shell=True)
     # Create GIF
-    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(GIF_fpath, fps, GIF_fpath)
+    cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(gif_fpath, fps, gif_fpath)
     subprocess.run(cmd, shell=True)
 
     ##-------------------------------------------------------------------------.
