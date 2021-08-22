@@ -1,0 +1,67 @@
+{
+    "model_settings": {
+        "pretrained_model_name": null,
+        "model_name_prefix": null,
+        "model_name": null,
+        "model_name_suffix": null,
+        "kernel_size_conv": 3,
+        "bias": true,
+        "batch_norm": false,
+        "batch_norm_before_activation": false,
+        "activation": true,
+        "activation_fun": "relu",
+        "pool_method": "MaxVal",
+        "kernel_size_pooling": 4,
+        "conv_type": "graph",
+        "gtype": "knn",
+        "knn": 10,
+        "lonlat_ratio": 2,
+        "periodic_padding": "True",
+        "sampling_name": "Icosahedral_400km",
+        "sampling": "icosahedral",
+        "resolution": 16,
+        "architecture_name": "UNetSpherical"
+    },
+    "dataloader_settings": {
+        "random_shuffling": true,
+        "drop_last_batch": false,
+        "prefetch_in_gpu": false,
+        "prefetch_factor": 2,
+        "pin_memory": false,
+        "asyncronous_gpu_transfer": true,
+        "num_workers": 8,
+        "autotune_num_workers": false
+    },
+    "training_settings": {
+        "epochs": 15,
+        "ar_training_strategy": "RNN",
+        "learning_rate": 0.007,
+        "training_batch_size": 16,
+        "validation_batch_size": 16,
+        "scoring_interval": 30,
+        "save_model_each_epoch": false,
+        "numeric_precision": "float32",
+        "deterministic_training": true,
+        "seed_model_weights": 10,
+        "seed_random_shuffling": 15,
+        "benchmark_cudnn": true,
+        "gpu_training": true,
+        "gpu_devices_ids": [
+            0
+        ],
+        "dataparallel_training": false
+    },
+    "AR_settings": {
+        "input_k": [
+            -18,
+            -12,
+            -6
+        ],
+        "output_k": [
+            0
+        ],
+        "forecast_cycle": 6,
+        "AR_iterations": 6,
+        "stack_most_recent_prediction": true
+    }
+}
