@@ -15,6 +15,7 @@ from modules.layers import GeneralConvBlock, PoolUnpoolBlock
 from modules.utils_models import check_sampling
 from modules.utils_models import check_resolution
 from modules.utils_models import check_pool_method
+from modules.utils_models import check_skip_connection
 
 ##----------------------------------------------------------------------------.
 class ConvBlock(GeneralConvBlock):
@@ -26,57 +27,236 @@ class ConvBlock(GeneralConvBlock):
         Number of channels in the input graph.
     out_channels : int
         Number of channels in the output graph.
+    laplacian : TYPE
+        DESCRIPTION
     kernel_size : int
         Chebychev polynomial degree
-    laplacian : torch.sparse_coo_tensor
-        Graph laplacian
+    conv_type : str, optional
+        'graph' or 'image'. The default is 'graph'.
+        'image' can be used only when sampling='equiangular'
+    bias : bool, optional
+        Whether to add bias parameters. The default is True.
+        If batch_norm = True, bias is set to False.
+    batch_norm : bool, optional
+        Wheter to use batch normalization. The default is False.
+    batch_norm_before_activation : bool, optional
+        Whether to apply the batch norm before or after the activation function.
+        The default is False.
+    activation : bool, optional
+        Whether to apply an activation function. The default is True.
+    activation_fun : str, optional
+        Name of an activation function implemented in torch.nn.functional
+        The default is 'relu'.
     """
 
     def __init__(self,
                  in_channels, 
                  out_channels, 
+                 laplacian,
                  kernel_size,
                  conv_type = 'graph', 
-                 batch_norm=True, 
-                 relu_activation=True, **kwargs):
-        super().__init__()
-        # TODO a 
-        # - add bias=False to getConvLayer() if batch_norm=True
-        # - add option BN_before_act_fun = False --> Add BN before or after act_fun  
-        # - replace relu activation with activation_function='relu'
-        #   --> self.act = getattr(torch.nn, activation_function)
+                 bias = True, 
+                 batch_norm = False, 
+                 batch_norm_before_activation = False,
+                 activation = True,
+                 activation_fun = 'relu',
+                 periodic_padding = True, 
+                 lonlat_ratio = 2):
         
-        self.conv = GeneralConvBlock.getConvLayer(in_channels,
-                                                  out_channels,
+        super().__init__()
+        # If batch norm is used, set conv bias = False  
+        if batch_norm: 
+            bias = False
+        # Define convolution 
+        self.conv = GeneralConvBlock.getConvLayer(in_channels=in_channels,
+                                                  out_channels=out_channels, 
                                                   kernel_size=kernel_size, 
-                                                  conv_type=conv_type, **kwargs)
-        self.bn = BatchNorm1d(out_channels)
+                                                  laplacian=laplacian,
+                                                  conv_type=conv_type,
+                                                  bias=bias,
+                                                  periodic_padding=periodic_padding,
+                                                  lonlat_ratio = lonlat_ratio)
+        if batch_norm:
+            self.bn = BatchNorm1d(out_channels)
+        self.bn_before_act = batch_norm_before_activation
         self.norm = batch_norm
-        self.act = relu_activation
+        self.act = activation
+        self.act_fun = getattr(F, activation_fun)
         
     def forward(self, x):
-        """Define forward pass of a ConvBlock."""
+        """Define forward pass of a ConvBlock.
+        
+        It expect a tensor with shape: (sample, nodes, time-feature).
+        """
         x = self.conv(x)
-        if self.norm:   # [batch, node, time-feature]
+        if self.norm and self.batch_norm_before_activation:   
+            # [batch, node, time-feature]
+            print(self.norm)
             x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
         if self.act:
-            x = F.relu(x)
+            x = self.act_fun(x)
+        if self.norm and not self.batch_norm_before_activation:   
+            # [batch, node, time-feature]
+            print(self.norm)
+            x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
         return x
+        
+class ResBlock(torch.nn.Module):
+    """
+    General definition of a Residual Block. 
+    
+    Parameters
+    ----------
+    in_channels : int
+        Input dimension of the tensor.   
+    out_channels :(int, tuple)
+        Output dimension of each ConvBlock within a ResBlock.
+        The length of the tuple determine the number of ConvBlock layers 
+        within the ResBlock. 
+    laplacian : TYPE
+        DESCRIPTION.
+    convblock_kwargs : TYPE
+        Arguments for the ConvBlock layer.
+    """
+    
+    def __init__(self,
+                 in_channels, 
+                 out_channels, 
+                 laplacian, 
+                 convblock_kwargs,
+                 **kwargs):
+        super().__init__()
+        # Check out_channels type (if an int --> a single conv)
+        if not isinstance(out_channels, (int, tuple, list)):
+            raise TypeError("'output_channels' must be int or list/tuple of int.")
+        if not isinstance(out_channels, (tuple, list)): 
+            out_channels = [out_channels]
+        out_channels = list(out_channels)
+        # Initialize list of convolutional layer within the ResBlock 
+        conv_names_list = []
+        tmp_in = in_channels
+        for i, tmp_out in enumerate(out_channels):
+            tmp_conv_name = 'convblock' + str(i+1)
+            tmp_conv = ConvBlock(tmp_in, tmp_out,  
+                                laplacian = laplacian, 
+                                **convblock_kwargs)
+            setattr(self, tmp_conv_name, tmp_conv)
+            conv_names_list.append(tmp_conv_name)
+            tmp_in = tmp_out   
+            
+        self.conv_names_list = conv_names_list 
+        
+        self.conv_res = Linear(in_channels, out_channels[-1])
+        
+    def forward(self, x):
+        """Define forward pass of a ResBlock."""
+        # Perform convolutions 
+        x_out = x  
+        for conv_name in self.conv_names_list:
+            x_out = getattr(self, conv_name)(x_out)
+        # Add residual connection 
+        x_out += self.conv_res(x)
+        return x_out
 
 ##----------------------------------------------------------------------------.     
 class UNetSpherical(UNet, torch.nn.Module):
-    """Classical spherical UNet with residual connections."""
+    """Spherical UNet with residual layers.
+        
+    Parameters
+    ----------
+    dim_info: dict
+        Dictionary with all the relevant informations (i.e. shape, dimension order)
+        regarding input and output tensors.
+    sampling : str
+        Name of the spherical sampling.
+    resolution : int
+        Resolution of the spherical sampling.
+    conv_type : str, optional
+        Convolution type. Either 'graph' or 'image'.
+        The default is 'graph'.
+        conv_type='image' can be used only when sampling='equiangular'.
+    knn : int 
+        DESCRIPTION
+    gtype : str , optional 
+        DESCRIPTION
+       'mesh' or 'knn'.
+       'mesh' build a mesh graph and require the igl package
+       'knn' build a knn graph   
+        The default is 'knn'.
+    kernel_size_conv : int
+        Size ("width") of the convolutional kernel.
+        If conv_type='graph':
+        - A kernel_size of 1 won't take the neighborhood into account.
+        - A kernel_size of 2 will look up to the 1-neighborhood (1 hop away).
+        - A kernel_size of 3 will look up to the 2-neighborhood (2 hops away). 
+        --> The order of the Chebyshev polynomials is kernel_size_conv - 1.
+        If conv_type='image':
+        - Width of the square convolutional kernel.
+        - The number of pixels of the kernel is kernel_size_conv**2
+    bias : bool, optional
+        Whether to add bias parameters. The default is True.
+        If batch_norm = True, bias is set to False.
+    batch_norm : bool, optional
+        Wheter to use batch normalization. The default is False.
+    batch_norm_before_activation : bool, optional
+        Whether to apply the batch norm before or after the activation function.
+        The default is False.
+    activation : bool, optional
+        Whether to apply an activation function. The default is True.
+    activation_fun : str, optional
+        Name of an activation function implemented in torch.nn.functional
+        The default is 'relu'.
+    pool_method : str, optional 
+        Pooling method:
+        - ('interp', 'maxval', 'maxarea', 'learn') if conv_type='graph' 
+        - ('max','avg') if sampling in ('healpix','equiangular') or conv_type="image"        
+    kernel_size_pooling : int, optional 
+        The size of the window to max/avg over.
+        kernel_size_pooling = 4 means halving the resolution when pooling
+        The default is 4.
+    skip_connection : str, optional 
+        Possibilities: 'none','stack','sum','avg'
+        The default is 'stack.
+    increment_learning: bool, optional 
+        If increment_learning = True, the network is forced internally to learn the increment
+        from the previous timestep.
+        If increment_learning = False, the network learn the full state.
+        The default is False.
+    lonlat_ratio : int
+        Matters only if sampling='equiangular' and conv_type='image.
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        A ratio of 2 means the equiangular grid has the same resolution.
+        in latitude and longitude.
+    periodic_padding : bool, optional
+        Matters only if sampling='equiangular' and conv_type='image'.
+        whether to use periodic padding along the longitude dimension. The default is True.
+    """
 
     def __init__(self,
                  dim_info: Dict[str, int],
-                 resolution: Union[int, List[int]],    
-                 kernel_size_conv: int = 3,
+                 resolution: Union[int, List[int]],   
                  sampling: str = 'healpix',
                  knn: int = 10, 
+                 # Convolutions options 
+                 kernel_size_conv: int = 3,
+                 conv_type: str = "graph",
+                 gtype: str = 'knn', 
+                 # Options for classical image convolution on equiangular sampling 
+                 lonlat_ratio: float = 2,
+                 periodic_padding: bool = True, 
+                 # ConvBlock Options 
+                 bias: bool = True, 
+                 batch_norm: bool = False, 
+                 batch_norm_before_activation: bool = False,
+                 activation: bool = True,
+                 activation_fun: str = 'relu',
+                 # Pooling options 
                  pool_method: str = 'max', 
                  kernel_size_pooling: int = 4,
-                 gtype: str = 'knn',
-                 numeric_precision: str = 'float32'):
+                 # Architecture options 
+                 skip_connection: str = 'stack',
+                 increment_learning: bool = False):
         ##--------------------------------------------------------------------.
         super().__init__()
         ##--------------------------------------------------------------------.
@@ -92,33 +272,40 @@ class UNetSpherical(UNet, torch.nn.Module):
         
         self.input_channels = dim_info['input_feature_dim']*dim_info['input_time_dim']
         self.output_channels = dim_info['output_feature_dim']*dim_info['output_time_dim']
-   
+        
+        # Decide whether to predict the difference from the previous timestep 
+        #  instead of the full state 
+        self.increment_learning = increment_learning
         ##--------------------------------------------------------------------.
         ### Check arguments 
         sampling = check_sampling(sampling)
         resolution = check_resolution(resolution)
         pool_method = check_pool_method(pool_method)
-        
+        skip_connection = check_skip_connection(skip_connection)
+        # TODO: code for flexible skip_connection not yet implemented
         ##--------------------------------------------------------------------.
-        ### Define convolution type 
-        # --> For all spherical samplings: conv_type='graph'   
-        # --> For equiangular sampling, it is possible to specify conv_type='image'
-        # - If conv_type = 'image':
-        #   --> ratio = 2
-        #   --> periodic = True or False
-        conv_type = "graph" # image
-        ratio = 2        # 2
-        periodic = None     # True or False
+        ### Define ConvBlock options 
+        convblock_kwargs = {"kernel_size": kernel_size_conv, 
+                            "conv_type": conv_type,
+                            "bias": bias, 
+                            "batch_norm": batch_norm, 
+                            "batch_norm_before_activation": batch_norm_before_activation,
+                            "activation": activation,
+                            "activation_fun": activation_fun,
+                            # Options for conv_type = "image", sampling='equiangular'
+                            "periodic_padding": periodic_padding, 
+                            "lonlat_ratio": lonlat_ratio,
+                            }
         
         ##--------------------------------------------------------------------.
         ### Initialize graphs and laplacians
+        # - If conv_type == 'image', self.laplacians = [None] * UNet_depth
         self.init_graph_and_laplacians(conv_type = conv_type, 
                                        resolution = resolution, 
                                        sampling = sampling, 
                                        knn = knn,
-                                       kernel_size_pooling = kernel_size_pooling,
-                                       numeric_precision = numeric_precision,
                                        gtype = gtype,
+                                       kernel_size_pooling = kernel_size_pooling,
                                        UNet_depth=3)
         
         ##--------------------------------------------------------------------.
@@ -131,401 +318,116 @@ class UNetSpherical(UNet, torch.nn.Module):
             self.pool2, self.unpool2 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(src_graph=self.graphs[1],
                                                                                  dst_graph=self.graphs[2], 
                                                                                  pool_method=pool_method)
-        else:
+        elif pool_method in ('max', 'avg'):
+            assert sampling in ['healpix','equiangular']
             self.pool1, self.unpool1 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling=sampling, 
                                                                           pool_method=pool_method, 
                                                                           kernel_size=kernel_size_pooling,
-                                                                          ratio=ratio)
+                                                                          lonlat_ratio=lonlat_ratio)
             
             self.pool2, self.unpool2 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling=sampling, 
                                                                           pool_method=pool_method, 
                                                                           kernel_size=kernel_size_pooling, 
-                                                                          ratio=ratio)
-            
+                                                                          lonlat_ratio=lonlat_ratio)
+        else:
+            if pool_method is not None:
+                raise ValueError("Not valid pooling method provided.")
+                
         ##--------------------------------------------------------------------.
-        ### Define Encoding blocks 
+        ### Define Encoding blocks
+        # Initial ResBlock (?)
+        
+        ##------------------------------------.
         # Encoding block 1
-        self.conv11 = ConvBlock(self.input_channels, 32 * 2,  
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True,
-                                laplacian=self.laplacians[0], 
-                                periodic=periodic, ratio=ratio)
-        
-        self.conv13 = ConvBlock(32 * 2, 64 * 2,  
-                                kernel_size=kernel_size_conv,
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[0],
-                                periodic=periodic, ratio=ratio)
-
-        self.conv1_res = Linear(self.input_channels, 64 * 2)
-
+        self.conv1 = ResBlock(self.input_channels, (32 * 2, 64 * 2),
+                              laplacian = self.laplacians[0],
+                              convblock_kwargs = convblock_kwargs)
+               
         # Encoding block 2
-        self.conv21 = ConvBlock(64 * 2, 96 * 2, 
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[1], 
-                                periodic=periodic, ratio=ratio)
-        
-        self.conv23 = ConvBlock(96 * 2, 128 * 2,  
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type, 
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[1], 
-                                periodic=periodic, ratio=ratio)
-
-        self.conv2_res = Linear(64 * 2, 128 * 2)
-
+        self.conv2 = ResBlock(64 * 2, (96 * 2, 128 * 2),
+                              laplacian = self.laplacians[1],
+                              convblock_kwargs = convblock_kwargs)
+    
         # Encoding block 3
-        self.conv31 = ConvBlock(128 * 2, 256 * 2, 
-                                kernel_size=kernel_size_conv,
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[2], 
-                                periodic=periodic, ratio=ratio)
-        
-        self.conv33 = ConvBlock(256 * 2, 128 * 2,  
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type, 
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[2],
-                                periodic=periodic, ratio=ratio)
-
-        self.conv3_res = Linear(128 * 2, 128 * 2)
+        self.conv3 = ResBlock(128 * 2, (256 * 2, 128 * 2),
+                              laplacian = self.laplacians[2],
+                              convblock_kwargs = convblock_kwargs)
         
         ##--------------------------------------------------------------------.
         ### Decoding blocks 
-        # Decoding block 2
-        self.uconv21 = ConvBlock(256 * 2, 128 * 2, 
-                                 kernel_size=kernel_size_conv,
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True,
-                                 laplacian=self.laplacians[1], 
-                                 periodic=periodic, ratio=ratio)
-        self.uconv22 = ConvBlock(128 * 2, 64 * 2,  
-                                 kernel_size=kernel_size_conv, 
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True, 
-                                 laplacian=self.laplacians[1], 
-                                 periodic=periodic, ratio=ratio)
-
+        # Decoding level 2
+        self.uconv2 = ResBlock(256 * 2, (128 * 2, 64 * 2),
+                      laplacian = self.laplacians[1],
+                      convblock_kwargs = convblock_kwargs)
+                
         # Decoding block 1
-        self.uconv11 = ConvBlock(128 * 2, 64 * 2,
-                                 kernel_size=kernel_size_conv, 
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True, 
-                                 laplacian=self.laplacians[0],
-                                 periodic=periodic, ratio=ratio)
-        self.uconv12 = ConvBlock(64 * 2, 32 * 2, 
-                                 kernel_size=kernel_size_conv,
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True, 
-                                 laplacian=self.laplacians[0], 
-                                 periodic=periodic, ratio=ratio)
-        self.uconv13 = ConvBlock(32 * 2 * 2, self.output_channels, 
-                                 kernel_size=kernel_size_conv, 
-                                 conv_type=conv_type, 
-                                 batch_norm=False, relu_activation=False, 
-                                 laplacian=self.laplacians[0], 
-                                 periodic=periodic, ratio=ratio)
+        self.uconv1 = ResBlock(128 * 2, (64 * 2, 32 * 2),
+                      laplacian = self.laplacians[0],
+                      convblock_kwargs = convblock_kwargs)
+        ##------------------------------------.
+        # Final ResBlock 
+        self.uconv1_final = ResBlock(32 * 2, self.output_channels, 
+                                     laplacian = self.laplacians[0], 
+                                     convblock_kwargs = convblock_kwargs)
+        ##--------------------------------------------------------------------.
         
     ##------------------------------------------------------------------------.
-
     def encode(self, x):
         """Define UNet encoder."""
-        # Current input shape: ['sample', 'time', 'node', 'feature'] 
-        # Desired shape: ['sample', 'node', 'time-feature']
-        ##--------------------------------------------------------------------.
-        # TODO? 
-        # - Provide tensor with sample [sample, node, time, feature]?
-        # - Contiguous inputs can be reshaped without copying
+        # Recommended optimal shape: [sample, node, time, feature]
+        # --> Contiguous inputs can be reshaped without copying --> ['sample', 'node', 'time-feature']
+        
         ##--------------------------------------------------------------------.
         batch_size = x.shape[0]
+    
+        ##--------------------------------------------------------------------.
+        ## Extract last timestep (to add after decoding) to make the network learn the increment
+        x_last_timestep = x[:,-1,:,-2:].unsqueeze(dim=1)
         
         ##--------------------------------------------------------------------.
         # Reorder and reshape data 
         x = x.rename(*self.dim_names).align_to('sample','node','time','feature').rename(None) # x.permute(0, 2, 1, 3)   
         x = x.reshape(batch_size, self.input_node_dim, self.input_channels)  # reshape to ['sample', 'node', 'time-feature'] 
         ##--------------------------------------------------------------------.
-        # Block 1
-        x_enc11 = self.conv11(x)
-        x_enc1 = self.conv13(x_enc11)
+        # Level 1
+        x_enc1 = self.conv1(x)
 
-        x_enc1 += self.conv1_res(x)
-
-        # Block 2
+        # Level 2
         x_enc2_ini, idx1 = self.pool1(x_enc1)
-        x_enc2 = self.conv21(x_enc2_ini)
-        x_enc2 = self.conv23(x_enc2)
-
-        x_enc2 += self.conv2_res(x_enc2_ini)
-
-        # Block 3
+        x_enc2 = self.conv2(x_enc2_ini)
+    
+        # Level 3
         x_enc3_ini, idx2 = self.pool2(x_enc2)
-        x_enc3 = self.conv31(x_enc3_ini)
-        x_enc3 = self.conv33(x_enc3)
-
-        x_enc3 += self.conv3_res(x_enc3_ini)
-
-        return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11  
+        x_enc3 = self.conv3(x_enc3_ini)
+        
+        return x_enc3, x_enc2, x_enc1, idx2, idx1, x_last_timestep  
     
     ##------------------------------------------------------------------------.
-    def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11): 
+    def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_last_timestep): 
         """Define UNet decoder."""
-        # Block 2
+        # - Level 2
         x = self.unpool2(x_enc3, idx2)
         x_cat = torch.cat((x, x_enc2), dim=2)
-        x = self.uconv21(x_cat)
-        x = self.uconv22(x)
+        x = self.uconv2(x_cat)
 
-        # Block 1
+        # - Level 1
         x = self.unpool1(x, idx1)
         x_cat = torch.cat((x, x_enc1), dim=2)
-        x = self.uconv11(x_cat)
-        x = self.uconv12(x)
-        x_cat = torch.cat((x, x_enc11), dim=2)
-        x = self.uconv13(x_cat)
+        x = self.uconv1(x_cat)
+        
+        # - Level 1 final block 
+        x = self.uconv1_final(x)
         
         ##--------------------------------------------------------------------.
         # Reshape data to ['sample', 'time', 'node', 'feature']
         batch_size = x.shape[0]   # ['sample', 'node', 'time-feature'] 
         x = x.reshape(batch_size, self.output_node_dim, self.output_time_dim, self.output_feature_dim)   # ==> ['sample', 'node', 'time', 'feature']
         x = x.rename(*['sample', 'node', 'time', 'feature']).align_to(*self.dim_names).rename(None) # x.permute(0, 2, 1, 3)  
-        return x
-
-class UNetDiffSpherical(UNet, torch.nn.Module):
-    """Spherical UNet learning the increment to add the the previous timestep."""
-
-    def __init__(self,
-                 dim_info: Dict[str, int],
-                 resolution: Union[int, List[int]],    
-                 kernel_size_conv: int = 3,
-                 sampling: str = 'healpix',
-                 knn: int = 10, 
-                 pool_method: str = 'max', 
-                 kernel_size_pooling: int = 4,
-                 gtype: str = 'knn',
-                 numeric_precision: str = 'float32'):
-        ##--------------------------------------------------------------------.
-        super().__init__()
-        ##--------------------------------------------------------------------.
-        # Retrieve tensor informations 
-        self.dim_names = dim_info['dim_order']
-        self.input_feature_dim = dim_info['input_feature_dim']
-        self.input_time_dim = dim_info['input_time_dim']
-        self.input_node_dim = dim_info['input_node_dim'] 
-        
-        self.output_time_dim = dim_info['output_time_dim']
-        self.output_feature_dim = dim_info['output_feature_dim']
-        self.output_node_dim = dim_info['output_node_dim']   
-        
-        self.input_channels = dim_info['input_feature_dim']*dim_info['input_time_dim']
-        self.output_channels = dim_info['output_feature_dim']*dim_info['output_time_dim']
-   
-        ##--------------------------------------------------------------------.
-        ### Check arguments 
-        sampling = check_sampling(sampling)
-        resolution = check_resolution(resolution)
-        pool_method = check_pool_method(pool_method)
-        
-        ##--------------------------------------------------------------------.
-        ### Define convolution type 
-        # --> For all spherical samplings: conv_type='graph'   
-        # --> For equiangular sampling, it is possible to specify conv_type='image'
-        # - If conv_type = 'image':
-        #   --> ratio = 2
-        #   --> periodic = True or False
-        conv_type = "graph" # image
-        ratio = None        # 2
-        periodic = None     # True or False
-        
-        ##--------------------------------------------------------------------.
-        ### Initialize graphs and laplacians
-        self.init_graph_and_laplacians(conv_type = conv_type, 
-                                       resolution = resolution, 
-                                       sampling = sampling, 
-                                       knn = knn,
-                                       kernel_size_pooling = kernel_size_pooling,
-                                       numeric_precision = numeric_precision,
-                                       gtype = gtype, 
-                                       UNet_depth=3)
-        
-        ##--------------------------------------------------------------------.
-        ### Define Pooling - Unpooling layers
-        if pool_method in ('interp', 'maxval', 'maxarea', 'learn'):
-            assert conv_type == 'graph'
-            self.pool1, self.unpool1 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(src_graph=self.graphs[0], 
-                                                                                 dst_graph=self.graphs[1], 
-                                                                                 pool_method=pool_method)
-            self.pool2, self.unpool2 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(src_graph=self.graphs[1],
-                                                                                 dst_graph=self.graphs[2], 
-                                                                                 pool_method=pool_method)
-        else:
-            self.pool1, self.unpool1 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling=sampling, 
-                                                                          pool_method=pool_method, 
-                                                                          kernel_size=kernel_size_pooling,
-                                                                          ratio=ratio)
-            
-            self.pool2, self.unpool2 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling=sampling, 
-                                                                          pool_method=pool_method, 
-                                                                          kernel_size=kernel_size_pooling, 
-                                                                          ratio=ratio)
-            
-        ##--------------------------------------------------------------------.
-        ### Define Encoding blocks 
-        # Encoding block 1
-        self.conv11 = ConvBlock(self.input_channels, 32 * 2,  
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True,
-                                laplacian=self.laplacians[0], 
-                                periodic=periodic, ratio=ratio)
-        
-        self.conv13 = ConvBlock(32 * 2, 64 * 2,  
-                                kernel_size=kernel_size_conv,
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[0],
-                                periodic=periodic, ratio=ratio)
-
-        self.conv1_res = Linear(self.input_channels, 64 * 2)
-
-        # Encoding block 2
-        self.conv21 = ConvBlock(64 * 2, 96 * 2, 
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[1], 
-                                periodic=periodic, ratio=ratio)
-        
-        self.conv23 = ConvBlock(96 * 2, 128 * 2,  
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type, 
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[1], 
-                                periodic=periodic, ratio=ratio)
-
-        self.conv2_res = Linear(64 * 2, 128 * 2)
-
-        # Encoding block 3
-        self.conv31 = ConvBlock(128 * 2, 256 * 2, 
-                                kernel_size=kernel_size_conv,
-                                conv_type=conv_type,
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[2], 
-                                periodic=periodic, ratio=ratio)
-        
-        self.conv33 = ConvBlock(256 * 2, 128 * 2,  
-                                kernel_size=kernel_size_conv, 
-                                conv_type=conv_type, 
-                                batch_norm=True, relu_activation=True, 
-                                laplacian=self.laplacians[2],
-                                periodic=periodic, ratio=ratio)
-
-        self.conv3_res = Linear(128 * 2, 128 * 2)
-        
-        ##--------------------------------------------------------------------.
-        ### Decoding blocks 
-        # Decoding block 2
-        self.uconv21 = ConvBlock(256 * 2, 128 * 2, 
-                                 kernel_size=kernel_size_conv,
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True,
-                                 laplacian=self.laplacians[1], 
-                                 periodic=periodic, ratio=ratio)
-        self.uconv22 = ConvBlock(128 * 2, 64 * 2,  
-                                 kernel_size=kernel_size_conv, 
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True, 
-                                 laplacian=self.laplacians[1], 
-                                 periodic=periodic, ratio=ratio)
-
-        # Decoding block 1
-        self.uconv11 = ConvBlock(128 * 2, 64 * 2,
-                                 kernel_size=kernel_size_conv, 
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True, 
-                                 laplacian=self.laplacians[0],
-                                 periodic=periodic, ratio=ratio)
-        self.uconv12 = ConvBlock(64 * 2, 32 * 2, 
-                                 kernel_size=kernel_size_conv,
-                                 conv_type=conv_type, 
-                                 batch_norm=True, relu_activation=True, 
-                                 laplacian=self.laplacians[0], 
-                                 periodic=periodic, ratio=ratio)
-        self.uconv13 = ConvBlock(32 * 2 * 2, self.output_channels, 
-                                 kernel_size=kernel_size_conv, 
-                                 conv_type=conv_type, 
-                                 batch_norm=False, relu_activation=False, 
-                                 laplacian=self.laplacians[0], 
-                                 periodic=periodic, ratio=ratio)
-        
-    ##------------------------------------------------------------------------.
-    def encode(self, x):
-        """Define UNet encoder."""
-        # Current input shape: ['sample', 'time', 'node', 'feature'] 
-        ##--------------------------------------------------------------------.
-        batch_size = x.shape[0]
-        
-        ##--------------------------------------------------------------------.
-        ## Extract last timestep (to add after decoding) (to make the network learn the increment)
-        x_last_timestep = x[:,-1,:,-2:].unsqueeze(dim=1)
-        
-        ##--------------------------------------------------------------------.
-        # Reorder and reshape data 
-        # --> Desired shape: ['sample', 'node', 'time-feature']
-        x = x.rename(*self.dim_names).align_to('sample','node','time','feature').rename(None) # as x.permute(0, 2, 1, 3)   
-        x = x.reshape(batch_size, self.input_node_dim, self.input_channels)  # reshape to ['sample', 'node', 'time-feature'] 
-        ##--------------------------------------------------------------------.
-        # Block 1
-        x_enc11 = self.conv11(x)
-        x_enc1 = self.conv13(x_enc11)
-
-        x_enc1 += self.conv1_res(x)
-
-        # Block 2
-        x_enc2_ini, idx1 = self.pool1(x_enc1)
-        x_enc2 = self.conv21(x_enc2_ini)
-        x_enc2 = self.conv23(x_enc2)
-
-        x_enc2 += self.conv2_res(x_enc2_ini)
-
-        # Block 3
-        x_enc3_ini, idx2 = self.pool2(x_enc2)
-        x_enc3 = self.conv31(x_enc3_ini)
-        x_enc3 = self.conv33(x_enc3)
-
-        x_enc3 += self.conv3_res(x_enc3_ini)
-
-        return x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11, x_last_timestep
-    
-    ##------------------------------------------------------------------------.
-    def decode(self, x_enc3, x_enc2, x_enc1, idx2, idx1, x_enc11, x_last_timestep): 
-        """Define UNet decoder."""
-        # Block 2
-        x = self.unpool2(x_enc3, idx2)
-        x_cat = torch.cat((x, x_enc2), dim=2)
-        x = self.uconv21(x_cat)
-        x = self.uconv22(x)
-
-        # Block 1
-        x = self.unpool1(x, idx1)
-        x_cat = torch.cat((x, x_enc1), dim=2)
-        x = self.uconv11(x_cat)
-        x = self.uconv12(x)
-        x_cat = torch.cat((x, x_enc11), dim=2)
-        x = self.uconv13(x_cat)
-        
-        ##--------------------------------------------------------------------.
-        # Reshape data to ['sample', 'time', 'node', 'feature']
-        batch_size = x.shape[0]   # ['sample', 'node', 'time-feature'] 
-        x = x.reshape(batch_size, self.output_node_dim, self.output_time_dim, self.output_feature_dim)   # ==> ['sample', 'node', 'time', 'feature']
-        x = x.rename(*['sample', 'node', 'time', 'feature']).align_to(*self.dim_names).rename(None) # as x.permute(0, 2, 1, 3)  
         ##--------------------------------------------------------------------.
         # Add tensor of most recent past timestep
-        # print(x.shape)
-        # print(x_last_timestep.shape)
-        x = x + x_last_timestep
+        if self.increment_learning:
+            # print(x.shape)
+            # print(x_last_timestep.shape)
+            x += x_last_timestep
+        ##--------------------------------------------------------------------.
         return x
