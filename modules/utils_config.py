@@ -11,6 +11,8 @@ import json
 import torch
 import pickle
 import shutil
+import inspect 
+import types
 import numpy as np
 
 from modules.utils_torch import set_pytorch_deterministic
@@ -26,30 +28,44 @@ def get_default_model_settings():
                       "model_name_prefix": None, 
                       "model_name": None, 
                       "model_name_suffix": None, 
-                      "knn": 20, 
-                      "pool_method": "Max",
+                      # Architecture options
+                      # - ConvBlock options 
                       "kernel_size_conv": 3, 
-                      "kernel_size_pooling": 4,
+                      "bias": True, 
+                      "batch_norm": False, 
+                      "batch_norm_before_activation": False,
+                      "activation": True,
+                      "activation_fun": 'relu',
+                      # - Pooling options
+                      "pool_method": "Max",
+                      "kernel_size_pooling": 4, # half the resolution
+                      # Convolution types
+                      "conv_type": 'graph',
                       "gtype": "knn", 
+                      "knn": 20, 
+                      # - Options for conv_type="image" when sampling="Equiangular
+                      "lonlat_ratio": 2,
+                      "periodic_padding": 'True',
                       }
     return model_settings
 
 def get_default_training_settings():
     """Return some default settings for training the model."""
-    training_settings = {"epochs": 10,
-                         "AR_training_strategy": "AR",
+    training_settings = {"epochs": 15,
+                         "ar_training_strategy": "RNN",
                          "learning_rate": 0.001,
-                         "training_batch_size": 32,
-                         "validation_batch_size": 32,
-                         "scoring_interval": 10,
+                         "training_batch_size": 16,
+                         "validation_batch_size": 16,
+                         "scoring_interval": 20,
                          "save_model_each_epoch": False, 
-                         "numeric_precision": "float64",
+                         "numeric_precision": "float32",
                          "deterministic_training": False, 
-                         "deterministic_training_seed": 100,
-                         "benchmark_cuDNN": True,
-                         "GPU_training": True, 
-                         "GPU_devices_ids": [0], 
-                         "DataParallel_training": False, 
+                         "seed_model_weights": 100,
+                         "seed_random_shuffling": 120,
+                         "benchmark_cudnn": True,
+                         "gpu_training": True, 
+                         "gpu_devices_ids": [0], 
+                         "dataparallel_training": False, 
                          }
     return training_settings
 
@@ -58,20 +74,20 @@ def get_default_AR_settings():
     AR_settings = {"input_k": [-3,-2,-1], 
                    "output_k": [0],
                    "forecast_cycle": 1,                           
-                   "AR_iterations": 2, 
+                   "AR_iterations": 6, 
                    "stack_most_recent_prediction": True,
                    }
     return AR_settings
 
 def get_default_dataloader_settings():
     """Return some default settings for the DataLoader."""
-    dataloader_settings = {"random_shuffle": True,
+    dataloader_settings = {"random_shuffling": True,
                            "drop_last_batch": True, 
-                           "prefetch_in_GPU": False, 
+                           "prefetch_in_gpu": False, 
                            "prefetch_factor": 2,
                            "pin_memory": False,  
-                           "asyncronous_GPU_transfer": True, 
-                           "num_workers": 0,
+                           "asyncronous_gpu_transfer": True, 
+                           "num_workers": 8,
                            "autotune_num_workers": False, 
                            }  
     return dataloader_settings
@@ -143,7 +159,7 @@ def get_model_settings(cfg):
     model_settings["architecture_name"] = cfg['model_settings'].get("architecture_name", None)
     model_settings["sampling"] = cfg['model_settings'].get("sampling", None)
     model_settings["resolution"] = cfg['model_settings'].get("resolution", None)
-    model_settings["sampling_name"] = cfg['model_settings'].get("sampling", None)
+    model_settings["sampling_name"] = cfg['model_settings'].get("sampling_name", None)
    
     # Stop if some mandatory keys are missing 
     flag_error = False 
@@ -181,13 +197,13 @@ def get_training_settings(cfg):
         training_settings[key] = cfg['training_settings'].get(key, default_training_settings[key])
     
     # Special checks 
-    if not isinstance(training_settings['GPU_devices_ids'], list):
-        training_settings['GPU_devices_ids'] = [training_settings['GPU_devices_ids']]
+    if not isinstance(training_settings['gpu_devices_ids'], list):
+        training_settings['gpu_devices_ids'] = [training_settings['gpu_devices_ids']]
         
-    if not training_settings['GPU_training']:    
-        if training_settings['DataParallel_training']:
+    if not training_settings['gpu_training']:    
+        if training_settings['dataparallel_training']:
             print("DataParallel training is available only on GPUs!")
-            training_settings['DataParallel_training'] = False
+            training_settings['dataparallel_training'] = False
     
     # Return training settings 
     return training_settings
@@ -274,81 +290,65 @@ def check_numeric_precision(numeric_precision):
         raise TypeError("Specify 'numeric_precision' as a string")
     if not [numeric_precision] in ['float64', 'float32','float16','bfloat16']:
         raise ValueError("Valid 'numeric precision' are: 'float64', 'float32','float16' and 'bfloat16'")
-
-# TODO: others     
         
 #-----------------------------------------------------------------------------.
 ########################
 ### Model definition ###
 ########################
-# def get_pytorch_model(module_with_custom_models, 
-#                       model_settings, 
-#                       training_settings):
-#  
+def get_pytorch_model(module, model_settings):
+    """
+    Define a DeepSphere-Weather model based on model_settings configs.
+    
+    The architecture structure must be define in the 'module' custom python file  
 
-# def get_pytorch_model(module_with_custom_models, model_settings, training_settings):
-#     """Define a DeepSphere model based on general architecture structure.
-       
-#     The architecture structure must be define in a custom python file.
+    Parameters
+    ----------
+    module : module
+        Imported python module containing the architecture definition.
+    model_settings : dict
+        Dictionary containing all architecture options.
+    """
+    if not isinstance(module, types.ModuleType):
+        raise TypeError("'module' must be a preimported module with the architecture definition.")
+    # - Retrieve the required model arguments
+    DeepSphereModelClass = getattr(module, model_settings['architecture_name'])
+    fun_args = inspect.getfullargspec(DeepSphereModelClass.__init__).args
+    model_args = {k: model_settings[k] for k in model_settings.keys() if k in fun_args}
+    # - Define DeepSphere model 
+    model = DeepSphereModelClass(**model_args)           
+    return model 
+
+def get_pytorch_SWAG_model(module, model_settings, swag_settings):
+    """
+    Define a DeepSphere-Weather SWAG model based on model_settings and swag configs.
     
-#     Model settings dictionary must contain two mandatory keys:
-#     'architecture_fpath' and 'architecture_name'.
-    
-#     The mandatory key 'architecture_fpath' must indicate the filepath of 
-#     the python file where the architecture is defined.
-#     The mandatory key 'architecture_name' represent the class name of
-#     the DeepSphere architecture to use.
-    
-#     """
-#     # Retrieve main model info 
-#     sampling = model_settings['sampling']
-#     architecture_name = model_settings['architecture_name']
-#     print('- Defining model {} for {} sampling.'.format(architecture_name, sampling))
-    
-#     ##------------------------------------------------------------------------.
-#     # Retrieve file paths
-#     MODULE_PATH = os.path.dirname(architecture_fpath)
-#     # MODULE_INIT_PATH = os.path.join(MODULE_PATH, "__init__.py")
-#     MODULE_NAME = os.path.basename(architecture_fpath).split(".")[0]
-    
-#     # MODULE_PATH = "/home/ghiggi/Projects/DeepSphere/modules/"
-#     # MODULE_INIT_PATH = "/home/ghiggi/Projects/DeepSphere/modules/__init__.py" 
-#     # MODULE_NAME = "architectures"   
-    
-#     ##------------------------------------------------------------------------.
-#     # Import custom architecture.py
-#     sys.path.append(MODULE_PATH)
-#     module = __import__(MODULE_NAME)
-#     DeepSphereModelClass = getattr(module, architecture_name)
-    
-#     ##------------------------------------------------------------------------.
-#     # Import custom architecture.py  
-#     # spec = importlib.util.spec_from_file_location(MODULE_NAME, MODULE_INIT_PATH)
-#     # module = importlib.util.module_from_spec(spec)
-#     # sys.modules[spec.name] = module  # bind relative imports 
-#     # spec.loader.exec_module(module)
-#     # getattr(module, "UNetSpherical")
-    
-#     # Import custom architecture.py  
-#     # import modules.architectures as module
-    
-#     # DeepSphereModelClass = getattr(module_with_custom_models, model_settings['architecture_name'])
-#     ##------------------------------------------------------------------------.
-#     # Retrieve required model arguments
-#     model_keys = ['dim_info', 'sampling', 'resolution',
-#                   'knn', 'kernel_size_conv',
-#                   'pool_method', 'kernel_size_pooling', "gtype"]
-#     model_args = {k: model_settings[k] for k in model_keys}
-#     model_args['numeric_precision'] = training_settings['numeric_precision']
-#     # - Define DeepSphere model 
-#     model = DeepSphereModelClass(**model_args)       
-#     return model 
+    The architecture structure must be define in the 'module' custom python file  
+
+    Parameters
+    ----------
+    module : module
+        Imported python module containing the architecture definition.
+    model_settings : dict
+        Dictionary containing all architecture options.
+    """
+    from modules.swag import SWAG
+    if not isinstance(module, types.ModuleType):
+        raise TypeError("'module' must be a preimported module with the architecture definition.")
+    # - Retrieve the required model arguments
+    DeepSphereModelClass = getattr(module, model_settings['architecture_name'])
+    fun_args = inspect.getfullargspec(DeepSphereModelClass.__init__).args
+    model_args = {k: model_settings[k] for k in model_settings.keys() if k in fun_args}
+    # - Define DeepSphere SWAG model 
+    swag_model = SWAG(DeepSphereModelClass,
+                      no_cov_mat = swag_settings['no_cov_mat'], 
+                      max_num_models = swag_settings['max_num_models'],
+                      **model_args)       
+    return swag_model 
 
 ##----------------------------------------------------------------------------.
-
-def load_pretrained_model(model, exp_dir, model_name):
-    """Load a pre-trained pytorch model."""
-    model_fpath = os.path.join(exp_dir, model_name, 'model_weights', "model.h5")
+def load_pretrained_model(model, model_dir):
+    """Load a pre-trained pytorch model using HDF5 saved weights."""
+    model_fpath = os.path.join(model_dir, 'model_weights', "model.h5")
     state = torch.load(model_fpath)
     model.load_state_dict(state, strict=False)
 
@@ -369,31 +369,31 @@ def set_pytorch_settings(training_settings):
     """Set training options with pytorch."""
     # Retrieve pytorch settings options
     deterministic_training = training_settings['deterministic_training'] 
-    deterministic_training_seed = training_settings['deterministic_training_seed'] 
-    benchmark_cuDNN = training_settings['benchmark_cuDNN'] 
-    GPU_training = training_settings['GPU_training'] 
-    GPU_devices_ids = training_settings['GPU_devices_ids']     
+    seed_model_weights = training_settings['seed_model_weights'] 
+    benchmark_cudnn = training_settings['benchmark_cudnn'] 
+    gpu_training = training_settings['gpu_training'] 
+    gpu_devices_ids = training_settings['gpu_devices_ids']     
     numeric_precision = training_settings['numeric_precision']
+            
     ##------------------------------------------------------------------------.
     # Set options for deterministic training 
     if deterministic_training:
-        set_pytorch_deterministic(seed=deterministic_training_seed)
+        set_pytorch_deterministic(seed=seed_model_weights)
     
     ##------------------------------------------------------------------------.
     # If requested, autotunes to the best cuDNN kernel (for performing convolutions)
     # --> Find the best algorithm to use with the available hardware.
     # --> Usually leads to faster runtime. 
-    if benchmark_cuDNN:
+    if benchmark_cudnn and not deterministic_training:
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
     else: 
         torch.backends.cudnn.benchmark = False
-    
     ##------------------------------------------------------------------------.
     # Return the device to make the pytorch architecture working both on CPU and GPU
-    if GPU_training:
+    if gpu_training:
         if torch.cuda.is_available():
-            device = torch.device(GPU_devices_ids[0])
+            device = torch.device(gpu_devices_ids[0])
         else:
             print("- GPU is not available. Switching to CPU !")
             device = torch.device('cpu')
@@ -402,7 +402,7 @@ def set_pytorch_settings(training_settings):
 
     #------------------------------------------------------------------------.
     # Set numeric precision 
-    # set_pytorch_numeric_precision(numeric_precision=numeric_precision, device=device)
+    set_pytorch_numeric_precision(numeric_precision=numeric_precision, device=device)
 
     #------------------------------------------------------------------------.
     # Return the torch device 
@@ -425,24 +425,28 @@ def get_model_name(cfg):
     if (model_name is None): 
         # Retrieve important "discriminatory" settings 
         architecture_name = cfg['model_settings']["architecture_name"]
-        sampling = cfg['model_settings']["sampling"]
-        resolution = cfg['model_settings']["resolution"]
+        sampling_name = cfg['model_settings']["sampling_name"]
+        gtype = cfg['model_settings']["gtype"]
         knn = cfg['model_settings']["knn"]
         pool_method = cfg['model_settings']["pool_method"]
-        AR_training_strategy = cfg['training_settings']["AR_training_strategy"]
-        numeric_precision = cfg['training_settings']["numeric_precision"]
+        ar_training_strategy = cfg['training_settings']["ar_training_strategy"]
         AR_iterations = cfg['AR_settings']["AR_iterations"]
+        conv_type = cfg['model_settings']["sampling_name"]
+        if conv_type == "graph": 
+            conv_title = 'Graph_' + gtype + "-k" + str(knn),
+        elif conv_type == "image":
+            conv_title = 'ConvImage'
+        else:
+            raise NotImplementedError 
         # Create model name 
-        model_name = "-".join([AR_training_strategy,
-                               architecture_name,
-                               sampling,
-                               str(resolution),
-                               "k" + str(knn),
-                               pool_method + "Pooling",
-                               numeric_precision,
+        model_name = "-".join([ar_training_strategy,
                                "AR" + str(AR_iterations),
+                               architecture_name,
+                               sampling_name,
+                               conv_title,
+                               pool_method + "Pooling",
                                ])
-        
+        model_name = model_name[:-2] # remove last "-"
     ##------------------------------------------------------------------------.
     # Add prefix and suffix if specified 
     if model_name_prefix is not None: 
