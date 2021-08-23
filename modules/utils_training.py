@@ -189,7 +189,7 @@ class AR_TrainingInfo():
     ##------------------------------------------------------------------------.    
     def update_training_stats(self, total_loss,
                               dict_loss_per_AR_iteration,
-                              ar_scheduler, LR_scheduler=None):
+                              ar_scheduler, lr_scheduler=None):
         """Update training info statistics."""
         # Retrieve current number of AR iterations 
         current_AR_iterations = len(dict_loss_per_AR_iteration) - 1        
@@ -201,8 +201,8 @@ class AR_TrainingInfo():
         self.training_total_loss.append(total_loss.item())
         
         # Update learning rate 
-        if LR_scheduler is not None:
-            self.learning_rate_list.append(LR_scheduler.get_lr())
+        if lr_scheduler is not None:
+            self.learning_rate_list.append(lr_scheduler.get_lr())
         
         # Update training_loss_per_AR_iteration
         for i in range(current_AR_iterations+1):
