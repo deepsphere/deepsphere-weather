@@ -11,44 +11,44 @@ import matplotlib.pyplot as plt
 
 ##----------------------------------------------------------------------------.
 ### Check AR weights 
-def check_AR_weights(AR_weights):
+def check_ar_weights(ar_weights):
     """Check AR weights validity."""
-    if isinstance(AR_weights, (int, float)):
-        AR_weights = [AR_weights]
-    if isinstance(AR_weights, list):
-        AR_weights = np.array(AR_weights)
-    if not isinstance(AR_weights, np.ndarray):
+    if isinstance(ar_weights, (int, float)):
+        ar_weights = [ar_weights]
+    if isinstance(ar_weights, list):
+        ar_weights = np.array(ar_weights)
+    if not isinstance(ar_weights, np.ndarray):
         raise TypeError("Specify AR weights with a list or a numpy array.")
-    # Check that any intial_AR_weights is negative 
-    if any(AR_weights < 0):
+    # Check that any intial_ar_weights is negative 
+    if any(ar_weights < 0):
         raise ValueError("AR weights must not contain negative weights.")
     # Check that the last AR weight is not zero !
-    if AR_weights[-1] == 0:
-        raise ValueError("The last weight of AR_weights must not be 0.")
-    return AR_weights
+    if ar_weights[-1] == 0:
+        raise ValueError("The last weight of ar_weights must not be 0.")
+    return ar_weights
 
 #----------------------------------------------------------------------------.
 # No AR weights update when .step()  
 def _ConstantStep(self): 
-    return self.AR_weights 
+    return self.ar_weights 
 
 def _DiracDeltaStep(self):
-    return self.AR_weights  
+    return self.ar_weights  
 
 ##----------------------------------------------------------------------------.
 ## Discrete weight update functions 
 def _StepwiseDecayStep(self):                 
-    weights = self.AR_absolute_weights[:-1]
+    weights = self.ar_absolute_weights[:-1]
     weights = weights - self.factor 
     weights[weights < 0] = 0
-    self.AR_absolute_weights[:-1] = weights 
+    self.ar_absolute_weights[:-1] = weights 
  
 def _StepwiseGrowthStep(self):                 
-    weight = self.AR_absolute_weights[-1]
+    weight = self.ar_absolute_weights[-1]
     weight = weight + self.factor
     if weight > 1:
         weight = 1 
-    self.AR_absolute_weights[-1] = weight
+    self.ar_absolute_weights[-1] = weight
 
 def _StepwiseStep(self):
     if self.temporary_step_count >= self.step_interval: 
@@ -59,18 +59,18 @@ def _StepwiseStep(self):
         self.temporary_step_count = 0  
                       
 def _HalfDecayStep(self):
-    weights = self.AR_absolute_weights[:-1]
+    weights = self.ar_absolute_weights[:-1]
     weights = weights/2  
-    self.AR_absolute_weights[:-1] = weights 
+    self.ar_absolute_weights[:-1] = weights 
 
 def _HalfGrowthStep(self):
-    weight = self.AR_absolute_weights[-1]
+    weight = self.ar_absolute_weights[-1]
     if weight == 0: 
         weight = self.factor 
     weight = weight*2
     if weight > 1:
         weight = 1 
-    self.AR_absolute_weights[-1] = weight 
+    self.ar_absolute_weights[-1] = weight 
         
 def _HalfStep(self):
     if self.temporary_step_count >= self.step_interval: 
@@ -83,17 +83,17 @@ def _HalfStep(self):
 ##----------------------------------------------------------------------------.
 ### Continous weight update functions
 def _LinearDecayStep(self): 
-    initial_weights = self.AR_absolute_initial_weights[:-1]
+    initial_weights = self.ar_absolute_initial_weights[:-1]
     weights = initial_weights - self.factor*self.global_step_count_arr[:-1]
     weights[weights < 0] = 0
-    self.AR_absolute_weights[:-1] = weights 
+    self.ar_absolute_weights[:-1] = weights 
 
 def _LinearGrowthStep(self): 
-    initial_weight = self.AR_absolute_initial_weights[-1]
+    initial_weight = self.ar_absolute_initial_weights[-1]
     weight = initial_weight + self.factor*self.global_step_count_arr[-1]
     if weight > 1:
         weight = 1
-    self.AR_absolute_weights[-1] = weight 
+    self.ar_absolute_weights[-1] = weight 
 
 def _LinearStep(self):
     _LinearDecayStep(self)
@@ -101,15 +101,15 @@ def _LinearStep(self):
         _LinearGrowthStep(self)
     
 def _ExponentialDecayStep(self):
-    initial_weights = self.AR_absolute_initial_weights[:-1]
+    initial_weights = self.ar_absolute_initial_weights[:-1]
     weights = initial_weights * np.exp(-self.factor*self.global_step_count_arr[:-1])
-    self.AR_absolute_weights[:-1] = weights 
+    self.ar_absolute_weights[:-1] = weights 
 
 def _ExponentialGrowthStep(self):
     weight = self.factor * np.exp(self.factor*self.global_step_count_arr[-1])
     if weight > 1:
         weight = 1
-    self.AR_absolute_weights[-1] = weight 
+    self.ar_absolute_weights[-1] = weight 
 
 def _ExponentialStep(self):
     _ExponentialDecayStep(self)
@@ -125,9 +125,9 @@ class AR_Scheduler():
                  factor = 0.001,
                  step_interval = None, 
                  smooth_growth = True, 
-                 fixed_AR_weights = None,
-                 initial_AR_absolute_weights = None,
-                 initial_AR_weights = None):
+                 fixed_ar_weights = None,
+                 initial_ar_absolute_weights = None,
+                 initial_ar_weights = None):
         """Autoregressive (AR) weights scheduler.
 
         Parameters
@@ -170,30 +170,30 @@ class AR_Scheduler():
         factor : float, optional
             Argument required by the following methods: 'StepwiseStep','HalfStep','LinearStep','ExponentialStep'.
             Regulate the decay and growth of AR absolute weights when .step() is called.
-            For HalfStep and ExponentialStep, is also used as first value for the new AR_weight when smooth_growth=True.
+            For HalfStep and ExponentialStep, is also used as first value for the new ar_weight when smooth_growth=True.
         step_interval : int, optional
             Argument required by the following methods: 'StepwiseStep','HalfStep'.
             Specify the frequency with which the AR weights are updated with methods 'StepwiseStep' and 'HalfStep'.
             Step_interval = 1 cause weight update at every .step() call. 
-        fixed_AR_weights : list, optional
+        fixed_ar_weights : list, optional
             List of AR iterations for which the value AR weights must not be 
             modified by the step functions.
             The default is None. No AR weights is fixed.
-        initial_AR_abolute_weights : list, optional
+        initial_ar_abolute_weights : list, optional
             Specify the initial absolute AR weights. 
             They will be rescaled to have 1 has largest value.
-            If specified, initial_AR_weights must not be specified. 
-            The default is AR_weights = [1].
-        initial_AR_weights : list, optional
+            If specified, initial_ar_weights must not be specified. 
+            The default is ar_weights = [1].
+        initial_ar_weights : list, optional
             Specify the initial normalized AR weights. (must sum up to 1).
-            If specified, initial_AR_abolute_weights must not be specified. 
-            The default is AR_weights = [1].
+            If specified, initial_ar_abolute_weights must not be specified. 
+            The default is ar_weights = [1].
             
         """
-        # 'StepwiseDecay' and 'HalfDecay' factor is applied to the AR_absolute weights (not the normalized AR_weights)
-        # 'LinearDecay','ExponentialDecay' is applied from the initial AR_absolute_weights
+        # 'StepwiseDecay' and 'HalfDecay' factor is applied to the ar_absolute weights (not the normalized ar_weights)
+        # 'LinearDecay','ExponentialDecay' is applied from the initial ar_absolute_weights
         # TODO: 
-        # - Implement a min_AR_weight_option? (instead of decaying to 0) 
+        # - Implement a min_ar_weight_option? (instead of decaying to 0) 
         # - Increasing-Decreasing Decay  ... "
         # Check smooth_growth
         ##--------------------------------------------------------------------.
@@ -205,42 +205,42 @@ class AR_Scheduler():
         if method not in valid_method:
             raise ValueError("Provide a valid 'method'.")   
         ##--------------------------------------------------------------------.    
-        # Check fixed_AR_weights
-        if not isinstance(fixed_AR_weights, (type(None), np.ndarray, list)):
-            raise TypeError("'fixed_AR_weights' must be specified as list.")
-        if isinstance(fixed_AR_weights, list):
-            fixed_AR_weights = np.array(fixed_AR_weights)
-        if fixed_AR_weights is not None: 
-            if len(fixed_AR_weights) == 0:
-                fixed_AR_weights = None
+        # Check fixed_ar_weights
+        if not isinstance(fixed_ar_weights, (type(None), np.ndarray, list)):
+            raise TypeError("'fixed_ar_weights' must be specified as list.")
+        if isinstance(fixed_ar_weights, list):
+            fixed_ar_weights = np.array(fixed_ar_weights)
+        if fixed_ar_weights is not None: 
+            if len(fixed_ar_weights) == 0:
+                fixed_ar_weights = None
         ##---------------------------------------------------------------------.
-        # Check initial_AR_weights and initial_AR_absolute_weights are not both specified.
-        if initial_AR_weights is not None and initial_AR_absolute_weights is not None:
-            raise ValueError("Specify either 'initial_AR_weights' or 'initial_AR_absolute_weights'.")
+        # Check initial_ar_weights and initial_ar_absolute_weights are not both specified.
+        if initial_ar_weights is not None and initial_ar_absolute_weights is not None:
+            raise ValueError("Specify either 'initial_ar_weights' or 'initial_ar_absolute_weights'.")
         
-        # Set default AR_weights if not specified
-        if initial_AR_weights is None and initial_AR_absolute_weights is None:
-            initial_AR_weights = [1]
+        # Set default ar_weights if not specified
+        if initial_ar_weights is None and initial_ar_absolute_weights is None:
+            initial_ar_weights = [1]
        
-        # Check initial_AR_weights
-        if initial_AR_weights is not None: 
+        # Check initial_ar_weights
+        if initial_ar_weights is not None: 
             # Check AR weights validity 
-            initial_AR_weights = check_AR_weights(initial_AR_weights)
-            # Check AR_weights sum up to 1 
-            if np.sum(initial_AR_weights) != 1:
-                raise ValueError("'initial_AR_weights' must sum up to 1.")
+            initial_ar_weights = check_ar_weights(initial_ar_weights)
+            # Check ar_weights sum up to 1 
+            if np.sum(initial_ar_weights) != 1:
+                raise ValueError("'initial_ar_weights' must sum up to 1.")
             # Compute AR absolute weights
             # - Force the largest values to be 1
-            initial_AR_absolute_weights = initial_AR_weights/initial_AR_weights.max()
+            initial_ar_absolute_weights = initial_ar_weights/initial_ar_weights.max()
        
-        # Check initial_AR_absolute_weights
-        elif initial_AR_absolute_weights is not None:    
+        # Check initial_ar_absolute_weights
+        elif initial_ar_absolute_weights is not None:    
             # Check AR weights validity 
-            initial_AR_absolute_weights = check_AR_weights(initial_AR_absolute_weights)
+            initial_ar_absolute_weights = check_ar_weights(initial_ar_absolute_weights)
             # - Force the maximum values to be 1
-            initial_AR_absolute_weights = initial_AR_absolute_weights/initial_AR_absolute_weights.max()
+            initial_ar_absolute_weights = initial_ar_absolute_weights/initial_ar_absolute_weights.max()
             # Compute the normalized AR weights 
-            initial_AR_weights = initial_AR_absolute_weights/initial_AR_absolute_weights.sum()
+            initial_ar_weights = initial_ar_absolute_weights/initial_ar_absolute_weights.sum()
         else: 
             raise NotImplementedError("This option has been not considered.")
             
@@ -264,15 +264,15 @@ class AR_Scheduler():
             smooth_growth = False
         ##---------------------------------------------------------------------. 
         # Count the number of AR iteration (at start)
-        current_AR_iterations = len(initial_AR_weights) - 1
-        self.current_AR_iterations = current_AR_iterations
+        current_ar_iterations = len(initial_ar_weights) - 1
+        self.current_ar_iterations = current_ar_iterations
         
         # Set absolute AR weights  
-        self.AR_absolute_weights = initial_AR_absolute_weights
-        # Set AR_weights (normalized AR weights)
-        self.AR_weights = initial_AR_weights
+        self.ar_absolute_weights = initial_ar_absolute_weights
+        # Set ar_weights (normalized AR weights)
+        self.ar_weights = initial_ar_weights
         # Set initial AR absolute weights (for fixed weights) and 'LinearDecay' and 'ExponentialDecay'
-        self.AR_absolute_initial_weights = self.AR_absolute_weights.copy()  
+        self.ar_absolute_initial_weights = self.ar_absolute_weights.copy()  
         
         ##--------------------------------------------------------------------.
         # Add method arguments
@@ -280,7 +280,7 @@ class AR_Scheduler():
         self.step_interval = step_interval
         self.factor = factor
         self.smooth_growth = smooth_growth
-        self.fixed_AR_weights = fixed_AR_weights
+        self.fixed_ar_weights = fixed_ar_weights
         ##--------------------------------------------------------------------.
         # Initialize temporary step counter 
         # - For 'StepwiseDecay' and 'HalfDecay' method --> step_interval
@@ -289,7 +289,7 @@ class AR_Scheduler():
         ##--------------------------------------------------------------------.
         # - Initialize global step counter 
         # - For 'LinearDecay' and 'ExponentialDecay'
-        self.global_step_count_arr = np.zeros(current_AR_iterations+1)
+        self.global_step_count_arr = np.zeros(current_ar_iterations+1)
             
         ##--------------------------------------------------------------------.
         ### Define the update_weights function 
@@ -310,70 +310,70 @@ class AR_Scheduler():
         self.temporary_step_count = self.temporary_step_count + 1    # for 'StepwiseDecay' and 'HalfDecay'
         self.global_step_count_arr = self.global_step_count_arr + 1  # for 'LinearDecay' and 'ExponentialDecay'
         ##---------------------------------------------------------------------.
-        if self.current_AR_iterations > 0:
+        if self.current_ar_iterations > 0:
             # - Update weights 
             self.update_weights(self)
             # - Refix the value of fixed AR weights
-            if self.fixed_AR_weights is not None:
-                tmp_fixed_AR_weights = self.fixed_AR_weights[self.fixed_AR_weights < self.current_AR_iterations]
-                self.AR_absolute_weights[tmp_fixed_AR_weights] = self.AR_absolute_initial_weights[tmp_fixed_AR_weights]
+            if self.fixed_ar_weights is not None:
+                tmp_fixed_ar_weights = self.fixed_ar_weights[self.fixed_ar_weights < self.current_ar_iterations]
+                self.ar_absolute_weights[tmp_fixed_ar_weights] = self.ar_absolute_initial_weights[tmp_fixed_ar_weights]
             ##---------------------------------------------------------------------.
             # Retrieve normalized AR weights (summing up to 1)
-            self.AR_weights = np.array(self.AR_absolute_weights)/np.sum(self.AR_absolute_weights)
+            self.ar_weights = np.array(self.ar_absolute_weights)/np.sum(self.ar_absolute_weights)
     
     def update(self):
-        """Add an AR_absolute_weight with value 1."""
+        """Add an ar_absolute_weight with value 1."""
         # Update the number of AR iterations
-        self.current_AR_iterations = self.current_AR_iterations + 1
+        self.current_ar_iterations = self.current_ar_iterations + 1
         # Add a new AR weight 
         if not self.smooth_growth: # ... with (absolute) value 1
-            self.AR_absolute_weights = np.append(self.AR_absolute_weights, 1)
-            self.AR_absolute_initial_weights = np.append(self.AR_absolute_initial_weights, 1)
+            self.ar_absolute_weights = np.append(self.ar_absolute_weights, 1)
+            self.ar_absolute_initial_weights = np.append(self.ar_absolute_initial_weights, 1)
         else: # start at 0 (or factor for ExponentialStep, HalfStep)
             # Update current last weight value (for ExponentialStep and LInearStep)
-            self.AR_absolute_initial_weights[-1] = self.AR_absolute_weights[-1] 
+            self.ar_absolute_initial_weights[-1] = self.ar_absolute_weights[-1] 
             # Add new weight 
-            self.AR_absolute_initial_weights = np.append(self.AR_absolute_initial_weights, 0)  
-            self.AR_absolute_weights = np.append(self.AR_absolute_weights, 0)
+            self.ar_absolute_initial_weights = np.append(self.ar_absolute_initial_weights, 0)  
+            self.ar_absolute_weights = np.append(self.ar_absolute_weights, 0)
          
         ##---------------------------------------------------------------------.
         # If DiracDelta weight update method is choosen, set to 0 the other weights 
         if self.method == "DiracDelta":
-            self.AR_absolute_weights[:-1] = 0 
+            self.ar_absolute_weights[:-1] = 0 
         ##---------------------------------------------------------------------.    
         # Update normalization of AR weights
-        self.AR_weights = np.array(self.AR_absolute_weights)/np.sum(self.AR_absolute_weights)
+        self.ar_weights = np.array(self.ar_absolute_weights)/np.sum(self.ar_absolute_weights)
         ##---------------------------------------------------------------------.
         # Update the step count array (--> For LinearDecay and ExponentialDecay)
         self.global_step_count_arr[-1] = 0 # Reset the last (because will start to decay)
         self.global_step_count_arr = np.append(self.global_step_count_arr, 0)
       
 #----------------------------------------------------------------------------.   
-def plot_AR_scheduler(ar_scheduler, 
+def plot_ar_scheduler(ar_scheduler, 
                       n_updates=4, 
                       update_every=15, 
-                      plot_absolute_AR_weights=True,
-                      plot_normalized_AR_weights=True):
+                      plot_absolute_ar_weights=True,
+                      plot_normalized_ar_weights=True):
     
-    n_initial_AR_weights = len(ar_scheduler.AR_weights)
-    n_final_AR_weights = n_initial_AR_weights + n_updates
+    n_initial_ar_weights = len(ar_scheduler.ar_weights)
+    n_final_ar_weights = n_initial_ar_weights + n_updates
     ### Initialize dictionary
-    AR_weights_per_AR_iteration = {}
-    for i in range(n_final_AR_weights + 1):
-        AR_weights_per_AR_iteration[i] = {}
-        AR_weights_per_AR_iteration[i]['iteration'] = []
-        AR_weights_per_AR_iteration[i]['AR_absolute_weights'] = []
-        AR_weights_per_AR_iteration[i]['AR_weights'] = []
+    ar_weights_per_ar_iteration = {}
+    for i in range(n_final_ar_weights + 1):
+        ar_weights_per_ar_iteration[i] = {}
+        ar_weights_per_ar_iteration[i]['iteration'] = []
+        ar_weights_per_ar_iteration[i]['ar_absolute_weights'] = []
+        ar_weights_per_ar_iteration[i]['ar_weights'] = []
     
     # Simulate AR weights step() and update()
     iteration = 0
     for u in range(n_updates+1):
         for i in range(update_every+1):
-            current_AR_iterations = len(ar_scheduler.AR_weights) - 1
-            for AR_iteration in range(current_AR_iterations+1):
-                AR_weights_per_AR_iteration[AR_iteration]['iteration'].append(iteration)   
-                AR_weights_per_AR_iteration[AR_iteration]['AR_absolute_weights'].append(ar_scheduler.AR_absolute_weights[AR_iteration])
-                AR_weights_per_AR_iteration[AR_iteration]['AR_weights'].append(ar_scheduler.AR_weights[AR_iteration])
+            current_ar_iterations = len(ar_scheduler.ar_weights) - 1
+            for ar_iteration in range(current_ar_iterations+1):
+                ar_weights_per_ar_iteration[ar_iteration]['iteration'].append(iteration)   
+                ar_weights_per_ar_iteration[ar_iteration]['ar_absolute_weights'].append(ar_scheduler.ar_absolute_weights[ar_iteration])
+                ar_weights_per_ar_iteration[ar_iteration]['ar_weights'].append(ar_scheduler.ar_weights[ar_iteration])
             ar_scheduler.step()
             iteration = iteration + 1 
         ar_scheduler.update()
@@ -384,27 +384,27 @@ def plot_AR_scheduler(ar_scheduler,
     colors = prop_cycle.by_key()['color']
     custom_cycler = cycler(linestyle=['-', '--', ':', '-.','-', '--', ':', '-.','-', '--'],
                            color=colors)
-    if plot_absolute_AR_weights:    
+    if plot_absolute_ar_weights:    
         fig, ax = plt.subplots()
         ax.set_prop_cycle(custom_cycler)
-        for AR_iteration in range(n_final_AR_weights+1):
-            plt.plot(AR_weights_per_AR_iteration[AR_iteration]['iteration'],
-                     AR_weights_per_AR_iteration[AR_iteration]['AR_absolute_weights'],
+        for ar_iteration in range(n_final_ar_weights+1):
+            plt.plot(ar_weights_per_ar_iteration[ar_iteration]['iteration'],
+                     ar_weights_per_ar_iteration[ar_iteration]['ar_absolute_weights'],
                      antialiased = True)
         ax.set_xlabel("Iteration")
         plt.title("Absolute AR weights ({})".format(method)) 
-        ax.legend(labels=list(range(n_final_AR_weights+1)), loc='upper right') 
+        ax.legend(labels=list(range(n_final_ar_weights+1)), loc='upper right') 
         plt.show()
-    if plot_normalized_AR_weights:   
+    if plot_normalized_ar_weights:   
         fig, ax = plt.subplots()
         ax.set_prop_cycle(custom_cycler)
-        for AR_iteration in range(n_final_AR_weights+1):
-            plt.plot(AR_weights_per_AR_iteration[AR_iteration]['iteration'],
-                     AR_weights_per_AR_iteration[AR_iteration]['AR_weights'], 
+        for ar_iteration in range(n_final_ar_weights+1):
+            plt.plot(ar_weights_per_ar_iteration[ar_iteration]['iteration'],
+                     ar_weights_per_ar_iteration[ar_iteration]['ar_weights'], 
                      antialiased = True)
         ax.set_xlabel("Iteration")
         plt.title("Normalized AR weights  ({})".format(method))  
-        ax.legend(labels=list(range(n_final_AR_weights+1)), loc='upper right') 
+        ax.legend(labels=list(range(n_final_ar_weights+1)), loc='upper right') 
         plt.show()
 
 ##----------------------------------------------------------------------------.

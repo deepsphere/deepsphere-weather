@@ -79,9 +79,9 @@ class EarlyStopping:
         """Call to verify if training must stop."""
         stopping_metric = self.stopping_metric
         score = getattr(training_info, stopping_metric)[-1]
-        iteration_from_last_AR_update = getattr(training_info, "iteration_from_last_AR_update")
+        iteration_from_last_ar_update = getattr(training_info, "iteration_from_last_ar_update")
         if not self.disabled:
-            if iteration_from_last_AR_update > self.minimum_iterations:
+            if iteration_from_last_ar_update > self.minimum_iterations:
                 if self.best_score is None:
                     self.best_score = score
                 elif ((((self.best_score - score) < self.minimum_improvement) and (self.mode=='min')) or \

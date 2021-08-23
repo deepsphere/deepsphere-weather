@@ -9,7 +9,7 @@ import os
 import time
 import numcodecs
 import xarray as xr
-from modules.utils_io import check_AR_Datasets
+from modules.utils_io import check_ar_Datasets
 from modules.utils_zarr import write_zarr
             
 ##----------------------------------------------------------------------------.   
@@ -174,7 +174,7 @@ def reformat_Datasets(ds_training_dynamic,
                       preload_data_in_CPU = False):
     ##------------------------------------------------------------------------. 
     # Check Datasets are in the expected format for AR training 
-    check_AR_Datasets(ds_training_dynamic = ds_training_dynamic,
+    check_ar_Datasets(ds_training_dynamic = ds_training_dynamic,
                       ds_validation_dynamic = ds_validation_dynamic,
                       ds_static = ds_static,              
                       ds_training_bc = ds_training_bc,         

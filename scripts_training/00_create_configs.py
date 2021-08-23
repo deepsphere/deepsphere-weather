@@ -18,11 +18,11 @@ from modules.utils_config import write_config_file
 cfg = get_default_settings()
 
 # Current experiment (6h deltat)
-cfg['AR_settings']['input_k'] = [-18, -12, -6]
-cfg['AR_settings']['output_k'] = [0]
-cfg['AR_settings']['forecast_cycle'] = 6
-cfg['AR_settings']['AR_iterations'] = 6
-cfg['AR_settings']['stack_most_recent_prediction'] = True
+cfg['ar_settings']['input_k'] = [-18, -12, -6]
+cfg['ar_settings']['output_k'] = [0]
+cfg['ar_settings']['forecast_cycle'] = 6
+cfg['ar_settings']['ar_iterations'] = 6
+cfg['ar_settings']['stack_most_recent_prediction'] = True
 
 ## Training settings 
 cfg['training_settings']["training_batch_size"] = 16

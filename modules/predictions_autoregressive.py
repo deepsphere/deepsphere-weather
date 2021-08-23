@@ -14,21 +14,21 @@ import zarr
 import numpy as np
 import xarray as xr
  
-from modules.dataloader_autoregressive import get_AR_batch
+from modules.dataloader_autoregressive import get_ar_batch
 from modules.dataloader_autoregressive import remove_unused_Y
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
 from modules.utils_autoregressive import get_dict_stack_info
-from modules.utils_autoregressive import check_AR_settings
+from modules.utils_autoregressive import check_ar_settings
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
-from modules.utils_autoregressive import check_AR_iterations
+from modules.utils_autoregressive import check_ar_iterations
 from modules.utils_zarr import check_chunks
 from modules.utils_zarr import check_compressor
 from modules.utils_zarr import check_rounding
 from modules.utils_zarr import rechunk_Dataset
 from modules.utils_zarr import write_zarr
-from modules.utils_io import check_AR_DataArrays
+from modules.utils_io import check_ar_DataArrays
 from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_gpu_transfer
@@ -73,36 +73,36 @@ def get_timedelta_types():
 def get_dict_Y_pred_selection(dim_info,
                               dict_forecast_rel_idx_Y,
                               keep_first_prediction = True): 
-    # dict_forecast_rel_idx_Y = get_dict_Y(AR_iterations = AR_iterations,
+    # dict_forecast_rel_idx_Y = get_dict_Y(ar_iterations = ar_iterations,
     #                                      forecast_cycle = forecast_cycle, 
     #                                      output_k = output_k)                                      
     # Retrieve the time dimension index in the predicted Y tensors
     time_dim = dim_info['time']
     # Retrieve AR iterations 
-    AR_iterations = max(list(dict_forecast_rel_idx_Y.keys()))
+    ar_iterations = max(list(dict_forecast_rel_idx_Y.keys()))
     # Initialize a general subset indexing
     all_subset_indexing = [slice(None) for i in range(len(dim_info))]
     # Retrieve all output k 
     all_output_k = np.unique(np.stack(list(dict_forecast_rel_idx_Y.values())).flatten())
     # For each output k, search which AR iterations predict such output k
-    # - {output_k: [AR_iteration with output_k]}
+    # - {output_k: [ar_iteration with output_k]}
     dict_k_occurence = {k: [] for k in all_output_k}
-    for AR_iteration, leadtimes in dict_forecast_rel_idx_Y.items():
+    for ar_iteration, leadtimes in dict_forecast_rel_idx_Y.items():
         for leadtime in leadtimes:
-            dict_k_occurence[leadtime].append(AR_iteration)
+            dict_k_occurence[leadtime].append(ar_iteration)
     # For each output k, choose if keep the first or last prediction
     if keep_first_prediction:
         dict_k_selection = {leadtime: min(dict_k_occurence[leadtime]) for leadtime in dict_k_occurence.keys()}
     else: 
         dict_k_selection = {leadtime: max(dict_k_occurence[leadtime]) for leadtime in dict_k_occurence.keys()}
-    # Build {AR_iteration: [(leadtime, subset_indexing), (...,...)]}
-    dict_Y_pred_selection = {AR_iteration: [] for AR_iteration in range(AR_iterations + 1)}
-    for leadtime, AR_iteration in dict_k_selection.items():
+    # Build {ar_iteration: [(leadtime, subset_indexing), (...,...)]}
+    dict_Y_pred_selection = {ar_iteration: [] for ar_iteration in range(ar_iterations + 1)}
+    for leadtime, ar_iteration in dict_k_selection.items():
         # Retrieve tuple (leadtime, Y_tensor_indexing)
-        leadtime_slice_idx = np.argwhere(dict_forecast_rel_idx_Y[AR_iteration] == leadtime)[0][0]                 
+        leadtime_slice_idx = np.argwhere(dict_forecast_rel_idx_Y[ar_iteration] == leadtime)[0][0]                 
         subset_indexing = all_subset_indexing.copy()
         subset_indexing[time_dim] = leadtime_slice_idx
-        dict_Y_pred_selection[AR_iteration].append((leadtime, subset_indexing))
+        dict_Y_pred_selection[ar_iteration].append((leadtime, subset_indexing))
     return dict_Y_pred_selection 
 
 def create_ds_forecast(dict_Y_predicted_per_leadtime, 
@@ -205,12 +205,12 @@ def AutoregressivePredictions(model,
                               input_k = [-3,-2,-1], 
                               output_k = [0],
                               forecast_cycle = 1,                           
-                              AR_iterations = 50, 
+                              ar_iterations = 50, 
                               stack_most_recent_prediction = True,
                               # Prediction options 
                               forecast_reference_times = None, 
                               keep_first_prediction = True, 
-                              AR_blocks = None,
+                              ar_blocks = None,
                               # Save options 
                               zarr_fpath = None, 
                               rounding = None,
@@ -242,8 +242,8 @@ def AutoregressivePredictions(model,
     - In the ECMWF CMD, forecast_reference_time is termed 'time', 'time' termed 'valid_time'!
     
     Prediction settings 
-    - AR_blocks = None (or AR_blocks = AR_iterations + 1) run all AR_iterations in a single run.
-    - AR_blocks < AR_iterations + 1:  run AR_iterations per AR_block of AR_iteration
+    - ar_blocks = None (or ar_blocks = ar_iterations + 1) run all ar_iterations in a single run.
+    - ar_blocks < ar_iterations + 1:  run ar_iterations per ar_block of ar_iteration
     """
     # Possible speed up: rescale only after all batch have been processed ... 
     ##------------------------------------------------------------------------.
@@ -256,17 +256,17 @@ def AutoregressivePredictions(model,
     ##------------------------------------------------------------------------.
     # Check that autoregressive settings are valid 
     # - input_k and output_k must be numpy arrays hereafter ! 
-    input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
+    input_k = check_input_k(input_k=input_k, ar_iterations=ar_iterations)   
     output_k = check_output_k(output_k = output_k)
-    check_AR_settings(input_k = input_k,
+    check_ar_settings(input_k = input_k,
                       output_k = output_k,
                       forecast_cycle = forecast_cycle,                           
-                      AR_iterations = AR_iterations, 
+                      ar_iterations = ar_iterations, 
                       stack_most_recent_prediction = stack_most_recent_prediction)
-    AR_iterations = int(AR_iterations)
+    ar_iterations = int(ar_iterations)
     ##------------------------------------------------------------------------.
     # Check that DataArrays are valid 
-    check_AR_DataArrays(da_training_dynamic = da_dynamic,
+    check_ar_DataArrays(da_training_dynamic = da_dynamic,
                         da_training_bc = da_bc,
                         da_static = da_static)
     ##------------------------------------------------------------------------.
@@ -285,18 +285,18 @@ def AutoregressivePredictions(model,
         rounding = check_rounding(rounding = rounding,
                                   variable_names = da_dynamic['feature'].values.tolist())
     ##------------------------------------------------------------------------.
-    # Check AR_blocks 
-    if not isinstance(AR_blocks, (int, float, type(None))):
-        raise TypeError("'AR_blocks' must be int or None.")
-    if isinstance(AR_blocks, float):
-        AR_blocks = int(AR_blocks)
-    if not WRITE_TO_ZARR and isinstance(AR_blocks, int):
-        raise ValueError("If 'zarr_fpath' not specified, 'AR_blocks' must be None.")
-    if AR_blocks is None: 
-        AR_blocks = AR_iterations + 1
-    if AR_blocks > AR_iterations + 1:
-        raise ValueError("'AR_blocks' must be equal or smaller to 'AR_iterations'")
-    PREDICT_AR_BLOCKS = AR_blocks != (AR_iterations + 1)
+    # Check ar_blocks 
+    if not isinstance(ar_blocks, (int, float, type(None))):
+        raise TypeError("'ar_blocks' must be int or None.")
+    if isinstance(ar_blocks, float):
+        ar_blocks = int(ar_blocks)
+    if not WRITE_TO_ZARR and isinstance(ar_blocks, int):
+        raise ValueError("If 'zarr_fpath' not specified, 'ar_blocks' must be None.")
+    if ar_blocks is None: 
+        ar_blocks = ar_iterations + 1
+    if ar_blocks > ar_iterations + 1:
+        raise ValueError("'ar_blocks' must be equal or smaller to 'ar_iterations'")
+    PREDICT_ar_BLOCKS = ar_blocks != (ar_iterations + 1)
     ##------------------------------------------------------------------------.    
     ### Retrieve dimension info of the forecast 
     latitudes = da_dynamic['lat'].values
@@ -323,7 +323,7 @@ def AutoregressivePredictions(model,
                                     input_k = input_k,
                                     output_k = output_k,
                                     forecast_cycle = forecast_cycle,                           
-                                    AR_iterations = AR_iterations, 
+                                    ar_iterations = ar_iterations, 
                                     stack_most_recent_prediction = stack_most_recent_prediction, 
                                     # GPU settings 
                                     device = device)
@@ -370,12 +370,12 @@ def AutoregressivePredictions(model,
             ### Perform autoregressive forecasting
             dict_Y_predicted = {}
             dict_Y_predicted_per_leadtime = {}
-            AR_counter_per_block = 0  
-            previous_block_AR_iteration = 0 
-            for AR_iteration in range(AR_iterations+1):
+            ar_counter_per_block = 0  
+            previous_block_ar_iteration = 0 
+            for ar_iteration in range(ar_iterations+1):
                 # Retrieve X and Y for current AR iteration
                 # - Torch Y stays in CPU with training_mode=False
-                torch_X, _ = get_AR_batch(AR_iteration = AR_iteration, 
+                torch_X, _ = get_ar_batch(ar_iteration = ar_iteration, 
                                           batch_dict = batch_dict, 
                                           dict_Y_predicted = dict_Y_predicted,
                                           device = device, 
@@ -383,28 +383,28 @@ def AutoregressivePredictions(model,
                                          
                 ##------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
-                dict_Y_predicted[AR_iteration] = model(torch_X)
+                dict_Y_predicted[ar_iteration] = model(torch_X)
                 ##------------------------------------------------------------.
                 # Select required tensor slices (along time dimension) for final forecast
-                if len(dict_Y_pred_selection[AR_iteration]) > 0: 
-                    for leadtime, subset_indexing in dict_Y_pred_selection[AR_iteration]:
-                        dict_Y_predicted_per_leadtime[leadtime] = dict_Y_predicted[AR_iteration][subset_indexing].cpu().numpy()
+                if len(dict_Y_pred_selection[ar_iteration]) > 0: 
+                    for leadtime, subset_indexing in dict_Y_pred_selection[ar_iteration]:
+                        dict_Y_predicted_per_leadtime[leadtime] = dict_Y_predicted[ar_iteration][subset_indexing].cpu().numpy()
                 ##------------------------------------------------------------.
                 # Remove unnecessary variables on GPU 
-                remove_unused_Y(AR_iteration = AR_iteration, 
+                remove_unused_Y(ar_iteration = ar_iteration, 
                                 dict_Y_predicted = dict_Y_predicted,
                                 dict_Y_to_remove = batch_dict['dict_Y_to_remove']) 
                 del torch_X
                 ##------------------------------------------------------------.
                 # The following code can be used to verify that no leak of memory occurs 
                 # torch.cuda.synchronize()
-                # print("{}: {:.2f} MB".format(AR_iteration, torch.cuda.memory_allocated()/1000/1000)) 
+                # print("{}: {:.2f} MB".format(ar_iteration, torch.cuda.memory_allocated()/1000/1000)) 
                 
                 ##------------------------------------------------------------.
-                # Create and save a forecast Dataset after each AR_block AR_iterations 
-                AR_counter_per_block += 1 
-                if AR_counter_per_block == AR_blocks:
-                    block_slice = slice(previous_block_AR_iteration, AR_iteration+1)
+                # Create and save a forecast Dataset after each ar_block ar_iterations 
+                ar_counter_per_block += 1 
+                if ar_counter_per_block == ar_blocks:
+                    block_slice = slice(previous_block_ar_iteration, ar_iteration+1)
                     ds = create_ds_forecast(dict_Y_predicted_per_leadtime = dict_Y_predicted_per_leadtime,
                                             leadtimes = leadtimes[block_slice],
                                             forecast_reference_times = forecast_reference_times,
@@ -412,15 +412,15 @@ def AutoregressivePredictions(model,
                                             latitudes = latitudes,
                                             features = features, 
                                             dim_info = dim_info) 
-                    # Reset AR_counter_per_block
-                    AR_counter_per_block = 0 
-                    previous_block_AR_iteration = AR_iteration + 1
+                    # Reset ar_counter_per_block
+                    ar_counter_per_block = 0 
+                    previous_block_ar_iteration = ar_iteration + 1
                     # --------------------------------------------------------.
-                    # If predicting blocks of AR_iterations 
+                    # If predicting blocks of ar_iterations 
                     # - Write AR blocks temporary to disk (and append progressively)
-                    if PREDICT_AR_BLOCKS: # (WRITE_TO_ZARR=True implicit)
-                        tmp_AR_block_zarr_fpath = os.path.join(os.path.dirname(zarr_fpath), "tmp_AR_blocks.zarr")
-                        write_zarr(zarr_fpath = tmp_AR_block_zarr_fpath, 
+                    if PREDICT_ar_BLOCKS: # (WRITE_TO_ZARR=True implicit)
+                        tmp_ar_block_zarr_fpath = os.path.join(os.path.dirname(zarr_fpath), "tmp_ar_blocks.zarr")
+                        write_zarr(zarr_fpath = tmp_ar_block_zarr_fpath, 
                                    ds = ds,
                                    chunks = chunks, default_chunks = default_chunks, 
                                    compressor = compressor, default_compressor = default_compressor,
@@ -439,9 +439,9 @@ def AutoregressivePredictions(model,
             ### Post-processing 
             # - Retransform data to original dimensions (and write to Zarr optionally)   
             if WRITE_TO_ZARR:
-                if PREDICT_AR_BLOCKS:
-                    # - Read the temporary AR_blocks saved on disk 
-                    ds = xr.open_zarr(tmp_AR_block_zarr_fpath)
+                if PREDICT_ar_BLOCKS:
+                    # - Read the temporary ar_blocks saved on disk 
+                    ds = xr.open_zarr(tmp_ar_block_zarr_fpath)
                 if scaler_inverse is not None: 
                     # TODO: Here an error occur if chunk forecast_reference_time > 1
                     # --> Applying the inverse scaler means processing each
@@ -468,8 +468,8 @@ def AutoregressivePredictions(model,
                                append = True,
                                append_dim = 'forecast_reference_time', 
                                show_progress = False) 
-                if PREDICT_AR_BLOCKS:
-                    shutil.rmtree(tmp_AR_block_zarr_fpath)
+                if PREDICT_ar_BLOCKS:
+                    shutil.rmtree(tmp_ar_block_zarr_fpath)
                     
             else: 
                 if scaler_inverse is not None: 
@@ -590,12 +590,12 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
                                   input_k = [-3,-2,-1], 
                                   output_k = [0],
                                   forecast_cycle = 1,                           
-                                  AR_iterations = 50, 
+                                  ar_iterations = 50, 
                                   stack_most_recent_prediction = True,
                                   # Prediction options 
                                   forecast_reference_times = None, 
                                   keep_first_prediction = True, 
-                                  AR_blocks = None,
+                                  ar_blocks = None,
                                   # SWAG settings
                                   no_cov_mat=False,
                                   sampling_scale = 0.1,
@@ -632,7 +632,7 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
                 input_k = input_k, 
                 output_k = output_k, 
                 forecast_cycle = forecast_cycle,                         
-                AR_iterations = AR_iterations, 
+                ar_iterations = ar_iterations, 
                 stack_most_recent_prediction = stack_most_recent_prediction
                 )
 
@@ -658,11 +658,11 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
                                   output_k = output_k, 
                                   forecast_cycle = forecast_cycle,                         
                                   stack_most_recent_prediction = stack_most_recent_prediction, 
-                                  AR_iterations = AR_iterations,        # How many time to autoregressive iterate
+                                  ar_iterations = ar_iterations,        # How many time to autoregressive iterate
                                   # Prediction options 
                                   forecast_reference_times = forecast_reference_times, 
                                   keep_first_prediction = keep_first_prediction, 
-                                  AR_blocks = AR_blocks,
+                                  ar_blocks = ar_blocks,
                                   # Save options 
                                   zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                   rounding = rounding,             # Default None. Accept also a dictionary 

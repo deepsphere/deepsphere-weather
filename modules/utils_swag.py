@@ -12,7 +12,7 @@ import tqdm
 
 import torch.nn.functional as F
 
-from modules.dataloader_autoregressive import get_AR_batch
+from modules.dataloader_autoregressive import get_ar_batch
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
 
@@ -81,7 +81,7 @@ def bn_update(model,
              input_k = [-3,-2,-1], 
              output_k = [0],
              forecast_cycle = 1,                           
-             AR_iterations = 2, 
+             ar_iterations = 2, 
              stack_most_recent_prediction = True,
              **kwargs):
     """
@@ -105,7 +105,7 @@ def bn_update(model,
                                     input_k = input_k,
                                     output_k = output_k,
                                     forecast_cycle = forecast_cycle,                           
-                                    AR_iterations = AR_iterations, 
+                                    ar_iterations = ar_iterations, 
                                     stack_most_recent_prediction = stack_most_recent_prediction, 
                                     # GPU settings 
                                     device = device,
@@ -133,10 +133,10 @@ def bn_update(model,
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
             dict_Y_predicted = {}
-            for i in range(AR_iterations+1):
+            for i in range(ar_iterations+1):
                 # Retrieve X and Y for current AR iteration
                 # - Torch Y stays in CPU with training_mode=False
-                torch_X, _ = get_AR_batch(AR_iteration = i, 
+                torch_X, _ = get_ar_batch(ar_iteration = i, 
                                         batch_dict = batch_dict, 
                                         dict_Y_predicted = dict_Y_predicted,
                                         device = device, 
@@ -158,7 +158,7 @@ def bn_update(model,
 
 def bn_update_with_loader(model, 
                           loader, 
-                          AR_iterations = 2, 
+                          ar_iterations = 2, 
                           asyncronous_gpu_transfer = True,
                           device = 'cpu',
                           **kwargs):
@@ -178,10 +178,10 @@ def bn_update_with_loader(model,
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
             dict_Y_predicted = {}
-            for i in range(AR_iterations+1):
+            for i in range(ar_iterations+1):
                 # Retrieve X and Y for current AR iteration
                 # - Torch Y stays in CPU with training_mode=False
-                torch_X, _ = get_AR_batch(AR_iteration = i, 
+                torch_X, _ = get_ar_batch(ar_iteration = i, 
                                         batch_dict = batch_dict, 
                                         dict_Y_predicted = dict_Y_predicted,
                                         device = device, 

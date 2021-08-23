@@ -54,7 +54,7 @@
         ],
         "dataparallel_training": false
     },
-    "AR_settings": {
+    "ar_settings": {
         "input_k": [
             -18,
             -12,
@@ -64,7 +64,7 @@
             0
         ],
         "forecast_cycle": 6,
-        "AR_iterations": 6,
+        "ar_iterations": 6,
         "stack_most_recent_prediction": true
     }
 }

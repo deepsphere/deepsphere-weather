@@ -22,7 +22,7 @@ from modules.utils_autoregressive import get_dict_X_bc
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_io import is_dask_DataArray
-from modules.utils_io import check_AR_DataArrays
+from modules.utils_io import check_ar_DataArrays
 from modules.utils_io import _check_timesteps
 from modules.utils_io import _get_subset_timesteps_idxs
 from modules.utils_torch import set_seeds
@@ -73,7 +73,7 @@ class AutoregressiveDataset(Dataset):
                  input_k, 
                  output_k,
                  forecast_cycle,                           
-                 AR_iterations, 
+                 ar_iterations, 
                  stack_most_recent_prediction, 
                  # Facultative input data
                  da_bc = None, 
@@ -110,7 +110,7 @@ class AutoregressiveDataset(Dataset):
             Indices representing forecasted timesteps. Must include 0.
         forecast_cycle : int
             Indicates the lag between forecasts.
-        AR_iterations : int
+        ar_iterations : int
             Number of AR iterations.
         stack_most_recent_prediction : bool
             Whether to use the most recent prediction when autoregressing.
@@ -119,10 +119,10 @@ class AutoregressiveDataset(Dataset):
         """        
         ##--------------------------------------------------------------------.
         # Check input_k and output_k type
-        input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
+        input_k = check_input_k(input_k=input_k, ar_iterations=ar_iterations)   
         output_k = check_output_k(output_k=output_k)
         # Check DataArrays  
-        check_AR_DataArrays(da_training_dynamic = da_dynamic,
+        check_ar_DataArrays(da_training_dynamic = da_dynamic,
                             da_training_bc = da_bc,
                             da_static = da_static) 
         # Checks device
@@ -137,7 +137,7 @@ class AutoregressiveDataset(Dataset):
         self.input_k = input_k 
         self.output_k = output_k
         self.forecast_cycle = forecast_cycle
-        self.AR_iterations = AR_iterations
+        self.ar_iterations = ar_iterations
         self.stack_most_recent_prediction = stack_most_recent_prediction
         ##--------------------------------------------------------------------.
         ### Initialize scaler 
@@ -253,7 +253,7 @@ class AutoregressiveDataset(Dataset):
         # - Extract numpy array from DataArray and convert to Torch Tensor
         # - X_dynamic 
         dict_X_dynamic_data = {}
-        for i in range(self.AR_iterations + 1): 
+        for i in range(self.ar_iterations + 1): 
             # X_dynamic
             if self.dict_rel_idx_X_dynamic[i] is not None:
                 dict_X_dynamic_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_X_dynamic[i]).values), dtype=self.torch_dtype, device='cpu')
@@ -262,7 +262,7 @@ class AutoregressiveDataset(Dataset):
         # - Y 
         if self.training_mode:
             dict_Y_data = {}
-            for i in range(self.AR_iterations + 1): 
+            for i in range(self.ar_iterations + 1): 
                 dict_Y_data[i] = torch.as_tensor(torch.from_numpy(da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).values), dtype=self.torch_dtype, device='cpu')
         else: 
             dict_Y_data = None
@@ -278,7 +278,7 @@ class AutoregressiveDataset(Dataset):
         # - Forecasted time and forecast leadtime 
         dict_forecasted_time = {}
         dict_forecast_leadtime = {}
-        for i in range(self.AR_iterations + 1): 
+        for i in range(self.ar_iterations + 1): 
             dict_forecasted_time[i] = da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).time.values 
             dict_forecast_leadtime[i] = dict_forecasted_time[i] - forecast_reference_time
         # - Create forecast_time_info dictionary 
@@ -304,7 +304,7 @@ class AutoregressiveDataset(Dataset):
                 da_bc_subset = da_bc_subset.compute() 
             # - Loop over leadtimes and store Numpy arrays in a dictionary(leadtime) 
             dict_X_bc_data = {}
-            for i in range(self.AR_iterations + 1): 
+            for i in range(self.ar_iterations + 1): 
                 # Extract numpy array from DataArray and conver to Torch Tensor
                 dict_X_bc_data[i] = torch.as_tensor(torch.from_numpy(da_bc_subset.sel(rel_idx=self.dict_rel_idx_X_bc[i]).values), dtype=self.torch_dtype, device='cpu')
         else: 
@@ -317,7 +317,7 @@ class AutoregressiveDataset(Dataset):
                 'Y': dict_Y_data, 
                 'dict_Y_to_stack': self.dict_Y_to_stack,
                 'dict_Y_to_remove': self.dict_Y_to_remove,
-                'AR_iterations': self.AR_iterations,
+                'ar_iterations': self.ar_iterations,
                 'dim_info': self.dim_info,
                 'forecast_time_info': forecast_time_info,
                 'training_mode': self.training_mode, 
@@ -329,12 +329,12 @@ class AutoregressiveDataset(Dataset):
         input_k = self.input_k 
         output_k = self.output_k
         forecast_cycle = self.forecast_cycle
-        AR_iterations = self.AR_iterations
+        ar_iterations = self.ar_iterations
         stack_most_recent_prediction = self.stack_most_recent_prediction
         n_timesteps = self.n_timesteps
         ##--------------------------------------------------------------------.
         ## Update dictionary Y to stack and remove 
-        dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(AR_iterations = AR_iterations, 
+        dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(ar_iterations = ar_iterations, 
                                                                 forecast_cycle = forecast_cycle, 
                                                                 input_k = input_k, 
                                                                 output_k = output_k, 
@@ -346,7 +346,7 @@ class AutoregressiveDataset(Dataset):
         idx_start = get_first_valid_idx(input_k)
         idx_end = get_last_valid_idx(output_k = output_k,
                                      forecast_cycle = forecast_cycle, 
-                                     AR_iterations = AR_iterations)
+                                     ar_iterations = ar_iterations)
         
         # - Define valid idx for training (and prediction)
         subset_idxs = self.subset_idxs
@@ -368,20 +368,20 @@ class AutoregressiveDataset(Dataset):
             raise ValueError("No samples available. Maybe reduce number of AR iterations.")
         ##--------------------------------------------------------------------.
         ### - Update dictionary with indexing information for autoregressive training
-        self.dict_rel_idx_Y = get_dict_Y(AR_iterations = AR_iterations,
+        self.dict_rel_idx_Y = get_dict_Y(ar_iterations = ar_iterations,
                                          forecast_cycle = forecast_cycle, 
                                          output_k = output_k)
-        self.dict_rel_idx_X_dynamic = get_dict_X_dynamic(AR_iterations = AR_iterations,
+        self.dict_rel_idx_X_dynamic = get_dict_X_dynamic(ar_iterations = ar_iterations,
                                                          forecast_cycle = forecast_cycle, 
                                                          input_k = input_k)
-        self.dict_rel_idx_X_bc = get_dict_X_bc(AR_iterations = AR_iterations,
+        self.dict_rel_idx_X_bc = get_dict_X_bc(ar_iterations = ar_iterations,
                                                forecast_cycle = forecast_cycle,
                                                input_k = input_k)
         
         ##--------------------------------------------------------------------.
-        ### - Based on the current value of AR_iterations, create a
+        ### - Based on the current value of ar_iterations, create a
         #     list of (relative) indices required to load data from da_dynamic and da_bc 
-        #   --> This indices are updated when Dataset.update_AR_iterations() is called
+        #   --> This indices are updated when Dataset.update_ar_iterations() is called
         rel_idx_X_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_dynamic.values() if x is not None]))
         rel_idx_Y_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_Y.values() if x is not None]))
         self.rel_idx_dynamic_required = np.unique(np.concatenate((rel_idx_X_dynamic_required, rel_idx_Y_dynamic_required)))
@@ -393,16 +393,16 @@ class AutoregressiveDataset(Dataset):
             
         ##--------------------------------------------------------------------.
             
-    def update_AR_iterations(self, new_AR_iterations):  
+    def update_ar_iterations(self, new_ar_iterations):  
         """Update Dataset informations.
         
         If the number of forecast iterations changes, the function update
         the relative indices in order to retrieve only the needed amount of data 
         The changes to the Dataset implicitly affect the next DataLoader call!
         """
-        if self.AR_iterations != new_AR_iterations:                
+        if self.ar_iterations != new_ar_iterations:                
             # Update AR iterations
-            self.AR_iterations = new_AR_iterations
+            self.ar_iterations = new_ar_iterations
             # Update valid idxs and rel_idx_dictionaries 
             self.update_indexing()
                 
@@ -421,7 +421,7 @@ def autoregressive_collate_fn(list_samples,
     dict_Y_to_stack = list_samples[0]['dict_Y_to_stack']
     dict_Y_to_remove = list_samples[0]['dict_Y_to_remove']
     dim_info = list_samples[0]['dim_info']
-    AR_iterations = list_samples[0]['AR_iterations']
+    ar_iterations = list_samples[0]['ar_iterations']
     batch_dim = dim_info['sample']
     training_mode = list_samples[0]['training_mode']
     data_availability = list_samples[0]['data_availability']
@@ -457,7 +457,7 @@ def autoregressive_collate_fn(list_samples,
     ### Batch data togethers   
     # - Process X_dynamic  
     dict_X_dynamic_batched = {}
-    for i in range(AR_iterations+1):
+    for i in range(ar_iterations+1):
         # X dynamic 
         list_X_dynamic_tensors = [dict_leadtime[i] for dict_leadtime in list_X_dynamic_samples if dict_leadtime[i] is not None]
         if len(list_X_dynamic_tensors) > 0: 
@@ -473,7 +473,7 @@ def autoregressive_collate_fn(list_samples,
     # - Process Y
     if training_mode:
         dict_Y_batched = {}
-        for i in range(AR_iterations+1):
+        for i in range(ar_iterations+1):
             if pin_memory:
                 dict_Y_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_Y_samples], dim=batch_dim).pin_memory()  
             else: 
@@ -487,7 +487,7 @@ def autoregressive_collate_fn(list_samples,
     # - Process X_bc
     if data_availability['bc']: 
         dict_X_bc_batched = {}  
-        for i in range(AR_iterations+1):
+        for i in range(ar_iterations+1):
             if len(list_X_bc_samples) != 0 and list_X_bc_samples[0] is not None: 
                 if pin_memory:
                     dict_X_bc_batched[i] = torch.stack([dict_leadtime[i] for dict_leadtime in list_X_bc_samples], dim=batch_dim).pin_memory()
@@ -643,13 +643,13 @@ def AutoregressiveDataLoader(dataset,
 # #####################
 ### AR batch tools ####
 # #####################               
-def get_AR_batch(AR_iteration, 
+def get_ar_batch(ar_iteration, 
                  batch_dict, 
                  dict_Y_predicted,
                  device = 'cpu', 
                  asyncronous_gpu_transfer = True):
     """Create X and Y Torch Tensors for a specific AR iteration."""
-    i = AR_iteration
+    i = ar_iteration
     ##------------------------------------------------------------------------.
     # Get dimension info 
     dim_info = batch_dict['dim_info']
@@ -756,9 +756,9 @@ def get_AR_batch(AR_iteration,
     return (torch_X, torch_Y)
 
 ##----------------------------------------------------------------------------.
-def remove_unused_Y(AR_iteration, dict_Y_predicted, dict_Y_to_remove):
+def remove_unused_Y(ar_iteration, dict_Y_predicted, dict_Y_to_remove):
     """Remove unused Y predictions of past AR iterations."""
-    list_idx_Y_to_remove = dict_Y_to_remove[AR_iteration]
+    list_idx_Y_to_remove = dict_Y_to_remove[ar_iteration]
     if list_idx_Y_to_remove is not None:
         for ldt in list_idx_Y_to_remove: 
             del dict_Y_predicted[ldt]
@@ -839,15 +839,15 @@ def timing_AR_DataLoader(dataset,
         raise ValueError("'num_workers' must be a integer larger than 0.")
     ##------------------------------------------------------------------------.  
     # Retrieve informations 
-    AR_iterations = dataset.AR_iterations
+    ar_iterations = dataset.ar_iterations
     device = dataset.device                      
     # Retrieve function to get time 
     get_time = get_time_function(device)
     ##------------------------------------------------------------------------.
     # Initialize list 
-    Dataloader_timing = []  
-    AR_batch_timing = []  
-    Total_timing = []
+    dataloader_timing = []  
+    ar_batch_timing = []  
+    total_timing = []
     ##------------------------------------------------------------------------.
     # Initialize DataLoader 
     dataloader = AutoregressiveDataLoader(dataset = dataset,                                                   
@@ -872,23 +872,23 @@ def timing_AR_DataLoader(dataset,
         # Retrieve batch
         t_i = get_time()
         training_batch_dict = next(dataloader_iter)
-        Dataloader_timing.append(get_time() - t_i)
+        dataloader_timing.append(get_time() - t_i)
         # Perform AR iterations 
         dict_training_Y_predicted = {}
         ##----------------------------------------------------------------.
         # Initialize stuff for AR loop timing 
-        tmp_AR_data_removal_timing = 0
-        tmp_AR_batch_timing = 0 
+        tmp_ar_data_removal_timing = 0
+        tmp_ar_batch_timing = 0 
         batch_memory_size = 0 
-        for i in range(AR_iterations+1):
+        for i in range(ar_iterations+1):
             # Retrieve X and Y for current AR iteration   
             t_i = get_time()
-            torch_X, torch_Y = get_AR_batch(AR_iteration = i, 
+            torch_X, torch_Y = get_ar_batch(ar_iteration = i, 
                                             batch_dict = training_batch_dict, 
                                             dict_Y_predicted = dict_training_Y_predicted,
                                             device = device, 
                                             asyncronous_gpu_transfer = asyncronous_gpu_transfer)
-            tmp_AR_batch_timing = tmp_AR_batch_timing + (get_time() - t_i)
+            tmp_ar_batch_timing = tmp_ar_batch_timing + (get_time() - t_i)
             ##------------------------------------------------------------.                                
             # Measure batch size in MB 
             if device.type != 'cpu' and i == 0:
@@ -900,28 +900,28 @@ def timing_AR_DataLoader(dataset,
             ##------------------------------------------------------------.
             # Remove unnecessary stored Y predictions 
             t_i = get_time()
-            remove_unused_Y(AR_iteration = i, 
+            remove_unused_Y(ar_iteration = i, 
                             dict_Y_predicted = dict_training_Y_predicted,
                             dict_Y_to_remove = training_batch_dict['dict_Y_to_remove'])
             del torch_X, torch_Y
-            if i == AR_iterations:
+            if i == ar_iterations:
                 del dict_training_Y_predicted
-            tmp_AR_data_removal_timing = tmp_AR_data_removal_timing + (get_time()- t_i)
+            tmp_ar_data_removal_timing = tmp_ar_data_removal_timing + (get_time()- t_i)
                 
         ##----------------------------------------------------------------.
         # Summarize timing 
-        AR_batch_timing.append(tmp_AR_batch_timing - tmp_AR_data_removal_timing)
+        ar_batch_timing.append(tmp_ar_batch_timing - tmp_ar_data_removal_timing)
 
         ##----------------------------------------------------------------.
         # - Total time elapsed
-        Total_timing.append(AR_batch_timing[-1] + Dataloader_timing[-1])
+        total_timing.append(ar_batch_timing[-1] + dataloader_timing[-1])
 
     ##------------------------------------------------------------------------.
     # Create timing info dictionary 
     timing_info = {'Run': list(range(n_repetitions)), 
-                   'Total': Total_timing, 
-                   'Dataloader': Dataloader_timing,
-                   'AR Batch': AR_batch_timing,
+                   'Total': total_timing, 
+                   'Dataloader': dataloader_timing,
+                   'AR Batch': ar_batch_timing,
                    }
     ##------------------------------------------------------------------------. 
     memory_info = {'Batch': batch_memory_size}
@@ -933,9 +933,9 @@ def timing_AR_DataLoader(dataset,
         headers = ['Run', 'Total', 'Dataloader','AR Batch', 'Delete', ' ', ' ', ' ']
         for count in range(n_repetitions):
             table.append([count,    
-                         round(Total_timing[count], 4),
-                         round(Dataloader_timing[count], 4),
-                         round(AR_batch_timing[count], 4),
+                         round(total_timing[count], 4),
+                         round(dataloader_timing[count], 4),
+                         round(ar_batch_timing[count], 4),
                           ])
         print(tabulate(table, headers=headers))   
     ##------------------------------------------------------------------------.               

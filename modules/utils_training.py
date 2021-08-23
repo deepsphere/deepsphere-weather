@@ -105,22 +105,22 @@ def plot_loss(iterations,
 # ########################### 
 ### Training Info object ####
 # ###########################
-class AR_TrainingInfo():
+class ar_TrainingInfo():
     """Training info Object."""
     
-    def __init__(self, AR_iterations, epochs, ar_scheduler):
+    def __init__(self, ar_iterations, epochs, ar_scheduler):
         # TODO
         # - loss per variable 
         # Initialize training info 
         self.epoch = 0
         self.n_epochs = epochs  
-        self.AR_iterations = AR_iterations
+        self.ar_iterations = ar_iterations
         self.validation_stats = False
         ##--------------------------------------------------------------------.
         # Initialize iteration counts
         self.iteration = 0        # track the total number of forward-backward pass
         self.epoch_iteration = 0  # track the iteration number within the epoch
-        self.iteration_from_last_AR_update = 0 # track the iteration number from the last AR weight update (for early stopping)
+        self.iteration_from_last_ar_update = 0 # track the iteration number from the last AR weight update (for early stopping)
         self.iteration_from_last_scoring = 0  # count the iteration from last scoring  
         self.start_epochs_iterations = [] # list the iterations numbers when a new epoch start
         # Score interval to be inferred when reset_counter() is called 
@@ -128,18 +128,18 @@ class AR_TrainingInfo():
         ##--------------------------------------------------------------------.
         # - Initialize dictionary to save the loss at different leadtimes
         # --> Used to analyze the impact of autoregressive weights updates
-        training_loss_per_AR_iteration = {}
-        validation_loss_per_AR_iteration = {}
-        for i in range(AR_iterations + 1):
-            training_loss_per_AR_iteration[i] = {}
-            training_loss_per_AR_iteration[i]['iteration'] = []
-            training_loss_per_AR_iteration[i]['loss'] = []
-        for i in range(AR_iterations + 1):
-            validation_loss_per_AR_iteration[i] = {}
-            validation_loss_per_AR_iteration[i]['iteration'] = []
-            validation_loss_per_AR_iteration[i]['loss'] = []
-        self.training_loss_per_AR_iteration = training_loss_per_AR_iteration
-        self.validation_loss_per_AR_iteration = validation_loss_per_AR_iteration 
+        training_loss_per_ar_iteration = {}
+        validation_loss_per_ar_iteration = {}
+        for i in range(ar_iterations + 1):
+            training_loss_per_ar_iteration[i] = {}
+            training_loss_per_ar_iteration[i]['iteration'] = []
+            training_loss_per_ar_iteration[i]['loss'] = []
+        for i in range(ar_iterations + 1):
+            validation_loss_per_ar_iteration[i] = {}
+            validation_loss_per_ar_iteration[i]['iteration'] = []
+            validation_loss_per_ar_iteration[i]['loss'] = []
+        self.training_loss_per_ar_iteration = training_loss_per_ar_iteration
+        self.validation_loss_per_ar_iteration = validation_loss_per_ar_iteration 
         
         ##--------------------------------------------------------------------.
         # - Initialize list for total loss    
@@ -154,13 +154,13 @@ class AR_TrainingInfo():
         
         ##--------------------------------------------------------------------. 
         # - Initialize dictionary for AR weights per leadtime 
-        AR_weights_per_AR_iteration = {}
-        for i in range(AR_iterations + 1):
-            AR_weights_per_AR_iteration[i] = {}
-            AR_weights_per_AR_iteration[i]['iteration'] = []
-            AR_weights_per_AR_iteration[i]['AR_absolute_weights'] = []
-            AR_weights_per_AR_iteration[i]['AR_weights'] = []
-        self.AR_weights_per_AR_iteration = AR_weights_per_AR_iteration
+        ar_weights_per_ar_iteration = {}
+        for i in range(ar_iterations + 1):
+            ar_weights_per_ar_iteration[i] = {}
+            ar_weights_per_ar_iteration[i]['iteration'] = []
+            ar_weights_per_ar_iteration[i]['ar_absolute_weights'] = []
+            ar_weights_per_ar_iteration[i]['ar_weights'] = []
+        self.ar_weights_per_ar_iteration = ar_weights_per_ar_iteration
         ##--------------------------------------------------------------------. 
         # - Initialize the AR scheduler pickle
         self.ar_scheduler = pickle.dumps(ar_scheduler)
@@ -171,7 +171,7 @@ class AR_TrainingInfo():
         self.iteration = self.iteration + 1
         self.epoch_iteration = self.epoch_iteration + 1
 
-        self.iteration_from_last_AR_update = self.iteration_from_last_AR_update + 1
+        self.iteration_from_last_ar_update = self.iteration_from_last_ar_update + 1
         self.iteration_from_last_scoring = self.iteration_from_last_scoring + 1
     
     ##------------------------------------------------------------------------.
@@ -188,12 +188,12 @@ class AR_TrainingInfo():
         
     ##------------------------------------------------------------------------.    
     def update_training_stats(self, total_loss,
-                              dict_loss_per_AR_iteration,
+                              dict_loss_per_ar_iteration,
                               ar_scheduler, lr_scheduler=None):
         """Update training info statistics."""
         # Retrieve current number of AR iterations 
-        current_AR_iterations = len(dict_loss_per_AR_iteration) - 1        
-        self.AR_iterations = current_AR_iterations
+        current_ar_iterations = len(dict_loss_per_ar_iteration) - 1        
+        self.ar_iterations = current_ar_iterations
         # Update the iteration_list recording when the updaitte occurs
         self.iteration_list.append(self.iteration)
               
@@ -204,34 +204,34 @@ class AR_TrainingInfo():
         if lr_scheduler is not None:
             self.learning_rate_list.append(lr_scheduler.get_lr())
         
-        # Update training_loss_per_AR_iteration
-        for i in range(current_AR_iterations+1):
-            self.training_loss_per_AR_iteration[i]['iteration'].append(self.iteration)   
-            self.training_loss_per_AR_iteration[i]['loss'].append(dict_loss_per_AR_iteration[i].item())
+        # Update training_loss_per_ar_iteration
+        for i in range(current_ar_iterations+1):
+            self.training_loss_per_ar_iteration[i]['iteration'].append(self.iteration)   
+            self.training_loss_per_ar_iteration[i]['loss'].append(dict_loss_per_ar_iteration[i].item())
      
         # Update AR weights 
-        for i in range(current_AR_iterations+1):
-            self.AR_weights_per_AR_iteration[i]['iteration'].append(self.iteration)   
-            self.AR_weights_per_AR_iteration[i]['AR_absolute_weights'].append(ar_scheduler.AR_absolute_weights[i])
-            self.AR_weights_per_AR_iteration[i]['AR_weights'].append(ar_scheduler.AR_weights[i])
+        for i in range(current_ar_iterations+1):
+            self.ar_weights_per_ar_iteration[i]['iteration'].append(self.iteration)   
+            self.ar_weights_per_ar_iteration[i]['ar_absolute_weights'].append(ar_scheduler.ar_absolute_weights[i])
+            self.ar_weights_per_ar_iteration[i]['ar_weights'].append(ar_scheduler.ar_weights[i])
         
         # Pickle AR scheduler
         self.ar_scheduler = pickle.dumps(ar_scheduler)
    
     ##------------------------------------------------------------------------.
-    def update_validation_stats(self, total_loss, dict_loss_per_AR_iteration):
+    def update_validation_stats(self, total_loss, dict_loss_per_ar_iteration):
         """Update validation loss statistics."""
         self.validation_stats = True
         # Retrieve current number of AR iterations 
-        current_AR_iterations = len(dict_loss_per_AR_iteration) - 1
+        current_ar_iterations = len(dict_loss_per_ar_iteration) - 1
                       
         # Update validation_total_loss 
         self.validation_total_loss.append(total_loss.item())
         
-        # Update validation_loss_per_AR_iteration
-        for i in range(current_AR_iterations+1):
-            self.validation_loss_per_AR_iteration[i]['iteration'].append(self.iteration)   
-            self.validation_loss_per_AR_iteration[i]['loss'].append(dict_loss_per_AR_iteration[i].item()) 
+        # Update validation_loss_per_ar_iteration
+        for i in range(current_ar_iterations+1):
+            self.validation_loss_per_ar_iteration[i]['iteration'].append(self.iteration)   
+            self.validation_loss_per_ar_iteration[i]['loss'].append(dict_loss_per_ar_iteration[i].item()) 
             
     ##------------------------------------------------------------------------.
     def reset_counter(self): 
@@ -241,10 +241,10 @@ class AR_TrainingInfo():
         # Reset iteration counter from last scoring 
         self.iteration_from_last_scoring = 0
      
-    def reset_iteration_from_last_AR_update(self):
+    def reset_iteration_from_last_ar_update(self):
         """Reset counter of iteration from last AR weight update."""
-        # Reset counter of iteration_from_last_AR_update 
-        self.iteration_from_last_AR_update = 0
+        # Reset counter of iteration_from_last_ar_update 
+        self.iteration_from_last_ar_update = 0
         
     ##------------------------------------------------------------------------.
     def print_epoch_info(self):
@@ -260,23 +260,23 @@ class AR_TrainingInfo():
         print("- Elapsed time: {elapsed_time:.2f} minutes".format(elapsed_time = (time.time() - self.epoch_time_start)/60))                                                  
 
     ##------------------------------------------------------------------------.
-    def iterations_of_AR_updates(self):
+    def iterations_of_ar_updates(self):
         """Return iterations at which the number of AR iterations has been increased."""
-        iter_AR_update = [self.AR_weights_per_AR_iteration[i]['iteration'][0] for i in range(self.AR_iterations+1)]
+        iter_ar_update = [self.ar_weights_per_ar_iteration[i]['iteration'][0] for i in range(self.ar_iterations+1)]
         # Remove first scoring iteration 
-        iter_AR_update = np.array(iter_AR_update)
-        iter_AR_update = iter_AR_update[iter_AR_update > self.score_interval].tolist()
-        return iter_AR_update
+        iter_ar_update = np.array(iter_ar_update)
+        iter_ar_update = iter_ar_update[iter_ar_update > self.score_interval].tolist()
+        return iter_ar_update
     
     ##------------------------------------------------------------------------.
-    def plot_loss_per_AR_iteration(self, 
-                                   AR_iteration,
+    def plot_loss_per_ar_iteration(self, 
+                                   ar_iteration,
                                    title=None,
                                    plot_training = True, 
                                    plot_validation = True, 
                                    plot_labels = True,
                                    plot_legend = True, 
-                                   add_AR_weights_updates = True, 
+                                   add_ar_weights_updates = True, 
                                    linestyle = "solid", 
                                    linewidth = 0.1, 
                                    xlim=None, ylim=None, 
@@ -286,7 +286,7 @@ class AR_TrainingInfo():
 
         Parameters
         ----------
-        AR_iteration : int
+        ar_iteration : int
             Number of the autoregressive iteration
         title : str, optional
             Title of the plot. The default is None.
@@ -322,13 +322,13 @@ class AR_TrainingInfo():
         if ((not plot_validation) and (not plot_training)): 
             raise ValueError("At least one between 'plot_training' and 'plot_validation' must be True.")
         ##--------------------------------------------------------------------.
-        # Check AR_iteration
-        if not isinstance(AR_iteration, int):
-            raise TypeError("'AR_iteration' must be a positive integer.")
-        if AR_iteration < 0: 
-            raise ValueError("'AR_iteration' must be a positive integer.") 
-        if AR_iteration > self.AR_iterations:
-            raise ValueError("The  maximum 'AR_iteration' is {}.".format(self.AR_iterations))
+        # Check ar_iteration
+        if not isinstance(ar_iteration, int):
+            raise TypeError("'ar_iteration' must be a positive integer.")
+        if ar_iteration < 0: 
+            raise ValueError("'ar_iteration' must be a positive integer.") 
+        if ar_iteration > self.ar_iterations:
+            raise ValueError("The  maximum 'ar_iteration' is {}.".format(self.ar_iterations))
         ##--------------------------------------------------------------------.
         # Create figure if ax not provided
         flag_ax_provided = True
@@ -337,9 +337,9 @@ class AR_TrainingInfo():
             fig, ax = plt.subplots()
         ##--------------------------------------------------------------------. 
         # Retrieve loss data to plot 
-        iterations = self.training_loss_per_AR_iteration[AR_iteration]['iteration']
-        training_loss =  self.training_loss_per_AR_iteration[AR_iteration]['loss']
-        validation_loss = self.validation_loss_per_AR_iteration[AR_iteration]['loss']
+        iterations = self.training_loss_per_ar_iteration[ar_iteration]['iteration']
+        training_loss =  self.training_loss_per_ar_iteration[ar_iteration]['loss']
+        validation_loss = self.validation_loss_per_ar_iteration[ar_iteration]['loss']
         if not plot_training: 
             training_loss = None 
         if not plot_validation: 
@@ -358,10 +358,10 @@ class AR_TrainingInfo():
                        ax=ax)
         ##--------------------------------------------------------------------.
         ## Add vertical line when AR iteration is added
-        if add_AR_weights_updates:
-            iterations_of_AR_updates = self.iterations_of_AR_updates()
-            if len(iterations_of_AR_updates) > 0: 
-                [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        if add_ar_weights_updates:
+            iterations_of_ar_updates = self.iterations_of_ar_updates()
+            if len(iterations_of_ar_updates) > 0: 
+                [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_ar_updates]
         ##--------------------------------------------------------------------.
         # If ax not provided to the function, return fig 
         if not flag_ax_provided:
@@ -375,7 +375,7 @@ class AR_TrainingInfo():
                         title="Total Loss Evolution",
                         plot_labels = True,
                         plot_legend = True, 
-                        add_AR_weights_updates = True, 
+                        add_ar_weights_updates = True, 
                         linestyle = "solid", 
                         linewidth = 0.1, 
                         xlim=None, ylim=None, 
@@ -426,10 +426,10 @@ class AR_TrainingInfo():
                        ax=ax)
         ##--------------------------------------------------------------------.  
         ## Add vertical line when AR iteration is added
-        if add_AR_weights_updates:
-            iterations_of_AR_updates = self.iterations_of_AR_updates()
-            if len(iterations_of_AR_updates) > 0: 
-                [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        if add_ar_weights_updates:
+            iterations_of_ar_updates = self.iterations_of_ar_updates()
+            if len(iterations_of_ar_updates) > 0: 
+                [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_ar_updates]
         ##--------------------------------------------------------------------.
         # If ax not provided to the function, return fig 
         if not flag_ax_provided:
@@ -439,7 +439,7 @@ class AR_TrainingInfo():
             return ax
         ##--------------------------------------------------------------------.
 
-    def plot_AR_weights(self, normalized=True, xlim=None, ylim=(0,1.05), ax=None):
+    def plot_ar_weights(self, normalized=True, xlim=None, ylim=(0,1.05), ax=None):
         """
         Plot the autoregressive weights evolution.
 
@@ -478,31 +478,31 @@ class AR_TrainingInfo():
         ##--------------------------------------------------------------------.
         # Plot absolute AR weights 
         if not normalized:    
-            for i in range(self.AR_iterations + 1):
-                ax.plot(self.AR_weights_per_AR_iteration[i]['iteration'],
-                        self.AR_weights_per_AR_iteration[i]['AR_absolute_weights'],
+            for i in range(self.ar_iterations + 1):
+                ax.plot(self.ar_weights_per_ar_iteration[i]['iteration'],
+                        self.ar_weights_per_ar_iteration[i]['ar_absolute_weights'],
                         antialiased = True)
             ax.set_ylabel("Absolute weights")
             ax.set_title("Absolute AR weights")  
         ##--------------------------------------------------------------------.
         # Plot normalized AR weights     
         if normalized: 
-            for i in range(self.AR_iterations + 1):
-                plt.plot(self.AR_weights_per_AR_iteration[i]['iteration'],
-                         self.AR_weights_per_AR_iteration[i]['AR_weights'], 
+            for i in range(self.ar_iterations + 1):
+                plt.plot(self.ar_weights_per_ar_iteration[i]['iteration'],
+                         self.ar_weights_per_ar_iteration[i]['ar_weights'], 
                          antialiased = True)
             ax.set_ylabel("Normalized weights")
             ax.set_title("Normalized AR weights")      
         ##--------------------------------------------------------------------.
         ## Add vertical line when AR iteration is added
-        iterations_of_AR_updates = self.iterations_of_AR_updates()
-        if len(iterations_of_AR_updates) > 0: 
-            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        iterations_of_ar_updates = self.iterations_of_ar_updates()
+        if len(iterations_of_ar_updates) > 0: 
+            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_ar_updates]
         ##--------------------------------------------------------------------.
         ## Add xlabel 
         ax.set_xlabel("Iteration")
         ## Add legend 
-        ax.legend(labels=list(range(self.AR_iterations + 1)), title="AR iteration", loc='lower left')
+        ax.legend(labels=list(range(self.ar_iterations + 1)), title="AR iteration", loc='lower left')
         ##--------------------------------------------------------------------.
         # Optional limits settings
         ax.set_xlim(xlim)
@@ -520,8 +520,8 @@ class AR_TrainingInfo():
         ##--------------------------------------------------------------------.   
         ### - Plot the loss at all AR iterations (in one figure)
         fig, ax = plt.subplots()
-        for AR_iteration in range(self.AR_iterations+1):
-            ax = self.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+        for ar_iteration in range(self.ar_iterations+1):
+            ax = self.plot_loss_per_ar_iteration(ar_iteration = ar_iteration, 
                                                  ax = ax,
                                                  linestyle="solid",
                                                  linewidth=0.3,
@@ -529,8 +529,8 @@ class AR_TrainingInfo():
                                                  plot_validation = False, 
                                                  plot_labels = True,
                                                  plot_legend = False,
-                                                 add_AR_weights_updates=False)
-        leg = ax.legend(labels=list(range(self.AR_iterations + 1)), 
+                                                 add_ar_weights_updates=False)
+        leg = ax.legend(labels=list(range(self.ar_iterations + 1)), 
                         title="AR iteration", 
                         loc='upper right')
         # - Make legend line more thick
@@ -538,8 +538,8 @@ class AR_TrainingInfo():
             line.set_linewidth(2)
         # - Reset color cycling 
         plt.gca().set_prop_cycle(None) 
-        for AR_iteration in range(self.AR_iterations+1):
-            ax = self.plot_loss_per_AR_iteration(AR_iteration = AR_iteration, 
+        for ar_iteration in range(self.ar_iterations+1):
+            ax = self.plot_loss_per_ar_iteration(ar_iteration = ar_iteration, 
                                                  ax = ax,
                                                  linestyle="dashed",
                                                  linewidth=0.3,
@@ -547,26 +547,26 @@ class AR_TrainingInfo():
                                                  plot_training = False, 
                                                  plot_labels = False,
                                                  plot_legend = False,
-                                                 add_AR_weights_updates=False)  
+                                                 add_ar_weights_updates=False)  
         # - Add vertical line when AR iteration is added
-        iterations_of_AR_updates = self.iterations_of_AR_updates()
-        if len(iterations_of_AR_updates) > 0: 
-            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_AR_updates]
+        iterations_of_ar_updates = self.iterations_of_ar_updates()
+        if len(iterations_of_ar_updates) > 0: 
+            [ax.axvline(x=x, color=(0, 0, 0, 0.90), linewidth=0.1) for x in iterations_of_ar_updates]
         # - Add title 
         ax.set_title("Loss evolution at each AR iteration")
         # - Save figure
         if exp_dir is not None:
-            fig.savefig(os.path.join(exp_dir, "figs/training_info/Loss_at_all_AR_iterations.png")) 
+            fig.savefig(os.path.join(exp_dir, "figs/training_info/Loss_at_all_ar_iterations.png")) 
         else:
             plt.show()
         ##--------------------------------------------------------------------.   
         ### - Plot the loss at each AR iteration (in separate figures)
-        for AR_iteration in range(self.AR_iterations+1):
-            fname = os.path.join(exp_dir, "figs/training_info/Loss_at_AR_{}.png".format(AR_iteration)) 
-            fig = self.plot_loss_per_AR_iteration(AR_iteration = AR_iteration,
+        for ar_iteration in range(self.ar_iterations+1):
+            fname = os.path.join(exp_dir, "figs/training_info/Loss_at_ar_{}.png".format(ar_iteration)) 
+            fig = self.plot_loss_per_ar_iteration(ar_iteration = ar_iteration,
                                                   linewidth=0.6,
                                                   ylim = ylim,
-                                                  title="Loss evolution at AR iteration {}".format(AR_iteration))
+                                                  title="Loss evolution at AR iteration {}".format(ar_iteration))
             if exp_dir is not None:
                 fig.savefig(fname) 
             else:
@@ -581,15 +581,15 @@ class AR_TrainingInfo():
         
         ##--------------------------------------------------------------------.
         ### - Plot AR weights normalized 
-        fig = self.plot_AR_weights(normalized=True)
+        fig = self.plot_ar_weights(normalized=True)
         if exp_dir is not None:
-            fig.savefig(os.path.join(exp_dir, "figs/training_info/AR_Normalized_Weights.png"))
+            fig.savefig(os.path.join(exp_dir, "figs/training_info/ar_Normalized_Weights.png"))
         else:
             plt.show()
         ### - Plot absolute AR weights  
-        fig = self.plot_AR_weights(normalized=False)
+        fig = self.plot_ar_weights(normalized=False)
         if exp_dir is not None:
-            fig.savefig(os.path.join(exp_dir, "figs/training_info/AR_Absolute_Weights.png")) 
+            fig.savefig(os.path.join(exp_dir, "figs/training_info/ar_Absolute_Weights.png")) 
         else:
             plt.show()
         ##--------------------------------------------------------------------.

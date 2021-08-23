@@ -29,7 +29,7 @@ from modules.utils_config import read_config_file
 from modules.utils_config import write_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
-from modules.utils_config import get_AR_settings
+from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
@@ -40,8 +40,8 @@ from modules.utils_config import print_model_description
 from modules.utils_config import print_dim_info
 
 from modules.utils_models import get_pygsp_graph
-from modules.utils_io import get_AR_model_diminfo
-from modules.utils_io import check_AR_DataArrays 
+from modules.utils_io import get_ar_model_diminfo
+from modules.utils_io import check_ar_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
@@ -107,28 +107,30 @@ warnings.filterwarnings("ignore")
 #   --> Example: ['sample','time', 'node', ..., 'feature']
 
 ##----------------------------------------------------------------------------.
-
+data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
+exp_dir = "/data/weather_prediction/experiments_GG/new"
+cfg_path = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
+data_sampling_dir = os.path.join(data_dir, "Healpix_400km")
 # data_dir = "/data/weather_prediction/data"
 # data_dir =  "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
-# exp_dir = "/data/weather_prediction/experiments_GG"
-# data_sampling_dir = "/home/ghiggi/Projects/DeepSphere/data/preprocessed/ERA5_HRES/Healpix_100km"
+# exp_dir = "/data/weather_prediction/experiments_GG/new"
 
-data_dir = "/home/ghiggi/Projects/DeepSphere/data/toy_data/ERA5_HRES/"
-exp_dir =  "/home/ghiggi/Projects/DeepSphere/data/experiments_GG"
-cfg_path = './configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
-force = True
-cfg = read_config_file(fpath=cfg_path)
+# data_dir = "/home/ghiggi/Projects/DeepSphere/data/toy_data/ERA5_HRES/"
+# exp_dir =  "/home/ghiggi/Projects/DeepSphere/data/experiments_GG"
+# cfg_path = './configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
+# force = True
+# cfg = read_config_file(fpath=cfg_path)
     
-# cfg['training_settings']["training_batch_size"] = 2
-cfg['dataloader_settings']["random_shuffling"] = False
-cfg['training_settings']["seed_random_shuffling"] = 10
-cfg['training_settings']["seed_model_weights"] = 10
-cfg['training_settings']["deterministic_training"] = True
+# # cfg['training_settings']["training_batch_size"] = 2
+# cfg['dataloader_settings']["random_shuffling"] = False
+# cfg['training_settings']["seed_random_shuffling"] = 10
+# cfg['training_settings']["seed_model_weights"] = 10
+# cfg['training_settings']["deterministic_training"] = True
 
-# 'State-RNN-AR6-UNetSpherical-Healpix_400km-Graph_knn-k20-MaxAreaPooling
-cfg['model_settings']["model_name_suffix"] = ""      # Model_1, Model_2
-cfg['model_settings']["model_name_prefix"] = "State" # StateIncrement, Anomaly
-cfg['model_settings']["architecture_name"] = 'UNetSpherical' 
+# # 'State-RNN-AR6-UNetSpherical-Healpix_400km-Graph_knn-k20-MaxAreaPooling
+# cfg['model_settings']["model_name_suffix"] = ""      # Model_1, Model_2
+# cfg['model_settings']["model_name_prefix"] = "State" # StateIncrement, Anomaly
+# cfg['model_settings']["architecture_name"] = 'UNetSpherical' 
 
 #-----------------------------------------------------------------------------.
 def main(cfg_path, exp_dir, data_dir, force=False):
@@ -137,11 +139,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     t_start = time.time()
     ### Read experiment configuration settings 
     cfg = read_config_file(fpath=cfg_path)
-    
+
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
-    AR_settings = get_AR_settings(cfg)
+    ar_settings = get_ar_settings(cfg)
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
 
@@ -156,11 +158,14 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # ds_dynamic, ds_bc = xr.align(ds_dynamic, ds_bc) 
     # - Select dynamic features 
     da_dynamic = da_dynamic.sel(feature=["z500", "t850"])
-    
-    da_training_dynamic = da_dynamic
-    da_training_bc = da_dynamic
-    da_validation_dynamic = da_dynamic
-    da_validation_bc = da_bc
+
+    ##------------------------------------------------------------------------.
+    # Preload data in memory
+    t_i = time.time() 
+    da_dynamic = da_dynamic.compute()
+    da_bc = da_bc.compute()
+    ds_static = ds_static.compute()
+    print('- Preload data in memory: {:.2f} minutes'.format((time.time() - t_i)/60))
     ##------------------------------------------------------------------------.
     # - Prepare static data 
     # - Keep land-surface mask as it is 
@@ -173,8 +178,8 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # ds_static = xr.merge([ds_static, ds_slt_OHE])
     # ds_static = ds_static.drop('slt')
     # - Convert to DataArray 
-    da_static = ds_static.to_array(dim="feature")    
-    
+    da_static = ds_static.to_array(dim="feature")  
+
     ##------------------------------------------------------------------------.
     #### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
@@ -182,49 +187,49 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
     # # - Create single scaler object
     scaler = SequentialScaler(dynamic_scaler, bc_scaler)
-    
+
     ##-----------------------------------------------------------------------------.
     #### Split data into train, test and validation set 
     # - Defining time split for training 
     training_years = np.array(['1980-01-01T07:00','2014-12-31T23:00'], dtype='M8[m]')  
     validation_years = np.array(['2015-01-01T00:00','2016-12-31T23:00'], dtype='M8[m]')    
     test_years = np.array(['2017-01-01T00:00','2018-12-31T23:00'], dtype='M8[m]')   
-    
-    # # - Split data sets 
-    # t_i = time.time()
-    # da_training_dynamic = da_dynamic.sel(time=slice(training_years[0], training_years[-1]))
-    # da_training_bc = da_bc.sel(time=slice(training_years[0], training_years[-1]))
-      
-    # da_validation_dynamic = da_dynamic.sel(time=slice(validation_years[0], validation_years[-1]))
-    # da_validation_bc = da_bc.sel(time=slice(validation_years[0], validation_years[-1]))
-    
-    # da_test_dynamic = da_dynamic.sel(time=slice(test_years[0], test_years[-1]))
-    # da_test_bc = da_bc.sel(time=slice(test_years[0], test_years[-1]))
-    
-    # print('- Splitting data into train, validation and test sets: {:.2f}s'.format(time.time() - t_i))
-    
-    # ##-----------------------------------------------------------------------------.
-    # ### Check DataArrays      
-    # check_AR_DataArrays(da_training_dynamic = da_training_dynamic,
-    #                     da_training_bc = da_training_bc,  
-    #                     da_static = da_static,
-    #                     da_validation_dynamic = da_validation_dynamic,
-    #                     da_validation_bc = da_validation_bc,
-    #                     verbose=True)    
-    # check_AR_DataArrays(da_training_dynamic = da_test_dynamic,
-    #                     da_training_bc = da_test_bc,  
-    #                     da_static = da_static,
-    #                     verbose=True)   
+
+    # - Split data sets 
+    t_i = time.time()
+    da_training_dynamic = da_dynamic.sel(time=slice(training_years[0], training_years[-1]))
+    da_training_bc = da_bc.sel(time=slice(training_years[0], training_years[-1]))
+        
+    da_validation_dynamic = da_dynamic.sel(time=slice(validation_years[0], validation_years[-1]))
+    da_validation_bc = da_bc.sel(time=slice(validation_years[0], validation_years[-1]))
+
+    da_test_dynamic = da_dynamic.sel(time=slice(test_years[0], test_years[-1]))
+    da_test_bc = da_bc.sel(time=slice(test_years[0], test_years[-1]))
+
+    print('- Splitting data into train, validation and test sets: {:.2f}s'.format(time.time() - t_i))
+
+    ##-----------------------------------------------------------------------------.
+    ### Check DataArrays      
+    check_ar_DataArrays(da_training_dynamic = da_training_dynamic,
+                        da_training_bc = da_training_bc,  
+                        da_static = da_static,
+                        da_validation_dynamic = da_validation_dynamic,
+                        da_validation_bc = da_validation_bc,
+                        verbose=True)    
+    check_ar_DataArrays(da_training_dynamic = da_test_dynamic,
+                        da_training_bc = da_test_bc,  
+                        da_static = da_static,
+                        verbose=True)   
 
     ##------------------------------------------------------------------------.
     ### Define pyTorch settings (before PyTorch model definition)
     # - Here inside is eventually set the seed for fixing model weights initialization
     # - Here inside the training precision is set (currently only float32 works)
     device = set_pytorch_settings(training_settings)
-    
+
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
-    dim_info = get_AR_model_diminfo(AR_settings=AR_settings,
+    dim_info = get_ar_model_diminfo(ar_settings=ar_settings,
                                     da_dynamic=da_training_dynamic, 
                                     da_static=da_static, 
                                     da_bc=da_training_bc)
@@ -232,7 +237,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # - Add dim info to cfg file 
     model_settings['dim_info'] = dim_info
     cfg['model_settings']['dim_info'] = dim_info 
-    
+
     ##------------------------------------------------------------------------.
     # Print model settings 
     print_model_description(cfg)
@@ -311,20 +316,20 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     if training_settings["ar_training_strategy"] == "RNN":
         ar_scheduler = AR_Scheduler(method = "LinearStep",
                                     factor = 0.0005,
-                                    fixed_AR_weights = [0],
-                                    initial_AR_absolute_weights = [1,1]) 
+                                    fixed_ar_weights = [0],
+                                    initial_ar_absolute_weights = [1,1]) 
     # - FOR AR : Do not decay weights once they growthed
     elif training_settings["ar_training_strategy"] == "AR":                                
         ar_scheduler = AR_Scheduler(method = "LinearStep",
                                     factor = 0.0005,
-                                    fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
-                                    initial_AR_absolute_weights = [1, 1])   
+                                    fixed_ar_weights = np.arange(0, ar_settings['ar_iterations']),
+                                    initial_ar_absolute_weights = [1, 1])   
     else:
         raise NotImplementedError("'ar_training_strategy' must be either 'AR' or 'RNN'.")
 
     ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
-    # - Used also to update AR_scheduler (aka increase AR iterations) if 'AR_iterations' not reached.
+    # - Used also to update ar_scheduler (aka increase AR iterations) if 'ar_iterations' not reached.
     patience = 500
     minimum_iterations = 500
     minimum_improvement = 0.001 # 0 to not stop 
@@ -353,11 +358,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                                early_stopping = early_stopping,
                                                # Data
                                                da_training_dynamic = da_training_dynamic,
-                                               # da_validation_dynamic = da_validation_dynamic,
+                                               da_validation_dynamic = da_validation_dynamic,
                                                da_static = da_static,              
                                                da_training_bc = da_training_bc,         
-                                               # da_validation_bc = da_validation_bc,  
-                                               # scaler = scaler, 
+                                               da_validation_bc = da_validation_bc,  
+                                               scaler = scaler, 
                                                # Dataloader settings
                                                num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
                                                autotune_num_workers = dataloader_settings['autotune_num_workers'], 
@@ -369,11 +374,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                                pin_memory = dataloader_settings['pin_memory'], 
                                                asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'], 
                                                # Autoregressive settings  
-                                               input_k = AR_settings['input_k'], 
-                                               output_k = AR_settings['output_k'], 
-                                               forecast_cycle = AR_settings['forecast_cycle'],                         
-                                               AR_iterations = AR_settings['AR_iterations'], 
-                                               stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
+                                               input_k = ar_settings['input_k'], 
+                                               output_k = ar_settings['output_k'], 
+                                               forecast_cycle = ar_settings['forecast_cycle'],                         
+                                               ar_iterations = ar_settings['ar_iterations'], 
+                                               stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
                                                # Training settings 
                                                ar_training_strategy = training_settings["ar_training_strategy"],
                                                training_batch_size = training_settings['training_batch_size'], 
@@ -417,11 +422,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                              pin_memory = dataloader_settings['pin_memory'],
                                              asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'], 
                                              # Autoregressive settings
-                                             input_k = AR_settings['input_k'], 
-                                             output_k = AR_settings['output_k'], 
-                                             forecast_cycle = AR_settings['forecast_cycle'],                         
-                                             stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
-                                             AR_iterations = 20,        # How many time to autoregressive iterate
+                                             input_k = ar_settings['input_k'], 
+                                             output_k = ar_settings['output_k'], 
+                                             forecast_cycle = ar_settings['forecast_cycle'],                         
+                                             stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
+                                             ar_iterations = 20,        # How many time to autoregressive iterate
                                              # Save options 
                                              zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 
@@ -465,10 +470,10 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     print("- Create verification summary plots and maps")
     # - Add mesh information 
     # ---> TODO: To generalize based on cfg sampling !!!
-    pygsp_graph = get_pygsp_graph(sampling = model_settings['sampling'], 
-                                  resolution = model_settings['resolution'],
-                                  knn = model_settings['knn'])
-    ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
+    # pygsp_graph = get_pygsp_graph(sampling = model_settings['sampling'], 
+    #                               resolution = model_settings['resolution'],
+    #                               knn = model_settings['knn'])
+    # ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
     
     # - Compute global and latitudinal skill summary statistics    
@@ -537,14 +542,14 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
 if __name__ == '__main__':
     default_data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
-    default_exp_dir = "/data/weather_prediction/experiments_GG"
-    default_config = './configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
+    default_exp_dir = "/data/weather_prediction/experiments_GG/new"
+    default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
     parser = argparse.ArgumentParser(description='Training a numerical weather prediction model emulator')
     parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--data_dir', type=str, default=default_data_dir)
     parser.add_argument('--exp_dir', type=str, default=default_exp_dir)
     parser.add_argument('--cuda', type=str, default='0')
-    parser.add_argument('--force', type=str, default='False')                    
+    parser.add_argument('--force', type=str, default='True')                    
     
     args = parser.parse_args()
     os.environ["CUDA_DEVICE_ORDER"] ="PCI_BUS_ID" 

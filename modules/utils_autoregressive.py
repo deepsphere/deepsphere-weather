@@ -54,40 +54,40 @@ def get_first_valid_idx(input_k):
         past_idxs = abs(min(past_idxs)) 
     return past_idxs
 
-def get_last_valid_idx(output_k, forecast_cycle, AR_iterations):
+def get_last_valid_idx(output_k, forecast_cycle, ar_iterations):
     """Provide the last available index for training, once accounted for all forecasted timesteps."""
     future_idxs = output_k[output_k >= 0]
     if future_idxs.size == 0: # empty 
         future_idxs = 0  
     else: 
         future_idxs = abs(max(future_idxs)) 
-    return AR_iterations*forecast_cycle + future_idxs
+    return ar_iterations*forecast_cycle + future_idxs
 
 #-----------------------------------------------------------------------------.
 ##############################################
 ### Indexing dictionaries for AR training ####
 ############################################## 
 # - X and Y dictionary are relative to idx_start=0 
-def get_idx_lag(idx_start, AR_iteration, forecast_cycle, input_k):
+def get_idx_lag(idx_start, ar_iteration, forecast_cycle, input_k):
     """Provide the indices  of past predictors."""
-    return idx_start + (forecast_cycle*AR_iteration) + input_k
+    return idx_start + (forecast_cycle*ar_iteration) + input_k
 
-def get_idx_forecast(idx_start, AR_iteration, forecast_cycle, output_k):
+def get_idx_forecast(idx_start, ar_iteration, forecast_cycle, output_k):
     """Provide the indices of the forecasts."""
-    return idx_start + (forecast_cycle*AR_iteration) + output_k
+    return idx_start + (forecast_cycle*ar_iteration) + output_k
 
-def get_dict_Y(AR_iterations, forecast_cycle, output_k):
+def get_dict_Y(ar_iterations, forecast_cycle, output_k):
     """Provide information to load the labels required by an AR model."""
     dict_Y = {}
-    for i in range(AR_iterations+1):
-        dict_Y[i] = get_idx_forecast(idx_start=0, AR_iteration=i, forecast_cycle=forecast_cycle, output_k=output_k)
+    for i in range(ar_iterations+1):
+        dict_Y[i] = get_idx_forecast(idx_start=0, ar_iteration=i, forecast_cycle=forecast_cycle, output_k=output_k)
     return dict_Y 
        
-def get_dict_X_dynamic(AR_iterations, forecast_cycle, input_k):
+def get_dict_X_dynamic(ar_iterations, forecast_cycle, input_k):
     """Provide information to load the dynamic data required by an AR model."""
     dict_X_past = {}
-    for i in range(AR_iterations+1):
-        idxs = get_idx_lag(idx_start=0, AR_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
+    for i in range(ar_iterations+1):
+        idxs = get_idx_lag(idx_start=0, ar_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
         idxs_past_data = idxs[idxs < 0]
         # Indexes of past data  
         if (idxs_past_data.size == 0):
@@ -96,25 +96,25 @@ def get_dict_X_dynamic(AR_iterations, forecast_cycle, input_k):
             dict_X_past[i] = idxs_past_data 
     return dict_X_past
 
-def get_dict_X_bc(AR_iterations, forecast_cycle, input_k):
+def get_dict_X_bc(ar_iterations, forecast_cycle, input_k):
     """Provide information to load the boundary conditions data required by an AR model."""
     dict_X_bc = {}
-    for i in range(AR_iterations+1):
-        dict_X_bc[i] = get_idx_lag(idx_start=0, AR_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
+    for i in range(ar_iterations+1):
+        dict_X_bc[i] = get_idx_lag(idx_start=0, ar_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
     return dict_X_bc 
          
-def get_dict_stack_info(AR_iterations, forecast_cycle, input_k, output_k, stack_most_recent_prediction = True):
+def get_dict_stack_info(ar_iterations, forecast_cycle, input_k, output_k, stack_most_recent_prediction = True):
     """Provide the information required to stack the iterative predictions of an AR model."""
-    input_k = check_input_k(input_k, AR_iterations)
+    input_k = check_input_k(input_k, ar_iterations)
     output_k = check_output_k(output_k)
     # Compute index of Y labels 
     dict_Y = {}
-    for i in range(AR_iterations+1):
-        dict_Y[i] = get_idx_forecast(idx_start=0, AR_iteration=i, forecast_cycle=forecast_cycle, output_k=output_k)
+    for i in range(ar_iterations+1):
+        dict_Y[i] = get_idx_forecast(idx_start=0, ar_iteration=i, forecast_cycle=forecast_cycle, output_k=output_k)
     # Compute index of future X that need to be stacked from previous predicted Y
     dict_X_future = {}
-    for i in range(AR_iterations+1):
-        idxs = get_idx_lag(idx_start=0, AR_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
+    for i in range(ar_iterations+1):
+        idxs = get_idx_lag(idx_start=0, ar_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
         idxs_future_data = idxs[idxs >= 0]  
         if (idxs_future_data.size == 0):
             dict_X_future[i] = None 
@@ -151,7 +151,7 @@ def get_dict_stack_info(AR_iterations, forecast_cycle, input_k, output_k, stack_
     dict_Y_to_remove = {}
     idx_arr_removed = np.array([]) # Initialize 
     # Start looping from the last forecast iteration (to the first)
-    for i in range(AR_iterations+1)[::-1]: 
+    for i in range(ar_iterations+1)[::-1]: 
         l_tuple = dict_Y_to_stack[i]
         # Skip leadtime when no Y data to stack 
         if l_tuple is None: 
@@ -173,7 +173,7 @@ def get_dict_stack_info(AR_iterations, forecast_cycle, input_k, output_k, stack_
 ###############
 ### Checks ####
 ###############
-def check_input_k(input_k, AR_iterations):  
+def check_input_k(input_k, ar_iterations):  
     """Check validity of 'input_k' argument."""
     if isinstance(input_k, list):  
         input_k = np.array(input_k)  
@@ -181,7 +181,7 @@ def check_input_k(input_k, AR_iterations):
     if not is_sorted_array(input_k, increasing=True): 
         raise ValueError("Provide input_k sorted increasingly")
     # Checks for forecasting mode 
-    if AR_iterations > 0:
+    if ar_iterations > 0:
         if np.any(input_k == 0): 
             raise ValueError("input_k contains values equal to 0. Past timesteps must be specified with negative values")    
         if np.all(input_k > 0): 
@@ -200,23 +200,23 @@ def check_output_k(output_k):
         raise ValueError("output_k must start with a 0 value. 0 indicates the 'current' timestep to predict.")    
     return output_k    
 
-def check_AR_iterations(AR_iterations):
-    """Check validity of 'AR_iterations' argument."""
-    if not is_number(AR_iterations):
-        raise TypeError("'AR_iterations' must be a single integer number")
-    if not is_natural_number(AR_iterations):
-        raise ValueError("'AR_iterations' must be a positive integer value")
-    if AR_iterations < 0:
-        raise ValueError("'AR_iterations' must be a positive integer value")       
-    if AR_iterations >= 1:
-        print(' - Autoregressive training with %d AR iterations --> Specified.'% AR_iterations)
-    AR_iterations = int(AR_iterations)
-    return AR_iterations 
+def check_ar_iterations(ar_iterations):
+    """Check validity of 'ar_iterations' argument."""
+    if not is_number(ar_iterations):
+        raise TypeError("'ar_iterations' must be a single integer number")
+    if not is_natural_number(ar_iterations):
+        raise ValueError("'ar_iterations' must be a positive integer value")
+    if ar_iterations < 0:
+        raise ValueError("'ar_iterations' must be a positive integer value")       
+    if ar_iterations >= 1:
+        print(' - Autoregressive training with %d AR iterations --> Specified.'% ar_iterations)
+    ar_iterations = int(ar_iterations)
+    return ar_iterations 
 
-def check_forecast_cycle(forecast_cycle, AR_iterations):
+def check_forecast_cycle(forecast_cycle, ar_iterations):
     """Check validity of 'forecast_cycle' argument."""
-    if not is_number(AR_iterations):
-        raise TypeError("'AR_iterations' must be a single integer number")
+    if not is_number(ar_iterations):
+        raise TypeError("'ar_iterations' must be a single integer number")
     if not is_natural_number(forecast_cycle):
         raise ValueError("'forecast_cycle' must be a positive integer value")
     if forecast_cycle < 1:
@@ -226,24 +226,24 @@ def check_forecast_cycle(forecast_cycle, AR_iterations):
     forecast_cycle = int(forecast_cycle)
     return forecast_cycle   
 
-def check_AR_settings(input_k, output_k, forecast_cycle, AR_iterations, stack_most_recent_prediction):
+def check_ar_settings(input_k, output_k, forecast_cycle, ar_iterations, stack_most_recent_prediction):
     """Check that AR settings arguments are valid."""
-    input_k = check_input_k(input_k=input_k, AR_iterations=AR_iterations)   
+    input_k = check_input_k(input_k=input_k, ar_iterations=ar_iterations)   
     output_k = check_output_k(output_k=output_k)
-    AR_iterations = check_AR_iterations(AR_iterations=AR_iterations)
-    forecast_cycle = check_forecast_cycle(forecast_cycle=forecast_cycle, AR_iterations=AR_iterations) 
+    ar_iterations = check_ar_iterations(ar_iterations=ar_iterations)
+    forecast_cycle = check_forecast_cycle(forecast_cycle=forecast_cycle, ar_iterations=ar_iterations) 
     ##------------------------------------------------------------------------.
     # Check autoregressive training is feasible
-    if AR_iterations >= 1:
-        dict_Y_to_stack, _ = get_dict_stack_info(AR_iterations=AR_iterations,
+    if ar_iterations >= 1:
+        dict_Y_to_stack, _ = get_dict_stack_info(ar_iterations=ar_iterations,
                                                  forecast_cycle=forecast_cycle, 
                                                  input_k=input_k, output_k=output_k, 
                                                  stack_most_recent_prediction = stack_most_recent_prediction)
-    # if AR_iterations >= 1:
-    #     idxs_lag_0 = get_idx_lag(idx_start=0, AR_iteration=0, forecast_cycle=forecast_cycle, input_k=input_k)
-    #     idxs_forecasted_0 = get_idx_forecast(idx_start=0, AR_iteration=0, forecast_cycle=forecast_cycle, output_k=output_k)   
-    #     idxs_lag_1 = get_idx_lag(idx_start=0, AR_iteration=1, forecast_cycle=forecast_cycle, input_k=input_k)
-    #     # idxs_forecasted_1 = get_idx_forecast(idx_start=0, AR_iteration=1, forecast_cycle=forecast_cycle, output_k=output_k) 
+    # if ar_iterations >= 1:
+    #     idxs_lag_0 = get_idx_lag(idx_start=0, ar_iteration=0, forecast_cycle=forecast_cycle, input_k=input_k)
+    #     idxs_forecasted_0 = get_idx_forecast(idx_start=0, ar_iteration=0, forecast_cycle=forecast_cycle, output_k=output_k)   
+    #     idxs_lag_1 = get_idx_lag(idx_start=0, ar_iteration=1, forecast_cycle=forecast_cycle, input_k=input_k)
+    #     # idxs_forecasted_1 = get_idx_forecast(idx_start=0, ar_iteration=1, forecast_cycle=forecast_cycle, output_k=output_k) 
     #     idxs_available = np.concatenate((idxs_lag_0, idxs_forecasted_0))
     #     if np.any([v not in idxs_available for v in idxs_lag_1]):
     #         raise ValueError("Review the autoregressive settings. Autoregressive training is not allowed with the current configuration!")
@@ -253,17 +253,17 @@ def check_AR_settings(input_k, output_k, forecast_cycle, AR_iterations, stack_mo
 ##############################
 ### Plot AR configuration ####
 ##############################
-def _arr_window_info(input_k, output_k, forecast_cycle, AR_iterations, past_margin=0, future_margin=0):  
+def _arr_window_info(input_k, output_k, forecast_cycle, ar_iterations, past_margin=0, future_margin=0):  
     """Retrieve information of the data temporal window required for 1 training loop."""
     past_idxs = past_margin + get_first_valid_idx(input_k=input_k)    
-    future_idxs = future_margin + get_last_valid_idx(output_k=output_k, forecast_cycle=forecast_cycle, AR_iterations=AR_iterations)
+    future_idxs = future_margin + get_last_valid_idx(output_k=output_k, forecast_cycle=forecast_cycle, ar_iterations=ar_iterations)
     idx_t_0 = past_idxs
     width = idx_t_0 + future_idxs + 1
-    height = AR_iterations + 1    
+    height = ar_iterations + 1    
     return idx_t_0, width, height 
 
-def plot_AR_settings(input_k, output_k, forecast_cycle, 
-                     AR_iterations, stack_most_recent_prediction=True,
+def plot_ar_settings(input_k, output_k, forecast_cycle, 
+                     ar_iterations, stack_most_recent_prediction=True,
                      past_margin=0, future_margin=0, hatch=True):
     """Plot the model AR configuration."""
     ##------------------------------------------------------------------------.
@@ -271,19 +271,19 @@ def plot_AR_settings(input_k, output_k, forecast_cycle,
     idx_start, width, height = _arr_window_info(input_k=input_k, 
                                                 output_k=output_k, 
                                                 forecast_cycle=forecast_cycle,
-                                                AR_iterations=AR_iterations,
+                                                ar_iterations=ar_iterations,
                                                 past_margin=past_margin,
                                                 future_margin=future_margin) 
     arr = np.zeros(shape = (height, width))
     ##------------------------------------------------------------------------.
     # Create hatching array (only for forecasting mode)
-    if ((AR_iterations >= 1) and hatch):
+    if ((ar_iterations >= 1) and hatch):
         hatch_arr = np.zeros(shape = (height, width))
-        dict_Y_to_stack, _ = get_dict_stack_info(AR_iterations=AR_iterations,
+        dict_Y_to_stack, _ = get_dict_stack_info(ar_iterations=ar_iterations,
                                                  forecast_cycle=forecast_cycle, 
                                                  input_k=input_k, output_k=output_k, 
                                                  stack_most_recent_prediction = stack_most_recent_prediction)
-        dict_Y = get_dict_Y(AR_iterations=AR_iterations, forecast_cycle=forecast_cycle, output_k=output_k)
+        dict_Y = get_dict_Y(ar_iterations=ar_iterations, forecast_cycle=forecast_cycle, output_k=output_k)
         for i in range(height):  
             if dict_Y_to_stack[i] is not None: 
                 for tpl in dict_Y_to_stack[i]:
@@ -292,8 +292,8 @@ def plot_AR_settings(input_k, output_k, forecast_cycle,
     # Simulate data selection
     idxs_forecasted = None # Just to avoid error remark in if in loop below
     for i in range(height):  
-        idxs_lag = get_idx_lag(idx_start=idx_start, AR_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
-        idxs_forecasted = get_idx_forecast(idx_start=idx_start, AR_iteration=i, forecast_cycle=forecast_cycle, output_k=output_k)
+        idxs_lag = get_idx_lag(idx_start=idx_start, ar_iteration=i, forecast_cycle=forecast_cycle, input_k=input_k)
+        idxs_forecasted = get_idx_forecast(idx_start=idx_start, ar_iteration=i, forecast_cycle=forecast_cycle, output_k=output_k)
         arr[i, idxs_lag] = 1
         arr[i, idxs_forecasted] = 2
         
@@ -302,7 +302,7 @@ def plot_AR_settings(input_k, output_k, forecast_cycle,
     fig, ax = plt.subplots()
     ax.imshow(arr, aspect="auto")
     # - Add hatching (if forecasting mode) 
-    if ((AR_iterations >= 1) and hatch):
+    if ((ar_iterations >= 1) and hatch):
         hatch_arr = np.ma.masked_less(hatch_arr, 1)
         ax.pcolor(np.arange(width+1)-.5, np.arange(height+1)-.5, hatch_arr, 
                   hatch='//', alpha=0.)
@@ -314,7 +314,7 @@ def plot_AR_settings(input_k, output_k, forecast_cycle,
         ax.grid(which="minor", color="black", linestyle='-', linewidth=1)
         ax.tick_params(which="minor", length=0, bottom=False, left=False)
     # - Plot starting time 
-    plt.axvline(x=idx_start - 0.5, ymin=0, ymax=AR_iterations+1, c="red")
+    plt.axvline(x=idx_start - 0.5, ymin=0, ymax=ar_iterations+1, c="red")
        
     # - Set axis ticks
     ax.set_xticks(np.arange(width))  

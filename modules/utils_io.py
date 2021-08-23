@@ -141,7 +141,7 @@ def check_dimnames_Dataset(ds, required_dimnames, ds_name):
         raise ValueError("The {} must have also the '{}' dimension".format(ds_name, missing_dims))
         
 #-----------------------------------------------------------------------------.
-def _check_AR_DataArray_dimnames(da_dynamic = None,
+def _check_ar_DataArray_dimnames(da_dynamic = None,
                                  da_bc = None, 
                                  da_static = None):
     """Check the dimension names of DataArray required for AR training and predictions."""
@@ -164,7 +164,7 @@ def _check_AR_DataArray_dimnames(da_dynamic = None,
         check_dimnames_DataArray(da = da_bc, da_name = "bc DataArray",
                                  required_dimnames=[time_dim, node_dim, variable_dim])
 
-def check_AR_DataArrays(da_training_dynamic,
+def check_ar_DataArrays(da_training_dynamic,
                         da_validation_dynamic = None, 
                         da_training_bc = None,
                         da_validation_bc = None, 
@@ -179,10 +179,10 @@ def check_AR_DataArrays(da_training_dynamic,
         raise ValueError("The validation dynamic DataArray is necessary for AR models.")
     ##------------------------------------------------------------------------.
     # Check dimension names 
-    _check_AR_DataArray_dimnames(da_dynamic=da_training_dynamic,
+    _check_ar_DataArray_dimnames(da_dynamic=da_training_dynamic,
                                  da_bc=da_training_bc,
                                  da_static=da_static)
-    _check_AR_DataArray_dimnames(da_dynamic=da_validation_dynamic,
+    _check_ar_DataArray_dimnames(da_dynamic=da_validation_dynamic,
                                  da_bc=da_validation_bc,
                                  da_static=da_static)
     ##------------------------------------------------------------------------.
@@ -216,10 +216,10 @@ def check_AR_DataArrays(da_training_dynamic,
     ##------------------------------------------------------------------------.
     ## Check dimension order coincide between training and validation
     if da_validation_dynamic is not None:
-        dim_info_training = get_AR_model_diminfo(da_dynamic = da_training_dynamic, 
+        dim_info_training = get_ar_model_diminfo(da_dynamic = da_training_dynamic, 
                                                  da_bc = da_training_bc,
                                                  da_static = da_static)
-        dim_info_validation = get_AR_model_diminfo(da_dynamic = da_validation_dynamic, 
+        dim_info_validation = get_ar_model_diminfo(da_dynamic = da_validation_dynamic, 
                                                    da_bc = da_validation_bc,
                                                    da_static = da_static)
         if not dim_info_training == dim_info_validation:
@@ -229,7 +229,7 @@ def check_AR_DataArrays(da_training_dynamic,
 # #############################
 ### Checks for AR Datasets ####
 # #############################    
-def _check_AR_Dataset_dimnames(ds_dynamic = None,
+def _check_ar_Dataset_dimnames(ds_dynamic = None,
                                ds_bc = None, 
                                ds_static = None):
     """Check the dimension names of Datasets required for AR training and predictions."""
@@ -254,7 +254,7 @@ def _check_AR_Dataset_dimnames(ds_dynamic = None,
  
 
 ##----------------------------------------------------------------------------.
-def check_AR_Datasets(ds_training_dynamic,
+def check_ar_Datasets(ds_training_dynamic,
                       ds_validation_dynamic = None,
                       ds_static = None,              
                       ds_training_bc = None,         
@@ -262,10 +262,10 @@ def check_AR_Datasets(ds_training_dynamic,
                       verbose=False):
     """Check Datasets required for AR training and predictions."""
     # Check dimension names 
-    _check_AR_Dataset_dimnames(ds_dynamic=ds_training_dynamic,
+    _check_ar_Dataset_dimnames(ds_dynamic=ds_training_dynamic,
                                ds_bc=ds_training_bc,
                                ds_static=ds_static)
-    _check_AR_Dataset_dimnames(ds_dynamic=ds_validation_dynamic,
+    _check_ar_Dataset_dimnames(ds_dynamic=ds_validation_dynamic,
                                ds_bc=ds_validation_bc,
                                ds_static=ds_static)
     ##------------------------------------------------------------------------.
@@ -300,7 +300,7 @@ def check_AR_Datasets(ds_training_dynamic,
 
 #-----------------------------------------------------------------------------.   
 # Retrieve input-output dims 
-def get_AR_model_diminfo(da_dynamic, da_static=None, da_bc=None, AR_settings=None):
+def get_ar_model_diminfo(da_dynamic, da_static=None, da_bc=None, ar_settings=None):
     """Retrieve dimension information for AR DeepSphere models.""" 
     ##------------------------------------------------------------------------.
     # Required dimensions
@@ -361,12 +361,12 @@ def get_AR_model_diminfo(da_dynamic, da_static=None, da_bc=None, AR_settings=Non
     dim_order = ['sample'] + list(da_dynamic.dims) # Here I force batch_dim to be the first dimension (for all code)! 
     ##------------------------------------------------------------------------. 
     # Define time dimensions
-    if AR_settings is not None:
-        input_time_dim = len(AR_settings['input_k']) 
-        output_time_dim = len(AR_settings['output_k']) 
+    if ar_settings is not None:
+        input_time_dim = len(ar_settings['input_k']) 
+        output_time_dim = len(ar_settings['output_k']) 
     ##------------------------------------------------------------------------. 
     # Define input-ouput tensor shape 
-    if AR_settings is not None:
+    if ar_settings is not None:
         dim_input = {}
         dim_input['node'] = input_node_dim
         dim_input['time'] = input_time_dim
@@ -380,7 +380,7 @@ def get_AR_model_diminfo(da_dynamic, da_static=None, da_bc=None, AR_settings=Non
         output_shape = tuple([dim_input[k] for k in dim_order[1:]])
     ##------------------------------------------------------------------------.
     # Define time dimension 
-    if AR_settings is not None:
+    if ar_settings is not None:
         # Create dictionary with dimension infos 
         dim_info = {'input_feature_dim': input_feature_dim,
                     'output_feature_dim': output_feature_dim,

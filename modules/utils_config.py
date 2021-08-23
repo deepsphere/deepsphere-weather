@@ -68,15 +68,15 @@ def get_default_training_settings():
                          }
     return training_settings
 
-def get_default_AR_settings():
+def get_default_ar_settings():
     """Return some default settings for the autoregressive model."""
-    AR_settings = {"input_k": [-3,-2,-1], 
+    ar_settings = {"input_k": [-3,-2,-1], 
                    "output_k": [0],
                    "forecast_cycle": 1,                           
-                   "AR_iterations": 6, 
+                   "ar_iterations": 6, 
                    "stack_most_recent_prediction": True,
                    }
-    return AR_settings
+    return ar_settings
 
 def get_default_dataloader_settings():
     """Return some default settings for the DataLoader."""
@@ -106,14 +106,14 @@ def get_default_SWAG_settings():
 
 def get_default_settings():
     """Return the default config settings."""
-    AR_settings = get_default_AR_settings()
+    ar_settings = get_default_ar_settings()
     training_settings = get_default_training_settings()
     model_settings = get_default_model_settings()   
     dataloader_settings = get_default_dataloader_settings()
     default_settings = {"model_settings": model_settings, 
                         "dataloader_settings": dataloader_settings,
                         "training_settings": training_settings, 
-                        "AR_settings": AR_settings,
+                        "ar_settings": ar_settings,
                         }
     return default_settings
 
@@ -229,15 +229,15 @@ def get_dataloader_settings(cfg):
     # Return dataloader settings 
     return dataloader_settings
 
-def get_AR_settings(cfg):
+def get_ar_settings(cfg):
     """Return AR settings from the config file."""
     # Initialize AR settings
-    AR_settings = {}
-    default_AR_settings = get_default_AR_settings()  
-    available_keys = list(default_AR_settings.keys())
+    ar_settings = {}
+    default_ar_settings = get_default_ar_settings()  
+    available_keys = list(default_ar_settings.keys())
     
     # Check that only correct keys are specified 
-    cfg_keys = np.array(list(cfg['AR_settings'].keys())) 
+    cfg_keys = np.array(list(cfg['ar_settings'].keys())) 
     invalid_keys = cfg_keys[np.isin(cfg_keys, available_keys, invert=True)]
     if len(invalid_keys) > 0: 
         for key in invalid_keys: 
@@ -246,16 +246,16 @@ def get_AR_settings(cfg):
     
     # Retrieve optional AR settings  
     for key in available_keys:
-        AR_settings[key] = cfg['AR_settings'].get(key, default_AR_settings[key])
+        ar_settings[key] = cfg['ar_settings'].get(key, default_ar_settings[key])
     
     # Ensure input_k and output_k are list 
-    if not isinstance(AR_settings['input_k'], list):
-        AR_settings['input_k'] = [AR_settings['input_k']]
-    if not isinstance(AR_settings['output_k'], list):    
-        AR_settings['output_k'] = [AR_settings['output_k']]    
+    if not isinstance(ar_settings['input_k'], list):
+        ar_settings['input_k'] = [ar_settings['input_k']]
+    if not isinstance(ar_settings['output_k'], list):    
+        ar_settings['output_k'] = [ar_settings['output_k']]    
         
     # Return AR settings 
-    return AR_settings
+    return ar_settings
 
 def get_SWAG_settings(cfg):
     """Return SWAG settings from the config file."""
@@ -353,10 +353,10 @@ def load_pretrained_model(model, model_dir):
 
 def load_pretrained_ar_scheduler(exp_dir, model_name):
     """Load a pre-trained AR scheduler."""
-    training_info_fpath = os.path.join(exp_dir, model_name, 'training_info', 'AR_TrainingInfo.pickle')
+    training_info_fpath = os.path.join(exp_dir, model_name, 'training_info', 'ar_TrainingInfo.pickle')
     with open(training_info_fpath, 'rb') as f:
         training_info = pickle.load(f)
-    ar_scheduler = pickle.loads(training_info.AR_scheduler)
+    ar_scheduler = pickle.loads(training_info.ar_scheduler)
 
     return ar_scheduler
 
@@ -429,7 +429,7 @@ def get_model_name(cfg):
         knn = cfg['model_settings']["knn"]
         pool_method = cfg['model_settings']["pool_method"]
         ar_training_strategy = cfg['training_settings']["ar_training_strategy"]
-        AR_iterations = cfg['AR_settings']["AR_iterations"]
+        ar_iterations = cfg['ar_settings']["ar_iterations"]
         conv_type = cfg['model_settings']["conv_type"]
         if conv_type == "graph": 
             if graph_type == 'voronoi':
@@ -444,7 +444,7 @@ def get_model_name(cfg):
             raise NotImplementedError 
         # Create model name 
         model_name = "-".join([ar_training_strategy,
-                               "AR" + str(AR_iterations),
+                               "AR" + str(ar_iterations),
                                architecture_name,
                                sampling_name,
                                conv_title,
