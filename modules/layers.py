@@ -24,7 +24,7 @@ def _import_igl():
         import igl
     except Exception as e:
         raise ImportError('Cannot import igl. Build a knn graph '
-                          'instead of a mesh graph or install it with '
+                          'instead of a voronoi mesh graph or install it with '
                           'conda install igl. '
                           'Original exception: {}'.format(e))
     return igl
