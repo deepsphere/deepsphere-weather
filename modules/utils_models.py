@@ -65,35 +65,29 @@ def check_skip_connection(skip_connection):
         raise ValueError("'skip_connection' must be one of {}".format(valid_options))
     return skip_connection
         
-def check_resolution(resolution):
-    """Check valid resolution."""
-    if not isinstance(resolution, Iterable):
-        resolution = [resolution]
-    resolution = np.array(resolution) 
-    return resolution
-
 def get_pygsp_graph_fun(sampling):
     """Return the pygsp function to generate the spherical graph."""
+    check_sampling(sampling)
     return get_pygsp_graph_dict()[sampling]
-    
-def get_pygsp_graph_params(sampling):
-    """Return the graph parameters to generate the spherical graph."""
-    ALL_GRAPH_PARAMS = {'healpix': {'nest': True},
-                        'equiangular': {'poles': 0},
-                        'icosahedral': {},
-                        'cubed': {},
-                        'gauss': {'nlon': 'ecmwf-octahedral'}}
-    return ALL_GRAPH_PARAMS[sampling]
 
-def get_pygsp_graph(sampling, resolution,  knn=20):
+def get_pygsp_graph(sampling, sampling_kwargs,  knn=20):
     """Return the pygsp graph for a specific spherical sampling."""
     check_sampling(sampling)
     graph_initializer = get_pygsp_graph_fun(sampling)
-    params = get_pygsp_graph_params(sampling)
-    if sampling.lower() == "equiangular":
-        # TODO: update pgsp.SphereEquiangular to accept k ... 
-        pygsp_graph = graph_initializer(resolution[0], resolution[1], **params)
-    else:
-        params['k'] = knn
-        pygsp_graph = graph_initializer(resolution, **params)
+    sampling_kwargs['k'] = knn
+    pygsp_graph = graph_initializer(**sampling_kwargs)
     return pygsp_graph
+
+def pygsp_graph_coarsening(sampling, sampling_kwargs, coarsening):
+    new_kwargs = sampling_kwargs.copy()
+    if sampling == "equiangular":
+         new_kwargs['nlat'] = new_kwargs['nlat'] // coarsening 
+         new_kwargs['nlon'] = new_kwargs['nlon'] // coarsening
+    elif sampling in ["icosahedral", "cubed", "healpix"]:
+        new_kwargs['subdivisions'] = new_kwargs['subdivisions'] // coarsening 
+    elif sampling == "gauss":
+        new_kwargs['nlat'] = new_kwargs['nlat'] // coarsening 
+    else:
+        NotImplementedError()
+    return new_kwargs  
+    

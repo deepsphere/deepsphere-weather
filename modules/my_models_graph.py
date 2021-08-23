@@ -6,16 +6,18 @@ Created on Thu Feb 18 17:51:40 2021
 @author: ghiggi
 """
 import torch
-from typing import List, Union, Dict
+import numpy as np
+from typing import Dict
 from torch.nn import Linear
 from torch.nn import BatchNorm1d
 from torch.nn import functional as F       
 from modules.models import UNet 
 from modules.layers import GeneralConvBlock, PoolUnpoolBlock
 from modules.utils_models import check_sampling
-from modules.utils_models import check_resolution
+from modules.utils_models import check_conv_type
 from modules.utils_models import check_pool_method
 from modules.utils_models import check_skip_connection
+from modules.utils_models import pygsp_graph_coarsening
 
 ##----------------------------------------------------------------------------.
 class ConvBlock(GeneralConvBlock):
@@ -47,6 +49,15 @@ class ConvBlock(GeneralConvBlock):
     activation_fun : str, optional
         Name of an activation function implemented in torch.nn.functional
         The default is 'relu'.
+    periodic_padding : bool, optional
+        Matters only if sampling='equiangular' and conv_type='image'.
+        whether to use periodic padding along the longitude dimension. The default is True.
+    lonlat_ratio : int
+        Matters only if sampling='equiangular' and conv_type='image.
+        Aspect ratio to reshape the input 1D data to a 2D image.
+        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
+        A ratio of 2 means the equiangular grid has the same resolution.
+        in latitude and longitude.
     """
 
     def __init__(self,
@@ -169,19 +180,19 @@ class UNetSpherical(UNet, torch.nn.Module):
         regarding input and output tensors.
     sampling : str
         Name of the spherical sampling.
-    resolution : int
-        Resolution of the spherical sampling.
+    sampling_kwargs : int
+        Arguments to define the spherical pygsp graph.
     conv_type : str, optional
         Convolution type. Either 'graph' or 'image'.
         The default is 'graph'.
         conv_type='image' can be used only when sampling='equiangular'.
     knn : int 
         DESCRIPTION
-    gtype : str , optional 
+    graph_type : str , optional 
         DESCRIPTION
-       'mesh' or 'knn'.
-       'mesh' build a mesh graph and require the igl package
-       'knn' build a knn graph   
+       'voronoi' or 'knn'.
+       'knn' build a knn graph.
+       'voronoi' build a voronoi mesh graph and require the igl package
         The default is 'knn'.
     kernel_size_conv : int
         Size ("width") of the convolutional kernel.
@@ -222,12 +233,6 @@ class UNetSpherical(UNet, torch.nn.Module):
         from the previous timestep.
         If increment_learning = False, the network learn the full state.
         The default is False.
-    lonlat_ratio : int
-        Matters only if sampling='equiangular' and conv_type='image.
-        Aspect ratio to reshape the input 1D data to a 2D image.
-        lonlat_ratio = H // W = n_longitude rings / n_latitude rings
-        A ratio of 2 means the equiangular grid has the same resolution.
-        in latitude and longitude.
     periodic_padding : bool, optional
         Matters only if sampling='equiangular' and conv_type='image'.
         whether to use periodic padding along the longitude dimension. The default is True.
@@ -235,13 +240,13 @@ class UNetSpherical(UNet, torch.nn.Module):
 
     def __init__(self,
                  dim_info: Dict[str, int],
-                 resolution: Union[int, List[int]],   
-                 sampling: str = 'healpix',
+                 sampling: str,
+                 sampling_kwargs: Dict, 
                  knn: int = 10, 
                  # Convolutions options 
                  kernel_size_conv: int = 3,
                  conv_type: str = "graph",
-                 gtype: str = 'knn', 
+                 graph_type: str = 'knn', 
                  # Options for classical image convolution on equiangular sampling 
                  lonlat_ratio: float = 2,
                  periodic_padding: bool = True, 
@@ -257,6 +262,7 @@ class UNetSpherical(UNet, torch.nn.Module):
                  # Architecture options 
                  skip_connection: str = 'stack',
                  increment_learning: bool = False):
+        # TODO: code for flexible skip_connection not yet implemented
         ##--------------------------------------------------------------------.
         super().__init__()
         ##--------------------------------------------------------------------.
@@ -279,10 +285,15 @@ class UNetSpherical(UNet, torch.nn.Module):
         ##--------------------------------------------------------------------.
         ### Check arguments 
         sampling = check_sampling(sampling)
-        resolution = check_resolution(resolution)
+        conv_type = check_conv_type(conv_type, sampling)
+        # resolution = check_resolution(resolution)
         pool_method = check_pool_method(pool_method)
         skip_connection = check_skip_connection(skip_connection)
-        # TODO: code for flexible skip_connection not yet implemented
+        ##--------------------------------------------------------------------.   
+        # Derive lonlat ratio from sampling_kwargs if equiangular 
+        if sampling == "equiangular":
+            lonlat_ratio = sampling_kwargs['nlon'] / sampling_kwargs['nlat']
+     
         ##--------------------------------------------------------------------.
         ### Define ConvBlock options 
         convblock_kwargs = {"kernel_size": kernel_size_conv, 
@@ -296,17 +307,28 @@ class UNetSpherical(UNet, torch.nn.Module):
                             "periodic_padding": periodic_padding, 
                             "lonlat_ratio": lonlat_ratio,
                             }
+        ##--------------------------------------------------------------------.
+        ### Define graph and laplacian 
+        # - Update knn based on model settings 
+        sampling_kwargs['k'] = knn  
+        # - Define sampling_kwargs for coarsed UNet levels 
+        UNet_depth = 3
+        coarsening = int(np.sqrt(kernel_size_pooling))
+        sampling_list = [sampling]
+        sampling_kwargs_list = [sampling_kwargs]
+        for i in range(1, UNet_depth):
+            sampling_list.append(sampling)
+            sampling_kwargs_list.append(pygsp_graph_coarsening(sampling = sampling,
+                                                               sampling_kwargs = sampling_kwargs_list[i-1], 
+                                                               coarsening = coarsening))
         
         ##--------------------------------------------------------------------.
         ### Initialize graphs and laplacians
         # - If conv_type == 'image', self.laplacians = [None] * UNet_depth
-        self.init_graph_and_laplacians(conv_type = conv_type, 
-                                       resolution = resolution, 
-                                       sampling = sampling, 
-                                       knn = knn,
-                                       gtype = gtype,
-                                       kernel_size_pooling = kernel_size_pooling,
-                                       UNet_depth=3)
+        self.init_graph_and_laplacians(sampling_list = sampling_list, 
+                                       sampling_kwargs_list = sampling_kwargs_list,
+                                       graph_type = graph_type,
+                                       conv_type = conv_type)
         
         ##--------------------------------------------------------------------.
         ### Define Pooling - Unpooling layers

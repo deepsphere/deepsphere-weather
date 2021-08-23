@@ -41,10 +41,9 @@ def get_default_model_settings():
                       "kernel_size_pooling": 4, # half the resolution
                       # Convolution types
                       "conv_type": 'graph',
-                      "gtype": "knn", 
+                      "graph_type": "knn", 
                       "knn": 20, 
                       # - Options for conv_type="image" when sampling="Equiangular
-                      "lonlat_ratio": 2,
                       "periodic_padding": 'True',
                       }
     return model_settings
@@ -143,7 +142,7 @@ def get_model_settings(cfg):
     model_settings = {}
     default_model_settings = get_default_model_settings()
     
-    mandatory_keys = ['architecture_name', 'sampling', 'resolution', "sampling_name"]
+    mandatory_keys = ['architecture_name', 'sampling', 'sampling_kwargs', "sampling_name"]
     optional_keys = list(default_model_settings.keys())
     available_keys = mandatory_keys + optional_keys
   
@@ -158,7 +157,7 @@ def get_model_settings(cfg):
     # Retrieve mandatory model settings  
     model_settings["architecture_name"] = cfg['model_settings'].get("architecture_name", None)
     model_settings["sampling"] = cfg['model_settings'].get("sampling", None)
-    model_settings["resolution"] = cfg['model_settings'].get("resolution", None)
+    model_settings["sampling_kwargs"] = cfg['model_settings'].get("sampling_kwargs", None)
     model_settings["sampling_name"] = cfg['model_settings'].get("sampling_name", None)
    
     # Stop if some mandatory keys are missing 
@@ -426,14 +425,19 @@ def get_model_name(cfg):
         # Retrieve important "discriminatory" settings 
         architecture_name = cfg['model_settings']["architecture_name"]
         sampling_name = cfg['model_settings']["sampling_name"]
-        gtype = cfg['model_settings']["gtype"]
+        graph_type = cfg['model_settings']["graph_type"]
         knn = cfg['model_settings']["knn"]
         pool_method = cfg['model_settings']["pool_method"]
         ar_training_strategy = cfg['training_settings']["ar_training_strategy"]
         AR_iterations = cfg['AR_settings']["AR_iterations"]
-        conv_type = cfg['model_settings']["sampling_name"]
+        conv_type = cfg['model_settings']["conv_type"]
         if conv_type == "graph": 
-            conv_title = 'Graph_' + gtype + "-k" + str(knn),
+            if graph_type == 'voronoi':
+                conv_title = 'Graph_' + graph_type
+            elif graph_type == "knn":
+                conv_title = 'Graph_' + graph_type + "-k" + str(knn)
+            else:
+                NotImplementedError()
         elif conv_type == "image":
             conv_title = 'ConvImage'
         else:

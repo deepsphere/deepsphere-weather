@@ -56,50 +56,52 @@ cfg['dataloader_settings']["drop_last_batch"] = False
 
 ##----------------------------------------------------------------------------.
 ### Create general configs for various samplings 
-# - Define samplings specifics ('sampling_name': {'sampling': ..., 'resolution: ...}}
+# - Define samplings specifics ('sampling_name': {'sampling': pygsp_sampling, 'sampling_kwargs': {...}}
 dict_samplings = {'Healpix_400km': {'sampling': 'healpix', 
-                                    'resolution': 16,
-                                    'knn': 20},                     
+                                    'sampling_kwargs':  {"subdivisions": 16, "nest": True},
+                                   },
                   'Equiangular_400km': {'sampling': 'equiangular',
-                                        'resolution': [36,72]},         
+                                        'sampling_kwargs': {"nlat": 36, "nlon": 72, "poles": 0 },   
+                                        },
                   'Equiangular_400km_tropics': {'sampling': 'equiangular',
-                                                'resolution': [46,92]},    
+                                                'sampling_kwargs': {"nlat": 46, "nlon": 92, "poles": 0},   
+                                                },
                   'Icosahedral_400km': {'sampling': 'icosahedral', 
-                                        'resolution': 16,
-                                        'knn': 10},                      
+                                        'sampling_kwargs': {"subdivisions": 16},  
+                                        },
                   'O24': {'sampling': 'gauss', 
-                          'resolution': 48},  
+                          "sampling_kwargs": {"nlat": 48, "nlon":'ecmwf-octahedral'},
+                          },
                   'Cubed_400km': {'sampling': 'cubed', 
-                                  'resolution': 24},
+                                  "sampling_kwargs": {"subdivisions": 24},    
+                                  },
+                   # 100 km res 
                   'Healpix_100km': {'sampling': 'healpix', 
-                                    'resolution': 64,
-                                    'knn': 20},  
-                  }
-
+                                    'sampling_kwargs': {"subdivisions": 64, "nest": True}},
+                  }                                               
+      
 # - Architecture options 
 kernel_size_conv = 3    # default is 3
 kernel_size_pooling = 4 # default is 4
  
 architecture_names = ["UNetSpherical"]  
-knn_list = [20]
-gtype_list = ['knn', 'mesh']
+knn = 20         # only used if conv_type = "graph" and graph_type = "knn"
+graph_type_list = ['knn', 'voronoi']
 pool_methods = ['Max', 'Avg', 'MaxArea', 'MaxVal', 'Interp', 'Learn']
 
 # - Config folder 
 config_path = "/home/ghiggi/Projects/deepsphere-weather/configs"
 
 for architecture_name in architecture_names:
-    for gtype in gtype_list: 
+    for graph_type in graph_type_list: 
         for pool_method in pool_methods:
             for sampling_name in dict_samplings.keys():
                 custom_cfg = cfg 
                 sampling = dict_samplings[sampling_name]['sampling'].lower() 
                 custom_cfg['model_settings']['sampling_name'] = sampling_name    
                 custom_cfg['model_settings']['sampling'] = dict_samplings[sampling_name]['sampling']  
-                custom_cfg['model_settings']['resolution'] = dict_samplings[sampling_name]['resolution']
-                if sampling in ['healpix', 'icosahedral']:
-                    custom_cfg['model_settings']['knn'] = dict_samplings[sampling_name]['knn']    
-                custom_cfg['model_settings']['gtype'] = gtype 
+                custom_cfg['model_settings']['sampling_kwargs'] = dict_samplings[sampling_name]['sampling_kwargs']   
+                custom_cfg['model_settings']['graph_type'] = graph_type 
                 custom_cfg['model_settings']['architecture_name'] = architecture_name
                 custom_cfg['model_settings']['pool_method'] = pool_method
                 custom_cfg['model_settings']['kernel_size_conv'] = kernel_size_conv
@@ -114,6 +116,5 @@ for architecture_name in architecture_names:
                     os.makedirs(tmp_dir)
                 # Write config file 
                 tmp_config_name = "-".join([pool_method + "Pool", 
-                                            # "knn" + str(knn),
-                                            'Graph_' + gtype]) + ".json"
+                                            'Graph_' + graph_type]) + ".json"
                 write_config_file(custom_cfg, fpath=os.path.join(tmp_dir, tmp_config_name))

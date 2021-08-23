@@ -13,13 +13,15 @@
         "pool_method": "Learn",
         "kernel_size_pooling": 4,
         "conv_type": "graph",
-        "gtype": "knn",
-        "knn": 10,
-        "lonlat_ratio": 2,
+        "graph_type": "knn",
+        "knn": 20,
         "periodic_padding": "True",
         "sampling_name": "O24",
         "sampling": "gauss",
-        "resolution": 48,
+        "sampling_kwargs": {
+            "nlat": 48,
+            "nlon": "ecmwf-octahedral"
+        },
         "architecture_name": "UNetSpherical"
     },
     "dataloader_settings": {

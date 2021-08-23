@@ -40,7 +40,7 @@ model_name_prefix = "State"
 python_routine = os.path.join(project_dir,"scripts_training","train_predict_state.py")
 
 #-----------------------------------------------------------------------------.
-### Run trainings using graph (knn or mesh) convolutions
+### Run trainings using graph convolutions
 # Define samplings 
 samplings = ['Healpix_400km', 
             'Icosahedral_400km',
@@ -52,7 +52,7 @@ samplings = ['Healpix_400km',
 # Define pooling method 
 pool_methods = ['Interp', 'MaxVal', 'MaxArea', 'Learn']
 # Define graph type 
-gtypes = ["knn",'mesh']
+graph_types = ["knn",'voronoi']
 # Define model seed and data sets 
 model_seed = 15    # Model seed is same across model (change only between n_models)
 shuffle_seed = 25 # Provide same data to all samplings (change only between n_models)
@@ -62,11 +62,11 @@ n_models = 2
 
 for i in range(1, n_models+1): 
     for pool_method in pool_methods:
-        for gtype in gtypes:
+        for graph_type in graph_types:
             for sampling in samplings:
                 # Define config file path      
                 cfg_path = os.path.join(project_dir, "configs","UNetSpherical",
-                                        sampling, pool_method + "Pool-Graph_"+ gtype + ".json")
+                                        sampling, pool_method + "Pool-Graph_"+ graph_type + ".json")
             
                 # Read general config
                 cfg = read_config_file(fpath=cfg_path)
@@ -122,7 +122,6 @@ for i in range(1, n_models+1):
             
             cfg['model_settings']["conv_type"] = "image"
             cfg['model_settings']["periodic_padding"] = periodic_padding
-            cfg['model_settings']["lonlat_ratio"] = lonlat_ratio
                         
             # Define custom prefix and suffix of model name 
             # - Default: RNN-AR6-UNetSpherical-Equiangular_400km-ConvImage-MaxPooling

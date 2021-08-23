@@ -13,16 +13,16 @@
         "pool_method": "Max",
         "kernel_size_pooling": 4,
         "conv_type": "graph",
-        "gtype": "knn",
+        "graph_type": "knn",
         "knn": 20,
-        "lonlat_ratio": 2,
         "periodic_padding": "True",
         "sampling_name": "Equiangular_400km",
         "sampling": "equiangular",
-        "resolution": [
-            36,
-            72
-        ],
+        "sampling_kwargs": {
+            "nlat": 36,
+            "nlon": 72,
+            "poles": 0
+        },
         "architecture_name": "UNetSpherical"
     },
     "dataloader_settings": {

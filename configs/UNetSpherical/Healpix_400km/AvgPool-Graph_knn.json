@@ -13,13 +13,15 @@
         "pool_method": "Avg",
         "kernel_size_pooling": 4,
         "conv_type": "graph",
-        "gtype": "knn",
+        "graph_type": "knn",
         "knn": 20,
-        "lonlat_ratio": 2,
         "periodic_padding": "True",
         "sampling_name": "Healpix_400km",
         "sampling": "healpix",
-        "resolution": 16,
+        "sampling_kwargs": {
+            "subdivisions": 16,
+            "nest": true
+        },
         "architecture_name": "UNetSpherical"
     },
     "dataloader_settings": {

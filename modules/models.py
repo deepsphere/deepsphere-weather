@@ -6,18 +6,13 @@ Created on Thu Feb 18 17:51:40 2021
 @author: ghiggi
 """
 import pygsp
-import numpy as np
-import torch
-from typing import List
+from typing import List, Dict
 from abc import ABC, abstractmethod
 from modules.layers import compute_cotan_laplacian
 from modules.layers import prepare_torch_laplacian
-from modules.utils_models import check_sampling
-# from modules.utils_models import get_pygsp_graph
 from modules.utils_models import get_pygsp_graph_fun
-from modules.utils_models import get_pygsp_graph_params
-from modules.utils_models import check_conv_type
- 
+
+
 # TODO 
 # - Add RemappingNet (just pooling)
 # - Add DownscalingNet
@@ -44,86 +39,59 @@ class UNet(ABC):
         return output
   
     @staticmethod
-    def build_graph(resolutions: List[List[int]], 
-                    sampling: str = 'healpix', 
-                    knn: int = 10) -> List["pygsp.graphs"]:
-        """Build the graph for each specified resolution."""
-        # Check sampling 
-        check_sampling(sampling)
-        # Retrieve pygsp function to create the spherical graph
-        # .i.e. pygsp.graphs.SphereHealpix
-        graph_initializer = get_pygsp_graph_fun(sampling)
-        # Retrieve parameters to customize the spherical graph
-        params = get_pygsp_graph_params(sampling)
-        params['lap_type'] = 'normalized'
-        params['k'] = knn
-        # Create a list of pygsp graph 
-        pygsp_graphs_list = [graph_initializer(*res, **params) for res in resolutions]
- 
+    def build_pygsp_graphs(sampling_list: List[str],
+                           sampling_kwargs_list: List[Dict]) -> List["pygsp.graphs"]:
+        """Build the graphs for the specified samplings."""
+        # Checks 
+        if not isinstance(sampling_list, list):
+            raise TypeError("sampling_list must be a list specifying the sampling of each graph.")
+        if not isinstance(sampling_list, list):
+            raise TypeError("sampling_kwargs_list must be a list specifying the sampling_kwargs_list of each sampling.")
+        if len(sampling_list) != len(sampling_kwargs_list): 
+            raise ValueError("sampling_list must have same length of sampling_kwargs_list.")
+        # Create a list of pygsp graphs
+        pygsp_graphs_list = [get_pygsp_graph_fun(sampl)(**sampl_kwargs, lap_type="normalized") for sampl, sampl_kwargs in zip(sampling_list, sampling_kwargs_list)]
         return pygsp_graphs_list
     
     @staticmethod
     def get_laplacian_kernels(graphs: List["pygsp.graphs"],
-                              gtype='knn'):
+                              graph_type: str = 'knn'):
         """Compute the laplacian for each specified graph."""
-        # TODO 
-        # - Add gtype in config file
-        assert gtype in ['knn', 'mesh']
-        laplacians_list = [graph.L if gtype == 'knn' else compute_cotan_laplacian(graph, return_mass=False) for graph in graphs]
+        assert graph_type in ['knn', 'voronoi']
+        laplacians_list = [graph.L if graph_type == 'knn' else compute_cotan_laplacian(graph, return_mass=False) for graph in graphs]
         laplacians_list = [prepare_torch_laplacian(L) for L in laplacians_list]
         return laplacians_list
     
     def init_graph_and_laplacians(self, 
-                                  sampling, 
-                                  resolution,
-                                  conv_type,
-                                  knn, 
-                                  kernel_size_pooling,
-                                  UNet_depth,
-                                  gtype="knn"):
+                                  sampling_list: List[str], 
+                                  sampling_kwargs_list: List[Dict],
+                                  graph_type="knn",
+                                  conv_type="graph"):
         """Initialize graph and laplacian.
         
         Parameters
         ----------
-        sampling : str
-            Name of the spherical sampling.
-        resolution : int
-            Resolution of the spherical sampling.
+        sampling_list : list[str]
+            List  of spherical sampling.
+        sampling_kwargs_list : list[dict]
+            List of kwargs for each spherical sampling in sampling_list   
         conv_type : str, optional
             Convolution type. Either 'graph' or 'image'.
             The default is 'graph'.
             conv_type='image' can be used only when sampling='equiangular'.
-        knn : int
-            DESCRIPTION.
-        gtype : str
+        graph_type : str
             DESCRIPTION
-        kernel_size_pooling
-            The size of the window to max/avg over.
-            kernel_size_pooling = 4 means halving the resolution when pooling
-            The default is 4.
-        UNet_depth : int
-            Depth of the UNet.
         """
-        # Check inputs 
-        sampling = check_sampling(sampling)
-        conv_type = check_conv_type(conv_type, sampling)
         ##--------------------------------------------------------------------.
-        # Define resolutions 
-        coarsening = int(np.sqrt(kernel_size_pooling))
-        resolutions = [resolution]
-        for i in range(1, UNet_depth):
-            resolutions.append(resolutions[i-1] // coarsening)
-            
         # Initialize graph and laplacians 
         if conv_type == 'graph':
-            self.graphs = UNet.build_graph(resolutions=resolutions,
-                                           sampling=sampling,
-                                           knn=knn)
-            self.laplacians = UNet.get_laplacian_kernels(graphs=self.graphs, 
-                                                         gtype=gtype)
+            self.graphs = UNet.build_pygsp_graphs(sampling_list = sampling_list,
+                                                  sampling_kwargs_list = sampling_kwargs_list)
+                                                   
+            self.laplacians = UNet.get_laplacian_kernels(graphs = self.graphs, 
+                                                         graph_type = graph_type)
         # Option for equiangular sampling  
         elif conv_type == 'image':
-            self.graphs = UNet.build_graph(resolutions=resolutions,
-                                           sampling=sampling,
-                                           knn=knn)
-            self.laplacians = [None] * UNet_depth
+            self.graphs = UNet.build_pygsp_graphs(sampling_list = sampling_list,
+                                                  sampling_kwargs_list = sampling_kwargs_list)
+            self.laplacians = [None] * len(sampling_list)
