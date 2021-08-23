@@ -69,9 +69,8 @@ class UNet(ABC):
         # TODO 
         # - Add gtype in config file
         assert gtype in ['knn', 'mesh']
-        torch_dtype = torch.get_default_dtype()  
         laplacians_list = [graph.L if gtype == 'knn' else compute_cotan_laplacian(graph, return_mass=False) for graph in graphs]
-        laplacians_list = [prepare_torch_laplacian(L, torch_dtype=torch_dtype) for L in laplacians_list]
+        laplacians_list = [prepare_torch_laplacian(L) for L in laplacians_list]
         return laplacians_list
     
     def init_graph_and_laplacians(self, 

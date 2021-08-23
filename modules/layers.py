@@ -66,15 +66,17 @@ def scale_operator(laplacian, lmax, scale=1):
     laplacian -= sparse_I
     return laplacian
     
-def prepare_torch_laplacian(laplacian, torch_dtype):
+def prepare_torch_laplacian(laplacian):
     """Prepare a graph Laplacian to be fed to a graph convolutional layer."""
-    # Change type   
-    laplacian = laplacian.astype(np.float32)
+    # Change type 
+    laplacian = laplacian.astype(np.float32) # from float64 to float32
     # Scale the eigenvalues
     lmax = estimate_lmax(laplacian) 
     laplacian = scale_operator(laplacian, lmax)
     # Construct the Laplacian sparse matrix in COOrdinate format
-    laplacian = sparse.coo_matrix(laplacian)
+    laplacian = sparse.coo_matrix(laplacian, laplacian.dtype) 
+    # Get torch dtype
+    torch_dtype = torch.get_default_dtype()  
     # Build Torch sparse tensor in COOrdinate format
     # - PyTorch wants a LongTensor (int64) as indices (it'll otherwise convert).
     indices = np.empty((2, laplacian.nnz), dtype=np.int64)
@@ -83,7 +85,8 @@ def prepare_torch_laplacian(laplacian, torch_dtype):
     laplacian = torch.sparse_coo_tensor(indices=indices, 
                                         values=laplacian.data,
                                         size=laplacian.shape,
-                                        dtype=torch_dtype)  
+                                        dtype=torch_dtype,
+                                        device=indices.device)  
     laplacian = laplacian.coalesce()  # More efficient subsequent operations.
     return laplacian
 
@@ -202,7 +205,7 @@ class ConvCheb(torch.nn.Module):
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         # - Define the Chebyshev Convolution
-        self.conv = conv
+        self._conv = conv
         # - Add the laplacina as a buffer (to not be considered a model parameter)
         self.register_buffer('laplacian', laplacian)
         # - Define the weights 
@@ -320,7 +323,7 @@ class ConvCheb(torch.nn.Module):
         inputs : tensor of shape n_signals x n_vertices x n_features
             Data, i.e., features on the vertices.
         """
-        outputs = self.conv(self.laplacian, inputs, self.weight)
+        outputs = self._conv(self.laplacian, inputs, self.weight)
         if self.bias is not None:
             outputs += self.bias
         return outputs
@@ -510,10 +513,13 @@ def build_pooling_matrices(src_graph, dst_graph):
 
 def convert_to_torch_sparse(mat: "sparse.coo.coo_matrix"):
     """Convert a sparse matrix to a torch.sparse COO matrix."""
+    torch_dtype = torch.get_default_dtype()
     indices = np.empty((2, mat.nnz), dtype=np.int64)
     np.stack((mat.row, mat.col), axis=0, out=indices)
     indices = torch.from_numpy(indices)
-    mat = torch.sparse_coo_tensor(indices, mat.data, mat.shape, dtype=torch.float32)
+    mat = torch.sparse_coo_tensor(indices, mat.data, mat.shape, 
+                                  dtype=torch_dtype, 
+                                  device=indices.device)
     mat = mat.coalesce()
     return mat
     
@@ -907,11 +913,14 @@ class GeneralMaxAreaPool(RemapBlock):
         
     def process_remap_matrix(self, mat):
         """Compute the remapping matrix."""
+        torch_dtype = torch.get_default_dtype()
         max_ind_col = np.argmax(mat, axis=1).T
         row = np.arange(max_ind_col.shape[1]).reshape(1, -1)
         indices = np.concatenate([row, max_ind_col], axis=0)
         indices = torch.from_numpy(indices.astype(np.int64))
-        mat = torch.sparse_coo_tensor(indices, torch.ones(indices.shape[1]), mat.shape, dtype=torch.float32)
+        mat = torch.sparse_coo_tensor(indices, torch.ones(indices.shape[1]), mat.shape, 
+                                      dtype=torch_dtype,
+                                      device=indices.device)
         mat = mat.coalesce()
         return mat
 
@@ -921,11 +930,14 @@ class GeneralMaxAreaUnpool(RemapBlock):
     
     def process_remap_matrix(self, mat):
         """Compute the remapping matrix."""
+        torch_dtype = torch.get_default_dtype()
         max_ind_row = np.argmax(mat, axis=0)
         col = np.arange(max_ind_row.shape[1]).reshape(1, -1)
         indices = np.concatenate([max_ind_row, col], axis=0)
         indices = torch.from_numpy(indices.astype(np.int64))
-        mat = torch.sparse_coo_tensor(indices, torch.ones(indices.shape[1]), mat.shape, dtype=torch.float32)
+        mat = torch.sparse_coo_tensor(indices, torch.ones(indices.shape[1]), mat.shape,
+                                      dtype=torch_dtype,
+                                      device=indices.device)
         mat = mat.coalesce()
         return mat
 
