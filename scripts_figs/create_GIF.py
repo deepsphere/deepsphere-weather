@@ -10,7 +10,7 @@ from modules.utils_torch import get_time_function
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
-from modules.utils_config import get_AR_settings
+from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_models import get_pygsp_graph
 from modules.remap import SphericalVoronoiMeshArea_from_pygsp
@@ -55,7 +55,7 @@ exp_dir = os.path.join(base_dir, "experiments_GG","RNN-UNetSpherical-healpix-16-
 ### Read experiment configuration settings 
 cfg = read_config_file(fpath=cfg_path)
 model_settings = get_model_settings(cfg)   
-AR_settings = get_AR_settings(cfg)
+ar_settings = get_ar_settings(cfg)
 training_settings = get_training_settings(cfg) 
 dataloader_settings = get_dataloader_settings(cfg) 
 

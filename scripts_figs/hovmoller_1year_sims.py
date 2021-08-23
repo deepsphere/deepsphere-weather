@@ -17,13 +17,13 @@ import matplotlib.pyplot as plt
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
-from modules.utils_config import get_AR_settings
+from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
 # from modules.utils_config import get_pytorch_model
 from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_models import get_pygsp_graph
-from modules.utils_io import get_AR_model_diminfo
+from modules.utils_io import get_ar_model_diminfo
 from modules.predictions_autoregressive import AutoregressivePredictions
 
 ## Project specific functions
@@ -81,7 +81,7 @@ cfg['dataloader_settings']["asyncronous_gpu_transfer"] = True
 ##------------------------------------------------------------------------.
 ### Retrieve experiment-specific configuration settings   
 model_settings = get_model_settings(cfg)   
-AR_settings = get_AR_settings(cfg)
+ar_settings = get_ar_settings(cfg)
 training_settings = get_training_settings(cfg) 
 dataloader_settings = get_dataloader_settings(cfg) 
 
@@ -123,7 +123,7 @@ device = set_pytorch_settings(training_settings)
 
 ##------------------------------------------------------------------------.
 ## Retrieve dimension info of input-output Torch Tensors
-dim_info = get_AR_model_diminfo(AR_settings=AR_settings,
+dim_info = get_ar_model_diminfo(ar_settings=ar_settings,
                                 da_dynamic=da_dynamic, 
                                 da_static=da_static, 
                                 da_bc=da_bc)
@@ -170,8 +170,8 @@ da_dynamic = da_dynamic.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
 
 n_year_sims = 4
 zarr_fpath = forecast_zarr_fpath
-AR_blocks = 24/6*30
-AR_iterations = 24/6*n_year_sims
+ar_blocks = 24/6*30
+ar_iterations = 24/6*n_year_sims
 batch_size = 1 
 num_workers = 8
 da_dynamic = da_dynamic
@@ -181,9 +181,9 @@ scaler_transform = scaler
 scaler_inverse = scaler
                                          
 keep_first_prediction = True
-input_k = AR_settings['input_k']
-output_k = AR_settings['output_k']
-forecast_cycle = AR_settings['forecast_cycle']      
+input_k = ar_settings['input_k']
+output_k = ar_settings['output_k']
+forecast_cycle = ar_settings['forecast_cycle']      
 # Dataloader options
 device = device
 prefetch_factor = dataloader_settings['prefetch_factor'] 
@@ -192,7 +192,7 @@ pin_memory = dataloader_settings['pin_memory']
 asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer']
 numeric_precision = training_settings['numeric_precision']  # to be read from configs 
 # Autoregressive settings                     
-stack_most_recent_prediction = AR_settings['stack_most_recent_prediction']    
+stack_most_recent_prediction = ar_settings['stack_most_recent_prediction']    
 # Save options 
 rounding = 2             # Default None. Accept also a dictionary 
 compressor = "auto"      # Accept also a dictionary per variable
@@ -217,14 +217,14 @@ ds_forecasts = AutoregressivePredictions(model = model,
                                           pin_memory = dataloader_settings['pin_memory'],
                                           asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'],
                                           # Autoregressive settings
-                                          input_k = AR_settings['input_k'], 
-                                          output_k = AR_settings['output_k'], 
-                                          forecast_cycle = AR_settings['forecast_cycle'],                         
-                                          stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
+                                          input_k = ar_settings['input_k'], 
+                                          output_k = ar_settings['output_k'], 
+                                          forecast_cycle = ar_settings['forecast_cycle'],                         
+                                          stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
                                           # Prediction options 
                                           forecast_reference_times = forecast_reference_times, 
-                                          AR_blocks = 24/6*30,
-                                          AR_iterations = 24/6*365,  # How many time to autoregressive iterate
+                                          ar_blocks = 24/6*30,
+                                          ar_iterations = 24/6*365,  # How many time to autoregressive iterate
                                           # Save options 
                                           zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                           rounding = 2,             # Default None. Accept also a dictionary 

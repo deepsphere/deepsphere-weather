@@ -349,7 +349,7 @@ class AR_Scheduler():
         self.global_step_count_arr = np.append(self.global_step_count_arr, 0)
       
 #----------------------------------------------------------------------------.   
-def plot_ar_scheduler(ar_scheduler, 
+def plot_AR_scheduler(ar_scheduler, 
                       n_updates=4, 
                       update_every=15, 
                       plot_absolute_ar_weights=True,

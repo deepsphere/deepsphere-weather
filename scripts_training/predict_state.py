@@ -17,12 +17,12 @@ import xarray as xr
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
-from modules.utils_config import get_AR_settings
+from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_config import get_pytorch_model
 from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
-from modules.utils_io import get_AR_model_diminfo
+from modules.utils_io import get_ar_model_diminfo
 from modules.predictions_autoregressive import AutoregressivePredictions
 
 ## Project specific functions
@@ -40,10 +40,10 @@ from modules.xscaler import SequentialScaler
 # exp_dir = "/data/weather_prediction/experiments_GG"
 # model_name = "RNN-UNetSpherical-healpix-16-k20-MaxAreaPooling-float32-AR6-LinearStep_weight_corrected"
 # model_dir = os.path.join(exp_dir, model_name)
-# AR_iterations = 20 
+# ar_iterations = 20 
 # forecast_reference_times = ['2013-12-31T18:00']
 # batch_size = 32
-# AR_blocks = 1000
+# ar_blocks = 1000
 # dst_dirpath = None
 # zarr_fname = "pred.zarr"
 # force_zarr = False # force to write a new zarr if already existing
@@ -52,9 +52,9 @@ from modules.xscaler import SequentialScaler
 def main(data_dir, 
          model_dir, 
          forecast_reference_times, # ['2013-12-31T18:00']
-         AR_iterations = 20, 
+         ar_iterations = 20, 
          batch_size = 32, 
-         AR_blocks = 1000, 
+         ar_blocks = 1000, 
          dst_dirpath = None,   
          zarr_fname = "pred.zarr", 
          force_zarr = False, # force to write a new zarr if already existing
@@ -88,7 +88,7 @@ def main(data_dir,
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
-    AR_settings = get_AR_settings(cfg)
+    ar_settings = get_ar_settings(cfg)
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
     
@@ -134,7 +134,7 @@ def main(data_dir,
 
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
-    dim_info = get_AR_model_diminfo(AR_settings=AR_settings,
+    dim_info = get_ar_model_diminfo(ar_settings=ar_settings,
                                     da_dynamic=da_dynamic, 
                                     da_static=da_static, 
                                     da_bc=da_bc)
@@ -174,14 +174,14 @@ def main(data_dir,
                                               pin_memory = dataloader_settings['pin_memory'],
                                               asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'],
                                               # Autoregressive settings
-                                              input_k = AR_settings['input_k'], 
-                                              output_k = AR_settings['output_k'], 
-                                              forecast_cycle = AR_settings['forecast_cycle'],                         
-                                              stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
+                                              input_k = ar_settings['input_k'], 
+                                              output_k = ar_settings['output_k'], 
+                                              forecast_cycle = ar_settings['forecast_cycle'],                         
+                                              stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
                                               # Prediction options 
                                               forecast_reference_times = forecast_reference_times, 
-                                              AR_blocks = AR_blocks,
-                                              AR_iterations = AR_iterations,  # How many time to autoregressive iterate
+                                              ar_blocks = ar_blocks,
+                                              ar_iterations = ar_iterations,  # How many time to autoregressive iterate
                                               # Save options 
                                               zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                               rounding = 2,             # Default None. Accept also a dictionary 
@@ -198,8 +198,8 @@ if __name__ == '__main__':
     parser.add_argument('--forecast_reference_times',
                         nargs="*", type=str)
     parser.add_argument('--data_dir', type=str, default=default_data_dir)
-    parser.add_argument('--AR_iterations', type=int, default= 500)
-    parser.add_argument('--AR_blocks', type=int, default=1000)
+    parser.add_argument('--ar_iterations', type=int, default= 500)
+    parser.add_argument('--ar_blocks', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--dst_dirpath', type=str)
     parser.add_argument('--zarr_fname', type=str, default='pred.zarr')             
@@ -227,10 +227,10 @@ if __name__ == '__main__':
         
     main(data_dir = args.data_dir, 
          model_dir = args.model_dir,
-         AR_iterations =  args.AR_iterations, 
+         ar_iterations =  args.ar_iterations, 
          forecast_reference_times =  args.forecast_reference_times, 
-         batch_size =  args.AR_iterations, 
-         AR_blocks =  args.AR_iterations, 
+         batch_size =  args.ar_iterations, 
+         ar_blocks =  args.ar_iterations, 
          dst_dirpath = args.dst_dirpath,   
          zarr_fname = args.zarr_fname,
          force_zarr = force_zarr,

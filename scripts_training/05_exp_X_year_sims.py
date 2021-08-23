@@ -36,11 +36,11 @@ python_routine = os.path.join(project_dir,
 # Prediction options
 n_years = 5
 forecast_cycle = 6
-AR_iterations = int(n_years*365*24/forecast_cycle)
+ar_iterations = int(n_years*365*24/forecast_cycle)
 cuda = '0'
 forecast_reference_times = ['2013-12-31T18:00'] # ['2013-12-31T19:00']
 batch_size = 32
-AR_blocks = 1000
+ar_blocks = 1000
 zarr_fname = "5years_pred.zarr"
 force_zarr = False # force to write a new zarr if already existing
 force_gpu = True
@@ -53,9 +53,9 @@ cmd = " ".join(["python", python_routine,
                  '--data_dir', data_dir,
                  "--model_dir", model_dir,
                  "--forecast_reference_times", *forecast_reference_times,
-                 "--AR_iterations", str(AR_iterations), 
+                 "--ar_iterations", str(ar_iterations), 
                  "--batch_size", str(batch_size), 
-                 "--AR_blocks", str(AR_blocks), 
+                 "--ar_blocks", str(ar_blocks), 
                  # "--dst_dirpath", dst_dirpath,   
                  "--zarr_fname", zarr_fname, 
                  "--force_zarr", str(force_zarr),

@@ -11,7 +11,7 @@ from modules.utils_torch import get_time_function
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
-from modules.utils_config import get_AR_settings
+from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_config import set_pytorch_settings
 from modules.utils_models import get_pygsp_graph
@@ -46,14 +46,14 @@ cfg = read_config_file(fpath=cfg_path)
 
 # Some special stuff you might want to adjust 
 cfg['model_settings']["architecture_name"] = 'UNetSpherical'
-cfg['AR_settings']["input_k"] = [-18,-12,-6]
-cfg['AR_settings']["output_k"] = [0]
-cfg['AR_settings']["AR_iterations"] = 0
+cfg['ar_settings']["input_k"] = [-18,-12,-6]
+cfg['ar_settings']["output_k"] = [0]
+cfg['ar_settings']["ar_iterations"] = 0
  
 ##-----------------------------------------------------------------------------.
 ### Retrieve experiment-specific configuration settings   
 model_settings = get_model_settings(cfg)   
-AR_settings = get_AR_settings(cfg)
+ar_settings = get_ar_settings(cfg)
 training_settings = get_training_settings(cfg) 
 dataloader_settings = get_dataloader_settings(cfg) 
 
@@ -72,7 +72,7 @@ n_bc_variables = 1
 n_dynamic_variables = 2
 knn = 20 
 sampling = 'gauss'
-AR_iterations = AR_settings['AR_iterations']
+ar_iterations = ar_settings['ar_iterations']
 n_repetitions = 10
 
 knn_list = [8, 20, 40, 60]
@@ -110,8 +110,8 @@ for resolution in resolutions:
 
     input_feature_dim = n_static_variables + n_bc_variables + n_dynamic_variables
     output_feature_dim = n_dynamic_variables
-    input_time_dim = len(AR_settings['input_k']) 
-    output_time_dim = len(AR_settings['output_k']) 
+    input_time_dim = len(ar_settings['input_k']) 
+    output_time_dim = len(ar_settings['output_k']) 
     # dim_order = ['sample','node','time','feature']
     dim_order = ['sample','time','node','feature']
 
@@ -169,12 +169,12 @@ for resolution in resolutions:
         l_backward_time = [] 
         l_total_time = []
         l_forward_memory = []
-        weight = 1/(AR_iterations+1)
+        weight = 1/(ar_iterations+1)
         for _ in range(n_repetitions):
             # - Compute Forward
             t_i = get_time()
             dict_loss = {} 
-            for i in range(AR_iterations+1):
+            for i in range(ar_iterations+1):
                 Y_pred = model(X)
                 dict_loss[i] = criterion(Y_pred, Y_obs)
             if device.type != 'cpu':

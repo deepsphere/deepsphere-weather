@@ -799,6 +799,7 @@ def AutoregressiveTraining(model,
                                                        Y_obs = torch_Y,
                                                        dim_names = dim_names)
                 dict_training_loss_per_ar_iteration[ar_iteration] = criterion(Y_obs, Y_pred)
+                print(batch_count)
                 print(dict_training_loss_per_ar_iteration[ar_iteration])
                 if dict_training_loss_per_ar_iteration[ar_iteration].item() > 500:
                     raise ValueError
