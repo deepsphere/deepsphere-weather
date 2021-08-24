@@ -84,7 +84,8 @@ matplotlib.rcParams["savefig.edgecolor"] = 'none'
 
 # Disable warnings
 warnings.filterwarnings("ignore")
- 
+
+# # - exp_swag.py 
 #-----------------------------------------------------------------------------.
 def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     """General function for training DeepSphere4Earth models."""
