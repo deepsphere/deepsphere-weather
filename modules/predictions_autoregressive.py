@@ -14,8 +14,8 @@ import zarr
 import numpy as np
 import xarray as xr
  
-from modules.dataloader_autoregressive import get_ar_batch
 from modules.dataloader_autoregressive import remove_unused_Y
+from modules.dataloader_autoregressive import get_aligned_ar_batch
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
 from modules.utils_autoregressive import get_dict_stack_info
@@ -23,12 +23,12 @@ from modules.utils_autoregressive import check_ar_settings
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_autoregressive import check_ar_iterations
+from modules.utils_io import _get_feature_order
 from modules.utils_zarr import check_chunks
 from modules.utils_zarr import check_compressor
 from modules.utils_zarr import check_rounding
 from modules.utils_zarr import rechunk_Dataset
 from modules.utils_zarr import write_zarr
-from modules.utils_io import check_ar_DataArrays
 from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_gpu_transfer
@@ -107,11 +107,9 @@ def get_dict_Y_pred_selection(dim_info,
 
 def create_ds_forecast(dict_Y_predicted_per_leadtime, 
                        forecast_reference_times,
-                       latitudes,
-                       longitudes, 
-                       features, 
                        leadtimes,
-                       dim_info):
+                       data_dynamic, 
+                       dim_info_dynamic):
     """Create the forecast xarray Dataset stacking the tensors in dict_Y_predicted_per_leadtime.""" 
     # Stack forecast leadtimes 
     list_to_stack = [] 
@@ -121,19 +119,33 @@ def create_ds_forecast(dict_Y_predicted_per_leadtime,
         list_to_stack.append(dict_Y_predicted_per_leadtime[leadtime])
         # - Remove tensor from dictionary 
         del dict_Y_predicted_per_leadtime[leadtime]
-    Y_forecasts = np.stack(list_to_stack, axis=dim_info['time'])  
-        ##----------------------------------------------------------------.
+    Y_forecasts = np.stack(list_to_stack, axis=dim_info_dynamic['time'])  
+    ##----------------------------------------------------------------.
     ### Create xarray Dataset of forecasts
-    da=xr.DataArray(Y_forecasts,           
-                    dims=['forecast_reference_time', 'leadtime', 'node', 'feature'],
-                    coords={'leadtime': leadtimes, 
-                            'forecast_reference_time': forecast_reference_times, 
-                            'lon': ('node', longitudes),
-                            'lat': ('node', latitudes), 
-                            'feature': features})
+    # - Retrieve ancient optional dimensions (to add)
+    dims = list(data_dynamic.dims)
+    dims_optional = np.array(dims)[np.isin(dims, ['time','feature'], invert=True)].tolist()
+    # - Retrieve features 
+    features = _get_feature_order(data_dynamic)
+    # - Create DataArray
+    da = xr.DataArray(Y_forecasts,           
+                      dims=['forecast_reference_time', 'leadtime', dims_optional, 'feature'],
+                      coords={'leadtime': leadtimes, 
+                              'forecast_reference_time': forecast_reference_times, 
+                              'feature': features})
+    ## - Add ancient coordinates 
+    coords = list(data_dynamic.coords.keys()) 
+    dict_coords = {coord: data_dynamic[coord] for coord in coords}
+    dict_coords.pop("time", None)
+    dict_coords.pop("feature", None)
+    for k, v in dict_coords.items():
+        da[k] = v
+        da = da.set_coords(da)
     # - Transform to dataset (to save to zarr)
     ds = da.to_dataset(dim='feature')
-    return ds 
+    ##----------------------------------------------------------------.
+    # Return the forecast xr.Dataset
+    return ds
 
 def rescale_forecasts(ds, scaler, reconcat=True):
     """Apply the scaler inverse transform to the forecast xarray Dataset."""
@@ -187,9 +199,12 @@ def rescale_forecasts_and_write_zarr(ds, scaler, zarr_fpath,
 ############################
 def AutoregressivePredictions(model, 
                               # Data
-                              da_dynamic,
-                              da_static = None,              
-                              da_bc = None, 
+                              data_dynamic,
+                              data_static = None,              
+                              data_bc = None, 
+                              bc_generator = None, 
+                              # AR_batching_function
+                              ar_batch_fun = get_aligned_ar_batch,
                               # Scaler options
                               scaler_transform = None,  
                               scaler_inverse = None,    
@@ -264,11 +279,10 @@ def AutoregressivePredictions(model,
                       ar_iterations = ar_iterations, 
                       stack_most_recent_prediction = stack_most_recent_prediction)
     ar_iterations = int(ar_iterations)
-    ##------------------------------------------------------------------------.
-    # Check that DataArrays are valid 
-    check_ar_DataArrays(da_training_dynamic = da_dynamic,
-                        da_training_bc = da_bc,
-                        da_static = da_static)
+    ##------------------------------------------------------------------------.   
+    ### Retrieve feature info of the forecast 
+    features = _get_feature_order(data_dynamic)
+    
     ##------------------------------------------------------------------------.
     # Check Zarr settings 
     WRITE_TO_ZARR = zarr_fpath is not None 
@@ -277,13 +291,16 @@ def AutoregressivePredictions(model,
         if not os.path.exists(os.path.dirname(zarr_fpath)):
             os.makedirs(os.path.dirname(zarr_fpath))
         # - Set default chunks and compressors 
-        default_chunks = {'node': -1,
-                          'forecast_reference_time': 1,
-                          'leadtime': 1}
-        default_compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
+        # ---> -1 to all optional dimensions (i..e nodes, lat, lon, ens, plevels,...)
+        dims = list(data_dynamic.dims)
+        dims_optional = np.array(dims)[np.isin(dims, ['time','feature'], invert=True)].tolist()
+        default_chunks = {dim : -1 for dim in dims_optional}
+        default_chunks['forecast_reference_time'] = 1
+        default_chunks['leadtime'] = 1
+        default_compressor = zarr.Blosc(cname="zstd", clevel=0, shuffle=2)
         # - Check rounding settings
         rounding = check_rounding(rounding = rounding,
-                                  variable_names = da_dynamic['feature'].values.tolist())
+                                  variable_names = features)
     ##------------------------------------------------------------------------.
     # Check ar_blocks 
     if not isinstance(ar_blocks, (int, float, type(None))):
@@ -297,24 +314,20 @@ def AutoregressivePredictions(model,
     if ar_blocks > ar_iterations + 1:
         raise ValueError("'ar_blocks' must be equal or smaller to 'ar_iterations'")
     PREDICT_ar_BLOCKS = ar_blocks != (ar_iterations + 1)
-    ##------------------------------------------------------------------------.    
-    ### Retrieve dimension info of the forecast 
-    latitudes = da_dynamic['lat'].values
-    longitudes = da_dynamic['lon'].values
-    features = da_dynamic['feature'] 
-    
+
     ##------------------------------------------------------------------------. 
     ### Define DataLoader subset_timesteps  
     subset_timesteps = None 
     if forecast_reference_times is not None:
-        t_res_timedelta = np.diff(da_dynamic.time.values)[0] 
+        t_res_timedelta = np.diff(data_dynamic.time.values)[0] 
         subset_timesteps = forecast_reference_times + -1*max(input_k)*t_res_timedelta
          
     ##------------------------------------------------------------------------.                                 
     ### Create training Autoregressive Dataset and DataLoader    
-    dataset = AutoregressiveDataset(da_dynamic = da_dynamic,  
-                                    da_bc = da_bc,
-                                    da_static = da_static,
+    dataset = AutoregressiveDataset(data_dynamic = data_dynamic,  
+                                    data_bc = data_bc,
+                                    data_static = data_static,
+                                    bc_generator = bc_generator, 
                                     scaler = scaler_transform, 
                                     # Dataset options 
                                     subset_timesteps = subset_timesteps, 
@@ -338,6 +351,10 @@ def AutoregressivePredictions(model,
                                           asyncronous_gpu_transfer = asyncronous_gpu_transfer, 
                                           device = device)
     ##------------------------------------------------------------------------.
+    # Retrieve custom ar_batch_fun fuction
+    ar_batch_fun = dataset.ar_batch_fun 
+
+    assert features == dataset.feature_order['dynamic']
     ### Start forecasting
     # - Initialize 
     t_i = time.time()
@@ -352,17 +369,19 @@ def AutoregressivePredictions(model,
             # batch_dict = next(iter(dataloader))
             ##----------------------------------------------------------------.
             ### Retrieve forecast informations 
-            dim_info = batch_dict['dim_info'] 
+            dim_info_dynamic = batch_dict['dim_info']['dynamic']
+            feature_order_dynamic = batch_dict['feature_order']['dynamic']
             forecast_time_info = batch_dict['forecast_time_info']  
             forecast_reference_times = forecast_time_info["forecast_reference_time"] 
             dict_forecast_leadtime = forecast_time_info["dict_forecast_leadtime"]
             dict_forecast_rel_idx_Y = forecast_time_info["dict_forecast_rel_idx_Y"]
             leadtimes = np.unique(np.stack(list(dict_forecast_leadtime.values())).flatten())
+            assert features == feature_order_dynamic
             ##----------------------------------------------------------------.
             ### Retrieve dictionary providing at each AR iteration 
             #   the tensor slice indexing to obtain a "regular" forecasts
             if FIRST_PREDICTION: 
-                dict_Y_pred_selection = get_dict_Y_pred_selection(dim_info = dim_info,
+                dict_Y_pred_selection = get_dict_Y_pred_selection(dim_info = dim_info_dynamic,
                                                                   dict_forecast_rel_idx_Y = dict_forecast_rel_idx_Y,
                                                                   keep_first_prediction = keep_first_prediction)
                 FIRST_PREDICTION = False 
@@ -375,7 +394,7 @@ def AutoregressivePredictions(model,
             for ar_iteration in range(ar_iterations+1):
                 # Retrieve X and Y for current AR iteration
                 # - Torch Y stays in CPU with training_mode=False
-                torch_X, _ = get_ar_batch(ar_iteration = ar_iteration, 
+                torch_X, _ = ar_batch_fun(ar_iteration = ar_iteration, 
                                           batch_dict = batch_dict, 
                                           dict_Y_predicted = dict_Y_predicted,
                                           device = device, 
@@ -408,10 +427,9 @@ def AutoregressivePredictions(model,
                     ds = create_ds_forecast(dict_Y_predicted_per_leadtime = dict_Y_predicted_per_leadtime,
                                             leadtimes = leadtimes[block_slice],
                                             forecast_reference_times = forecast_reference_times,
-                                            longitudes = longitudes,
-                                            latitudes = latitudes,
-                                            features = features, 
-                                            dim_info = dim_info) 
+                                            data_dynamic = data_dynamic, 
+                                            dim_info = dim_info_dynamic) 
+                                        
                     # Reset ar_counter_per_block
                     ar_counter_per_block = 0 
                     previous_block_ar_iteration = ar_iteration + 1
@@ -533,9 +551,12 @@ def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem 
     intermediate_store = os.path.join(os.path.dirname(target_store), "rechunked_store.zarr")
     ##------------------------------------------------------------------------.
     # Default chunking
-    default_chunks = {'node': 1,
-                      'forecast_reference_time': -1,
-                      'leadtime': 1}
+    # - Do not chunk along forecast_reference_time, chunk 1 to all other dimensions
+    dims = list(ds)
+    dims_optional = np.array(dims)[np.isin(dims, ['time','feature'], invert=True)].tolist()
+    default_chunks = {dim : 1 for dim in dims_optional}
+    default_chunks['forecast_reference_time'] = -1
+    default_chunks['leadtime'] = 1
     # Check chunking
     chunks = check_chunks(ds=ds, chunks=chunks, default_chunks=default_chunks) 
     ##------------------------------------------------------------------------.
@@ -570,11 +591,12 @@ def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem 
 #----------------------------------------------------------------------------.
 def AutoregressiveSWAGPredictions(model, exp_dir, 
                                   # Data
-                                  da_training_dynamic,
-                                  da_test_dynamic = None,
-                                  da_static = None,              
-                                  da_training_bc = None,         
-                                  da_test_bc = None, 
+                                  training_data_dynamic,
+                                  training_data_bc = None,  
+                                  data_static = None,   
+                                  test_data_dynamic = None,                                       
+                                  test_data_bc = None, 
+                                  bc_generator = None,
                                   # Scaler options
                                   scaler_transform = None,   
                                   scaler_inverse = None,     
@@ -615,9 +637,10 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
 
         bn_update(model,
                 # Data
-                da_dynamic = da_training_dynamic,
-                da_static = da_static,              
-                da_bc = da_training_bc,          
+                data_dynamic = training_data_dynamic,
+                data_bc = training_data_bc,    
+                data_static = data_static,      
+                bc_generator = bc_generator,         
                 scaler = scaler_transform, 
                 # Dataloader options
                 device = device,
@@ -636,12 +659,12 @@ def AutoregressiveSWAGPredictions(model, exp_dir,
                 stack_most_recent_prediction = stack_most_recent_prediction
                 )
 
-
     _ = AutoregressivePredictions(model = model, 
                                   # Data
-                                  da_dynamic = da_test_dynamic,
-                                  da_static = da_static,              
-                                  da_bc = da_test_bc, 
+                                  data_static = data_static,
+                                  data_dynamic = test_data_dynamic,
+                                  data_bc = test_data_bc,         
+                                  bc_generator = bc_generator, 
                                   scaler_transform = scaler_transform,   
                                   scaler_inverse = scaler_inverse,    
                                   # Dataloader options

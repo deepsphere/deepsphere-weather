@@ -16,6 +16,41 @@ def is_dask_DataArray(da):
     else: 
         return False
 
+def xr_time_align(x,y, time_dim='time'):
+    if x is None or y is None:
+        return x,y
+    all_dims = set(list(x.dims) + list(y.dims))
+    exclude_dims = all_dims.remove(time_dim) 
+    x, y = xr.align(x, y, join='inner', exclude=exclude_dims) 
+    return x,y 
+
+def xr_is_aligned(x,y, exclude=None):
+    if isinstance(exclude, str):
+        exclude = [exclude]
+    # - Retrieve dims  
+    dims_x = set(list(x.dims))
+    dims_y = set(list(y.dims))
+    # - Remove dims to exclude
+    if exclude is not None:
+        _ = [dims_x.discard(excl) for excl in exclude]
+        _ = [dims_y.discard(excl) for excl in exclude]
+    # - Check dim order 
+    if not np.array_equal(list(dims_x), list(dims_y)):
+        return False 
+    # - Check dimension values matching
+    dims = list(dims_x)
+    x_dims_dict = {dim: x[dim].values for dim in dims}
+    y_dims_dict = {dim: y[dim].values for dim in dims}
+    for dim in dims: 
+        if not np.array_equal(x_dims_dict[dim], y_dims_dict[dim]):
+            return False 
+    return True 
+
+def xr_have_same_timesteps(x, y, time_dim='time'):
+    if x is None or y is None: 
+        return True 
+    return np.array_equal(x[time_dim].values, y[time_dim].values)
+
 def _check_timesteps(timesteps):
     """Check timesteps object and return a numpy array."""
     if isinstance(timesteps, str): 
@@ -42,22 +77,6 @@ def _check_timesteps(timesteps):
     else: 
         raise ValueError("Unvalid timesteps specification.")
     
-def _get_subset_timesteps_idxs(timesteps, subset_timesteps, strict_match=True):
-    """Check subset_timesteps are within timesteps and return the matching indices."""
-    subset_timesteps = _check_timesteps(subset_timesteps)
-    timesteps = _check_timesteps(timesteps)
-    subset_timesteps = subset_timesteps.astype(timesteps.dtype) # same precision required for comparison
-    subset_idxs = np.array([idx for idx, v in enumerate(timesteps) if v in set(subset_timesteps)])  
-    if subset_idxs.size == 0:
-        raise ValueError("The 'subset_timesteps' are not within the available 'timesteps'.")
-    if len(subset_idxs) != len(subset_timesteps):
-        timesteps_not_in = subset_timesteps[np.isin(subset_timesteps, timesteps, invert=True)] 
-        if strict_match:
-            raise ValueError("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))       
-        else:
-            raise Warning("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))
-    return subset_idxs
-
 def check_no_missing_timesteps(timesteps, verbose=True):
     """Check if there are missing timesteps in a list or numpy datetime64 array."""
     timesteps = _check_timesteps(timesteps) 
@@ -108,301 +127,327 @@ def check_finite_Dataset(ds):
     if flag_raise_error: 
         raise ValueError('The variables {} contain Inf values.'.format(list_vars_with_inf))
         
-def check_dimnames_DataArray(da, required_dimnames, da_name):
-    """Check dimnames are dimensions of the DataArray."""
-    if not isinstance(da_name, str): 
-        raise TypeError("'da_name' must be a string.")
-    if not isinstance(da, xr.DataArray):
-        raise TypeError("'da' must be an xarray DataArray")
-    if not isinstance(required_dimnames, list):
-        raise TypeError("'required_dimnames' must be a list")
-    # Retrieve DataArray dimension names 
-    da_dims = list(da.dims)
-    # Identify which dimension are missing 
-    missing_dims = np.array(required_dimnames)[np.isin(required_dimnames, da_dims, invert=True)]
-    # If missing, raise an error
-    if len(missing_dims) > 0: 
-        raise ValueError("The {} must have also the '{}' dimension".format(da_name, missing_dims))
+##------------------------------------------------------------------------. 
+def _check_input_data(data, feature_dim = 'feature'):  
+    if not isinstance(data, (xr.DataArray, xr.Dataset)):
+        raise TypeError("Expecting xr.DataArray or xr.Dataset")
+    # If Dataset, must not have feature dimension
+    if isinstance(data, xr.Dataset):
+        if feature_dim in data.dims:
+            raise ValueError("The 'xr.Dataset' cannot contain dimension 'feature'")
+    return None
 
-def check_dimnames_Dataset(ds, required_dimnames, ds_name):
-    """Check dimnames are dimensions of the Dataset."""
-    if not isinstance(ds_name, str): 
-        raise TypeError("'ds_name' must be a string.")
+def _check_has_feature_dimension(data, feature_dim="feature"): 
+     if feature_dim not in data.dims:
+            raise ValueError("The '{!r}' must have a dimension called 'feature'".format(type(data)))
+     return None 
+
+def _check_has_time_dimension(data, time_dim = "time"): 
+     if time_dim not in data.dims:
+            raise ValueError("The '{!r}' must have a dimension called 'time'".format(type(data)))
+     return None 
+
+def _has_Dataset_DataArrays_samedims(ds):
     if not isinstance(ds, xr.Dataset):
-        raise TypeError("'ds' must be an xarray Dataset")
-    if not isinstance(required_dimnames, list):
-        raise TypeError("'required_dimnames' must be a list")
-    # Retrieve Dataset dimension names 
-    ds_dims = list(ds.dims.keys())    
-    # Identify which dimension are missing 
-    missing_dims = np.array(required_dimnames)[np.isin(required_dimnames, ds_dims, invert=True)]
-    # If missing, raise an error
-    if len(missing_dims) > 0: 
-        raise ValueError("The {} must have also the '{}' dimension".format(ds_name, missing_dims))
-        
-#-----------------------------------------------------------------------------.
-def _check_ar_DataArray_dimnames(da_dynamic = None,
-                                 da_bc = None, 
-                                 da_static = None):
-    """Check the dimension names of DataArray required for AR training and predictions."""
-    # Required dimensions (names)
-    time_dim='time'
-    node_dim='node'
-    variable_dim='feature'
-    # Check for dimensions of the dynamic DataArray
-    if da_dynamic is not None: 
-        check_dimnames_DataArray(da = da_dynamic, da_name = "dynamic DataArray",
-                                 required_dimnames=[time_dim, node_dim, variable_dim])
-   
-    # Check for dimensions of the boundary conditions DataArray           
-    if da_static is not None: 
-        check_dimnames_DataArray(da = da_static, da_name = "static DataArray",
-                                 required_dimnames=[node_dim, variable_dim])
-   
-    # Check for dimension of the static DataArray      
-    if da_bc is not None: 
-        check_dimnames_DataArray(da = da_bc, da_name = "bc DataArray",
-                                 required_dimnames=[time_dim, node_dim, variable_dim])
+        raise TypeError("Expecting a xr.Dataset within _has_Dataset_DataArrays_samedims().")
+    unordered_dims = list(ds.dims) # This does not correspond to dims of DataArrays !!!!
+    variables = list(ds.data_vars.keys()) 
+    # - Get the dimension of the first DataArray as reference (and check it has all the Dataset dimensions)
+    dims = list(ds[variables[0]].dims)
+    missing_dim = np.array(unordered_dims)[np.isin(unordered_dims, dims, invert=True)].tolist()
+    if len(missing_dim) >= 1:
+        print("The Dataset variable {!r} does not have dimensions {!r}.".format(variables[0], missing_dim)) 
+    for var in variables:
+        da_dims = list(ds[var].dims)
+        if not np.array_equal(da_dims, dims):
+            missing_dim = np.array(dims)[np.isin(dims, da_dims, invert=True)].tolist()
+            if len(missing_dim) >= 1:
+                print("The Dataset variable {!r} does not have dimensions {!r}.".format(var, missing_dim))
+            else:
+                print("The Dataset variable {!r} have dimension {!r} instead of {!r}.".format(var, da_dims, dims))
+            return False
+    return True 
 
-def check_ar_DataArrays(da_training_dynamic,
-                        da_validation_dynamic = None, 
-                        da_training_bc = None,
-                        da_validation_bc = None, 
-                        da_static = None,
-                        verbose = False):
-    """Check DataArrays required for AR training and predictions."""
-    ##------------------------------------------------------------------------.
-    # Check da_dynamic is provided 
-    if not isinstance(da_training_dynamic, xr.DataArray):   
-        raise ValueError("The dynamic DataArray is necessary for AR models.")
-    if da_validation_bc is not None and not isinstance(da_validation_dynamic, xr.DataArray):   
-        raise ValueError("The validation dynamic DataArray is necessary for AR models.")
-    ##------------------------------------------------------------------------.
-    # Check dimension names 
-    _check_ar_DataArray_dimnames(da_dynamic=da_training_dynamic,
-                                 da_bc=da_training_bc,
-                                 da_static=da_static)
-    _check_ar_DataArray_dimnames(da_dynamic=da_validation_dynamic,
-                                 da_bc=da_validation_bc,
-                                 da_static=da_static)
-    ##------------------------------------------------------------------------.
-    # Check that the required DataArrays are provided 
-    if da_validation_dynamic is not None: 
-        if ((da_training_bc is not None) and (da_validation_bc is None)):  
-            raise ValueError("If boundary conditions data are provided for the training, must be provided also for validation!")
-    ##------------------------------------------------------------------------.
-    # Check no missing timesteps 
-    if verbose: 
-        print("- Data time period")
-    check_no_missing_timesteps(da_training_dynamic['time'].values, verbose=verbose)
-    if da_validation_dynamic is not None: 
-        if verbose: 
-            print("- Validation Data time period")
-        check_no_missing_timesteps(da_validation_dynamic['time'].values, verbose=verbose)
-    if da_training_bc is not None: 
-        check_no_missing_timesteps(da_training_bc['time'].values, verbose=False)
-    if da_validation_bc is not None: 
-        check_no_missing_timesteps(da_validation_bc['time'].values, verbose=False)
-    ##------------------------------------------------------------------------.
-    # Check time alignment of training and validation DataArray
-    if da_training_bc is not None: 
-        all_same_timesteps = np.all(da_training_dynamic['time'].values == da_training_bc['time'].values)
-        if not all_same_timesteps:
-            raise ValueError("The training dynamic DataArray and the training boundary conditions DataArray does not have the same timesteps!")
-    if ((da_validation_dynamic is not None) and (da_validation_bc is not None)): 
-        all_same_timesteps = np.all(da_validation_dynamic['time'].values == da_validation_bc['time'].values)
-        if not all_same_timesteps:
-            raise ValueError("The validation dynamic DataArray and the validation boundary conditions DataArray does not have the same timesteps!")
-    ##------------------------------------------------------------------------.
-    ## Check dimension order coincide between training and validation
-    if da_validation_dynamic is not None:
-        dim_info_training = get_ar_model_diminfo(da_dynamic = da_training_dynamic, 
-                                                 da_bc = da_training_bc,
-                                                 da_static = da_static)
-        dim_info_validation = get_ar_model_diminfo(da_dynamic = da_validation_dynamic, 
-                                                   da_bc = da_validation_bc,
-                                                   da_static = da_static)
-        if not dim_info_training == dim_info_validation:
-            raise ValueError("The dimension order of training and validation DataArrays do not coincide!")
-            
-#-----------------------------------------------------------------------------.
-# #############################
-### Checks for AR Datasets ####
-# #############################    
-def _check_ar_Dataset_dimnames(ds_dynamic = None,
-                               ds_bc = None, 
-                               ds_static = None):
-    """Check the dimension names of Datasets required for AR training and predictions."""
-    # Required dimensions (names)
-    time_dim='time'
-    node_dim='node'
-    ##------------------------------------------------------------------------.
-    # Check for dimensions of the dynamic Dataset
-    if ds_dynamic is not None: 
-        check_dimnames_Dataset(ds = ds_dynamic, ds_name = "dynamic Dataset",
-                               required_dimnames=[time_dim, node_dim])
-   
-    # Check for dimensions of the static Dataset              
-    if ds_static is not None: 
-        check_dimnames_Dataset(ds = ds_static, ds_name = "static Dataset",
-                               required_dimnames=[node_dim])
-   
-    # Check for dimension of the boundary conditions Dataset     
-    if ds_bc is not None: 
-        check_dimnames_Dataset(ds = ds_bc, ds_name = "bc Dataset",
-                               required_dimnames=[time_dim, node_dim])   
- 
+def _check_temporal_data(data, data_type, feature_dim='feature', time_dim = 'time', verbose=True):
+    if data is None: 
+        return None
+    # - Checks data type 
+    _check_input_data(data)
+    # - Check no missing timesteps 
+    check_no_missing_timesteps(timesteps=data[time_dim].values, verbose=verbose)
+    # - Check that "time" is a dimension 
+    _check_has_time_dimension(data, time_dim = time_dim)
+    # - If Dataset, check that all DataArray have same dimensions
+    if isinstance(data, xr.Dataset): 
+        if not _has_Dataset_DataArrays_samedims(data):
+            raise ValueError("All xr.DataArray(s) within the {!r} xr.Dataset must have the same dimensions.".format(data_type)) 
+    # - If Dataset, conversion to DataArray for further checks 
+    if isinstance(data, xr.Dataset):
+        data = data.to_array(feature_dim) 
+    # - Check that 'feature' is a dimension 
+    _check_has_feature_dimension(data, feature_dim = feature_dim)
+    # - Put feature as the last position  The Dataset/Dataloader will 
+    data = data.transpose(..., feature_dim)
+    # - Retrieve DataArray dimensions (and number)
+    dims = list(data.dims)
+    # - Retrieve non-required dimensions 
+    dims_required=[time_dim, feature_dim]
+    dims_optional = np.array(dims)[np.isin(dims, dims_required, invert=True)].tolist()
+    if len(dims_optional) < 1:
+        raise ValueError("{!r} must have at least one additional dimension (i.e. space) other than {!r}".format(data_type, dims_required))
+    return None
 
-##----------------------------------------------------------------------------.
-def check_ar_Datasets(ds_training_dynamic,
-                      ds_validation_dynamic = None,
-                      ds_static = None,              
-                      ds_training_bc = None,         
-                      ds_validation_bc = None,
-                      verbose=False):
-    """Check Datasets required for AR training and predictions."""
-    # Check dimension names 
-    _check_ar_Dataset_dimnames(ds_dynamic=ds_training_dynamic,
-                               ds_bc=ds_training_bc,
-                               ds_static=ds_static)
-    _check_ar_Dataset_dimnames(ds_dynamic=ds_validation_dynamic,
-                               ds_bc=ds_validation_bc,
-                               ds_static=ds_static)
-    ##------------------------------------------------------------------------.
-    # Check that the required Datasets are provided 
-    if ds_validation_dynamic is not None: 
-        if ((ds_training_bc is not None) and (ds_validation_bc is None)):  
-            raise ValueError("If boundary conditions data are provided for the training, must be provided also for validation!")
-    ##------------------------------------------------------------------------.
-    # Check no missing timesteps 
-    if verbose: 
-        print("Data")
-    check_no_missing_timesteps(ds_training_dynamic['time'].values, verbose=verbose)
-    if ds_validation_dynamic is not None: 
-        if verbose: 
-            print("Validation Data")
-        check_no_missing_timesteps(ds_validation_dynamic['time'].values, verbose=verbose)
-    if ds_training_bc is not None: 
-        check_no_missing_timesteps(ds_training_bc['time'].values, verbose=False)
-    if ds_validation_bc is not None: 
-        check_no_missing_timesteps(ds_validation_bc['time'].values, verbose=False)
-    ##------------------------------------------------------------------------.
-    # Check time alignment of training and validation dataset
-    if ds_training_bc is not None: 
-        same_timesteps = ds_training_dynamic['time'].values == ds_training_bc['time'].values
-        if not all(same_timesteps):
-            raise ValueError("The training dynamic Dataset and the training boundary conditions Dataset does not have the same timesteps!")
-    if ((ds_validation_dynamic is not None) and (ds_validation_bc is not None)): 
-        same_timesteps = ds_validation_dynamic['time'].values == ds_validation_bc['time'].values
-        if not all(same_timesteps):
-            raise ValueError("The validation dynamic Dataset and the validation boundary conditions Dataset does not have the same timesteps!")
-    ##------------------------------------------------------------------------.
+def _check_static_data(data, data_type, feature_dim='feature', time_dim = 'time'):
+    if data is None:
+        return None
+    # - Checks data type 
+    _check_input_data(data)
+    # - Check does not have "time" dimension
+    if time_dim in list(data.dims):
+        raise ValueError("{!r} must not contain the 'time' dimension.".format(data_type))
+    # - If Dataset, check that all DataArray have same dimensions
+    if isinstance(data, xr.Dataset): 
+        if not _has_Dataset_DataArrays_samedims(data):
+            raise ValueError("All xr.DataArray(s) within the {!r} xr.Dataset must have the same dimensions.".format(data_type)) 
+    # - If Dataset, conversion to DataArray for further checks 
+    if isinstance(data, xr.Dataset):
+        data = data.to_array(feature_dim) 
+    # - Check that 'feature' is a dimension 
+    _check_has_feature_dimension(data, feature_dim = feature_dim)
+    # - Put feature as the last position  The Dataset/Dataloader will 
+    data = data.transpose(...,feature_dim)
+     # - Retrieve DataArray dimensions (and number)
+    dims = list(data.dims)
+    # - Retrieve non-required dimensions 
+    dims_required = [feature_dim]
+    dims_optional = np.array(dims)[np.isin(dims, dims_required, invert=True)].tolist()
+    if len(dims_optional) < 1:
+        raise ValueError("{!r} must have at least one additional dimension (i.e. space) other than {!r}".format(data_type, dims_required))
+    return None
 
-#-----------------------------------------------------------------------------.   
+def _get_subset_timesteps_idxs(timesteps, subset_timesteps, strict_match=True):
+    """Check subset_timesteps are within timesteps and return the matching indices."""
+    subset_timesteps = _check_timesteps(subset_timesteps)
+    timesteps = _check_timesteps(timesteps)
+    subset_timesteps = subset_timesteps.astype(timesteps.dtype) # same precision required for comparison
+    subset_idxs = np.array([idx for idx, v in enumerate(timesteps) if v in set(subset_timesteps)])  
+    if subset_idxs.size == 0:
+        raise ValueError("The 'subset_timesteps' are not within the available 'timesteps'.")
+    if len(subset_idxs) != len(subset_timesteps):
+        timesteps_not_in = subset_timesteps[np.isin(subset_timesteps, timesteps, invert=True)] 
+        if strict_match:
+            raise ValueError("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))       
+        else:
+            raise Warning("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))
+    return subset_idxs
+
+def _get_dim_order(data):
+    # If None, return None
+    if data is None: 
+        return None
+    # If DataArray retrieve dimension position 
+    dims = list(data.dims) 
+    # If Dataset data.dims does not correspond to the dimension of within DataArrays !!!
+    if isinstance(data, xr.Dataset):
+        # - Here I assume that all within DataArrays have same dimension order !!!
+        # --> _has_Dataset_DataArrays_samedims(data) must be performed before !
+        dims = list(data[list(data.data_vars.keys())[0]].dims)
+        dims = dims + ['feature']
+    dim_order = ['sample'] + dims   
+    return dim_order
+
+# def _get_dim_info(data):
+#     # If None, return None
+#     if data is None: 
+#         return None
+#     # If DataArray or Dataset, retrieve dimension position 
+#     dims = list(data.dims)
+#     dim_info = {dim : np.argwhere(np.array(dims) == dim)[0][0] + 1 for dim in dims}
+#     dim_info['sample'] = 0 
+#     if isinstance(data, xr.Dataset):
+#         dim_info['feature'] = len(dims) + 1 # 'feature' will go in last position 
+#     return dim_info
+
+def _get_dim_info(data):
+    # If None, return None
+    if data is None: 
+        return None
+    dim_order = _get_dim_order(data)
+    dim_info = {k: i for i, k in enumerate(dim_order)}
+    return dim_info
+
+def _get_feature_order(data):
+    # If None, return None
+    if data is None: 
+        return None
+    # If DataArray or Dataset, retrieve features 
+    if isinstance(data, xr.Dataset):
+        feature_order = list(data.data_vars.keys())   
+    elif isinstance(data, xr.DataArray):
+        feature_order = data['feature'].values.tolist()    
+    else:
+        raise NotImplementedError
+    return feature_order
+
+def _get_feature_info(data):
+    # If None, return None
+    if data is None: 
+        return None
+    # If DataArray or Dataset, retrieve features 
+    feature_order = _get_feature_order(data)
+    feature_info = {k: i for i, k in enumerate(feature_order)}
+    return feature_info
+
+def _get_shape_order(data):
+    # If None, return None
+    if data is None: 
+        return None
+    # If DataArray or Dataset, retrieve features 
+    if isinstance(data, xr.Dataset):
+        data = data.to_array('feature')
+    # Ensure 'feature' is the last dimension 
+    data = data.transpose(..., 'feature')
+    # Retrieve shape
+    shape_order = list(data.shape)
+    shape_order = [None] + shape_order
+    return shape_order
+
+def _get_shape_order_dicts(data_dynamic, data_bc, data_static): 
+     shape_order = {}
+     shape_order['dynamic'] =_get_shape_order(data_dynamic)
+     shape_order['static'] =_get_shape_order(data_static)
+     shape_order['bc'] = _get_shape_order(data_bc)
+     return shape_order
+
+def _get_feature_info_dicts(data_dynamic, data_bc, data_static): 
+     feature_info = {}
+     feature_info['dynamic'] =_get_feature_info(data_dynamic)
+     feature_info['static'] =_get_feature_info(data_static)
+     feature_info['bc'] = _get_feature_info(data_bc)
+     return feature_info
+
+def _get_feature_order_dicts(data_dynamic, data_bc, data_static): 
+     feature_order = {}
+     feature_order['dynamic'] =_get_feature_order(data_dynamic)
+     feature_order['static'] =_get_feature_order(data_static)
+     feature_order['bc'] = _get_feature_order(data_bc) 
+     return feature_order
+
+def _get_dim_info_dicts(data_dynamic, data_bc, data_static): 
+     dim_info = {}
+     dim_info['dynamic'] =_get_dim_info(data_dynamic)
+     dim_info['static'] =_get_dim_info(data_static)
+     dim_info['bc'] = _get_dim_info(data_bc)
+     return dim_info
+
+def _get_dim_order_dicts(data_dynamic, data_bc, data_static): 
+        dim_order = {}
+        dim_order['dynamic'] =_get_dim_order(data_dynamic)
+        dim_order['static'] =_get_dim_order(data_static)
+        dim_order['bc'] = _get_dim_order(data_bc)
+        return dim_order  
+
 # Retrieve input-output dims 
-def get_ar_model_diminfo(da_dynamic, da_static=None, da_bc=None, ar_settings=None):
+def get_ar_model_tensor_info(ar_settings, data_dynamic,
+                             data_static=None, 
+                             data_bc=None, bc_generator=None):
     """Retrieve dimension information for AR DeepSphere models.""" 
     ##------------------------------------------------------------------------.
-    # Required dimensions
-    time_dim='time'
-    node_dim='node'
-    variable_dim='feature'
+    ### Checks ar_settings
+    if not isinstance(ar_settings, dict): 
+        raise ValueError("Please provide 'ar_settings' as a dictionary")
+    ar_settings_keys = list(ar_settings.keys())
+    if not np.all(np.isin(['input_k','output_k'], ar_settings_keys)):
+        raise ValueError("The 'ar_settings' dictionary must contain 'input_k' and 'output_k' keys.")
     ##------------------------------------------------------------------------.
-    if not isinstance(da_dynamic, xr.DataArray): 
-        raise ValueError("The dynamic DataArray is necessary for AR models.")
+    ### Checks either data_bc or bc_generator is provided
+    if data_bc is not None and bc_generator is not None: 
+        raise ValueError("Either provide 'data_bc' or 'bc_generator'.")
     ##------------------------------------------------------------------------.
-    # Dynamic variables 
-    check_dimnames_DataArray(da = da_dynamic, da_name = "dynamic DataArray",
-                             required_dimnames=[time_dim, node_dim, variable_dim])
-    dynamic_variables = da_dynamic[variable_dim].values.tolist()
-    n_dynamic_variables = len(dynamic_variables)
-    dims_dynamic = list(da_dynamic.dims)
-    # Static variables 
-    if da_static is not None:
-        check_dimnames_DataArray(da = da_static, da_name = "static DataArray",
-                                 required_dimnames=[node_dim, variable_dim])
-        dims_static = list(da_static.dims)
-        static_variables = da_static[variable_dim].values.tolist()
-        n_static_variables = len(static_variables)
-    else:
-        dims_static = None
-        static_variables = []
-        n_static_variables = 0
+    # Define name of required dimensions
+    time_dim = 'time'
+    feature_dim = 'feature'
+    ##------------------------------------------------------------------------.
+    ### Checks data_dynamic 
+    if data_dynamic is None: 
+        raise ValueError("'data_dynamic' cannot be None! Provide an xr.Dataset or xr.DataArray.")
+    _check_temporal_data(data_dynamic, data_type = 'data_dynamic', 
+                         feature_dim=feature_dim, time_dim = time_dim)
+    ##------------------------------------------------------------------------.
+    ### Check data_bc      
+    if bc_generator is not None:
+        # TODO
+        # data_bc = ... 
+        raise NotImplementedError()
+    _check_temporal_data(data_bc, data_type = 'data_bc', 
+                        feature_dim=feature_dim, time_dim = time_dim)
+     
+    ##------------------------------------------------------------------------.
+    ### Checks data_static  
+    _check_static_data(data_static, data_type = 'data_statuc', 
+                       feature_dim=feature_dim, time_dim = time_dim)
+
+    ##------------------------------------------------------------------------. 
+    # Define shape of the input and output time dimensions
+    input_n_time = len(ar_settings['input_k']) 
+    output_n_time = len(ar_settings['output_k']) 
+    
+    ##------------------------------------------------------------------------. 
+    ### Create informative objects 
+    # - Retrieve feature and dimension position dictionaries 
+    dim_info = _get_dim_info_dicts(data_dynamic, data_bc, data_static)
+    dim_order = _get_dim_order_dicts(data_dynamic, data_bc, data_static)   
+    feature_info = _get_feature_info_dicts(data_dynamic, data_bc, data_static)
+    feature_order = _get_feature_order_dicts(data_dynamic, data_bc, data_static)   
+   
+    feature_dynamic = feature_order['dynamic'] if feature_order['dynamic'] is not None else []   
+    feature_bc = feature_order['bc'] if feature_order['bc'] is not None else []      
+    feature_static = feature_order['static'] if feature_order['static'] is not None else []   
+    feature_total = feature_dynamic + feature_bc + feature_static  
+
+    # Define total number of features 
+    input_n_feature = len(feature_total)
+    output_n_feature = len(feature_dynamic) 
+
+    # - Retrieve shape info (with batch shape None) for input and output tensors 
+    # - The batch dimension is marked by a None 
+    shape_order = _get_shape_order_dicts(data_dynamic, data_bc, data_static)
+    
+    input_shape_info = {}
+    for data_type in ['dynamic','bc','static']:
+        if dim_order[data_type] is not None:
+            input_shape_info[data_type] = {k: v for k, v in zip(dim_order[data_type], shape_order[data_type])}
+            if data_type != "static":
+                input_shape_info[data_type]['time'] = input_n_time
+        else: 
+            input_shape_info[data_type] = None
+    
+    output_shape_info = {}
+    for data_type in ['dynamic','bc','static']:
+        if data_type == "dynamic":
+            output_shape_info[data_type] = {k: v for k, v in zip(dim_order[data_type], shape_order[data_type])}
+            output_shape_info[data_type]['time'] = output_n_time
+        else: 
+            output_shape_info[data_type] = None
         
-    # Boundary condition variables     
-    if da_bc is not None:
-        check_dimnames_DataArray(da = da_bc, da_name = "bc DataArray",
-                                 required_dimnames=[time_dim, node_dim, variable_dim])
-        dims_bc = list(da_bc.dims)
-        bc_variables = da_bc[variable_dim].values.tolist()
-        n_bc_variables = len(bc_variables)
-    else: 
-        dims_bc = None
-        bc_variables = []
-        n_bc_variables = 0
-    ##-------------------------------------------------------------------------.
-    # Check dims_bc order is the same as dims_dynamic
-    if dims_bc is not None:
-        if not np.array_equal(dims_dynamic, dims_bc):
-            raise ValueError("Dimension order of dynamic and bc DataArrays must be equal.")
-      
-    ##------------------------------------------------------------------------. 
-    # Define feature dimensions 
-    input_feature_dim = n_static_variables + n_bc_variables + n_dynamic_variables 
-    output_feature_dim = n_dynamic_variables
-    input_features = static_variables + bc_variables + dynamic_variables                     
-    output_features = dynamic_variables
-    ##------------------------------------------------------------------------. 
-    # Define number of nodes 
-    input_node_dim = len(da_dynamic['node'])
-    output_node_dim = len(da_dynamic['node'])
-    ##------------------------------------------------------------------------. 
-    # Define dimension order
-    dim_order = ['sample'] + list(da_dynamic.dims) # Here I force batch_dim to be the first dimension (for all code)! 
-    ##------------------------------------------------------------------------. 
-    # Define time dimensions
-    if ar_settings is not None:
-        input_time_dim = len(ar_settings['input_k']) 
-        output_time_dim = len(ar_settings['output_k']) 
     ##------------------------------------------------------------------------. 
     # Define input-ouput tensor shape 
-    if ar_settings is not None:
-        dim_input = {}
-        dim_input['node'] = input_node_dim
-        dim_input['time'] = input_time_dim
-        dim_input['feature'] = input_feature_dim
-        input_shape = tuple([dim_input[k] for k in dim_order[1:]])
-        
-        dim_output = {}
-        dim_output['node'] = output_node_dim
-        dim_output['time'] = output_time_dim
-        dim_output['feature'] = output_feature_dim
-        output_shape = tuple([dim_input[k] for k in dim_order[1:]])
+    input_shape = [v if k != "feature" else input_n_feature for k, v in  input_shape_info['dynamic'].items()]
+    output_shape = [v if k != "feature" else output_n_feature for k, v in output_shape_info['dynamic'].items()]
     ##------------------------------------------------------------------------.
-    # Define time dimension 
-    if ar_settings is not None:
-        # Create dictionary with dimension infos 
-        dim_info = {'input_feature_dim': input_feature_dim,
-                    'output_feature_dim': output_feature_dim,
-                    'input_features': input_features,
-                    'output_features': output_features,
-                    'input_time_dim': input_time_dim,
-                    'output_time_dim': output_time_dim,
-                    'input_node_dim': input_node_dim,
-                    'output_node_dim': output_node_dim,
-                    'dim_order': dim_order,
-                    'input_shape': input_shape,
-                    'output_shape': output_shape,
-                    }
-    else:
-        # Create dictionary with dimension infos (without time)
-        dim_info = {'input_feature_dim': input_feature_dim,
-                    'output_feature_dim': output_feature_dim,
-                    'input_features': input_features,
-                    'output_features': output_features,
-                    'input_node_dim': input_node_dim,
-                    'output_node_dim': output_node_dim,
-                    'dim_order': dim_order,
-                    }    
+    # Create dictionary with dimension infos 
+    tensor_info = {'input_shape': input_shape,
+                   'output_shape': output_shape,
+                   'input_n_time': input_n_time,
+                   'output_n_time': output_n_time,
+                   'input_n_feature': input_n_feature,
+                   'output_n_feature': output_n_feature,
+                   'dim_order': dim_order,
+                   'dim_info': dim_info, 
+                   'feature_order': feature_order,
+                   'feature_info': feature_info,
+                   'input_shape_info': input_shape_info,
+                   'output_shape_info': output_shape_info,
+                   }
     ##------------------------------------------------------------------------. 
-    return dim_info 
+    return tensor_info 

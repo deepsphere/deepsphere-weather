@@ -14,14 +14,13 @@ from tabulate import tabulate
 
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
-from modules.dataloader_autoregressive import get_ar_batch
+from modules.dataloader_autoregressive import get_aligned_ar_batch
 from modules.dataloader_autoregressive import remove_unused_Y
 from modules.dataloader_autoregressive import cylic_iterator
 from modules.utils_autoregressive import check_ar_settings
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
-from modules.utils_io import check_ar_DataArrays 
-from modules.utils_training import ar_TrainingInfo
+from modules.utils_training import AR_TrainingInfo
 from modules.utils_torch import check_device
 from modules.utils_torch import check_pin_memory
 from modules.utils_torch import check_asyncronous_gpu_transfer
@@ -29,6 +28,8 @@ from modules.utils_torch import check_prefetch_in_gpu
 from modules.utils_torch import check_prefetch_factor
 from modules.utils_torch import check_ar_training_strategy
 from modules.utils_torch import get_time_function
+from modules.utils_io import xr_is_aligned
+from modules.loss import reshape_tensors_4_loss 
 
 from modules.utils_swag import bn_update_with_loader
 ##----------------------------------------------------------------------------.
@@ -36,17 +37,6 @@ from modules.utils_swag import bn_update_with_loader
 # - ONNX for saving model weights 
 # - Record the loss per variable 
 # - Compute additional metrics (R2, bias, rsd)
-
-##----------------------------------------------------------------------------. 
-###################
-### Loss utils ####
-###################
-def reshape_tensors_4_loss(Y_pred, Y_obs, dim_names):
-    """Reshape tensors for loss computation."""
-    vars_to_flatten = np.array(dim_names)[np.isin(dim_names,['node','feature'], invert=True)].tolist()
-    Y_pred = Y_pred.rename(*dim_names).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
-    Y_obs = Y_obs.rename(*dim_names).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
-    return Y_pred, Y_obs
 
 #-----------------------------------------------------------------------------.
 # ############################
@@ -143,10 +133,14 @@ def timing_AR_Training(dataset,
     device = dataset.device                      
     # Retrieve function to get time 
     get_time = get_time_function(device)
+    # Retrieve custom ar_batch_fun fuction
+    ar_batch_fun = dataset.ar_batch_fun  
     ##------------------------------------------------------------------------.
     # Get dimension infos
     dim_info = dataset.dim_info
-    dim_names = tuple(dim_info.keys())
+    feature_info = dataset.feature_info
+    dim_info_dynamic = dim_info['dynamic']
+    # feature_names_dynamic = list(feature_info['dynamic'])
     ##------------------------------------------------------------------------.
     # Initialize model 
     if training_mode:
@@ -202,10 +196,10 @@ def timing_AR_Training(dataset,
             tmp_ar_loss_timing = 0
             tmp_ar_backprop_timing = 0
             batch_memory_size = 0 
-            for i in range(ar_iterations+1):
+            for ar_iteration in range(ar_iterations+1):
                 # Retrieve X and Y for current AR iteration   
                 t_i = get_time()
-                torch_X, torch_Y = get_ar_batch(ar_iteration = i, 
+                torch_X, torch_Y = ar_batch_fun(ar_iteration = ar_iteration, 
                                                 batch_dict = training_batch_dict, 
                                                 dict_Y_predicted = dict_training_Y_predicted,
                                                 device = device, 
@@ -213,32 +207,36 @@ def timing_AR_Training(dataset,
                 tmp_ar_batch_timing = tmp_ar_batch_timing + (get_time() - t_i)
                 ##-----------------------------------------------------------------.                                
                 # Measure model parameters + batch size in MB 
-                if device.type != 'cpu' and i == 0:
+                if device.type != 'cpu' and ar_iteration == 0:
                     batch_memory_size = torch.cuda.memory_allocated()/1000/1000 - model_params_size
                 ##-----------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
                 t_i = get_time()
-                dict_training_Y_predicted[i] = model(torch_X)
+                dict_training_Y_predicted[ar_iteration] = model(torch_X)
                 tmp_ar_forward_timing = tmp_ar_forward_timing + (get_time() - t_i) 
                 ##-----------------------------------------------------------------.
                 # Compute loss for current forecast iteration 
-                # - The criterion expects [data_points, nodes, features]
-                # - Collapse all other dimensions to a 'data_points' dimension  
+                # - The criterion currently expects [data_points, nodes, features]
+                #   So we collapse all other dimensions to a 'data_points' dimension  
+                # TODO to generalize AR_Training to whatever tensor formats:
+                # - reshape_tensors_4_loss should be done in criterion 
+                # - criterion should get args: dim_info, dynamic_features, 
+                # - criterion can perform internally "per-variable loss", "per-variable masking"
                 t_i = get_time()   
-                Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[i],
+                Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[ar_iteration],
                                                        Y_obs = torch_Y,
-                                                       dim_names = dim_names)
-                dict_training_loss_per_ar_iteration[i] = criterion(Y_obs, Y_pred)
+                                                       dim_info_dynamic = dim_info_dynamic)
+                dict_training_loss_per_ar_iteration[ar_iteration] = criterion(Y_obs, Y_pred)
                 tmp_ar_loss_timing = tmp_ar_loss_timing + (get_time() - t_i)
                 ##-----------------------------------------------------------------.
                 # If ar_training_strategy is "AR", perform backward pass at each AR iteration 
                 if ar_training_strategy == "AR":
                     # - Detach gradient of Y_pred (to avoid RNN-style optimization)
                     if training_mode: 
-                        dict_training_Y_predicted[i] = dict_training_Y_predicted[i].detach()
+                        dict_training_Y_predicted[ar_iteration] = dict_training_Y_predicted[ar_iteration].detach()
                     # - AR weight the loss (aka weight sum the gradients ...)
                     t_i = get_time() 
-                    dict_training_loss_per_ar_iteration[i] = dict_training_loss_per_ar_iteration[i]*ar_scheduler.ar_weights[i]
+                    dict_training_loss_per_ar_iteration[ar_iteration] = dict_training_loss_per_ar_iteration[ar_iteration]*ar_scheduler.ar_weights[ar_iteration]
                     tmp_ar_loss_timing = tmp_ar_loss_timing + (get_time() - t_i)
                     # - Measure model size requirements
                     if device.type != 'cpu':
@@ -248,23 +246,23 @@ def timing_AR_Training(dataset,
                     # - Backpropagate to compute gradients (the derivative of the loss w.r.t. the parameters)
                     if training_mode: 
                         t_i = get_time()  
-                        dict_training_loss_per_ar_iteration[i].backward()
+                        dict_training_loss_per_ar_iteration[ar_iteration].backward()
                         tmp_ar_backprop_timing = tmp_ar_backprop_timing + (get_time() - t_i)
                     # - Update the total (AR weighted) loss
                     t_i = get_time()  
-                    if i == 0:
-                        training_total_loss = dict_training_loss_per_ar_iteration[i] 
+                    if ar_iteration == 0:
+                        training_total_loss = dict_training_loss_per_ar_iteration[ar_iteration] 
                     else: 
-                        training_total_loss += dict_training_loss_per_ar_iteration[i]
+                        training_total_loss += dict_training_loss_per_ar_iteration[ar_iteration]
                     tmp_ar_loss_timing = tmp_ar_loss_timing + (get_time() - t_i)
                 ##------------------------------------------------------------.
                 # Remove unnecessary stored Y predictions 
                 t_i = get_time()
-                remove_unused_Y(ar_iteration = i, 
+                remove_unused_Y(ar_iteration = ar_iteration, 
                                 dict_Y_predicted = dict_training_Y_predicted,
                                 dict_Y_to_remove = training_batch_dict['dict_Y_to_remove'])
                 del Y_pred, Y_obs, torch_X, torch_Y
-                if i == ar_iterations:
+                if ar_iteration == ar_iterations:
                     del dict_training_Y_predicted
                 tmp_ar_data_removal_timing = tmp_ar_data_removal_timing + (get_time()- t_i)
                     
@@ -510,12 +508,15 @@ def AutoregressiveTraining(model,
                            early_stopping,
                            optimizer, 
                            # Data
-                           da_training_dynamic,
-                           da_validation_dynamic = None,
-                           da_static = None,              
-                           da_training_bc = None,         
-                           da_validation_bc = None, 
+                           training_data_dynamic, 
+                           training_data_bc = None,   
+                           data_static = None,
+                           validation_data_dynamic = None,
+                           validation_data_bc = None, 
+                           bc_generator = None, 
                            scaler = None,
+                           # AR_batching_function
+                           ar_batch_fun = get_aligned_ar_batch,
                            # Dataloader options
                            prefetch_in_gpu = False,
                            prefetch_factor = 2,
@@ -542,14 +543,26 @@ def AutoregressiveTraining(model,
                            save_model_each_epoch = False,
                            ar_training_info = None, 
                            # SWAG settings
-                           swag=False,
-                           swag_model=None,
-                           swag_freq=10,
-                           swa_start=8,
+                           swag = False,
+                           swag_model = None,
+                           swag_freq = 10,
+                           swa_start = 8,
                            # GPU settings 
                            device = 'cpu'):
-    """AutoregressiveTraining."""
-    # if early_stopping=None, no ar_iteration update 
+    """AutoregressiveTraining.
+    
+    ar_batch_fun : callable 
+            Custom function that batch/stack together data across AR iterations. 
+            The custom function must return a tuple of length 2 (X, Y), but X and Y 
+            can be whatever desired objects (torch.Tensor, dict of Tensor, ...). 
+            The custom function must have the following arguments: 
+                def ar_batch_fun(ar_iteration, batch_dict, dict_Y_predicted,
+                                 device = 'cpu', asyncronous_gpu_transfer = True)
+            The default ar_batch_fun function is the pre-implemented get_aligned_ar_batch() which return 
+            two torch.Tensor: one for X (input) and one four Y (output). Such function expects 
+            the dynamic and bc batch data to have same dimensions and shape.
+    if early_stopping=None, no ar_iteration update
+    """
     ##------------------------------------------------------------------------.
     time_start_training = time.time()
     ## Checks arguments 
@@ -573,16 +586,26 @@ def AutoregressiveTraining(model,
                       forecast_cycle = forecast_cycle,                           
                       ar_iterations = ar_iterations, 
                       stack_most_recent_prediction = stack_most_recent_prediction)    
-    ##------------------------------------------------------------------------.
-    # Check that DataArrays are valid 
-    check_ar_DataArrays(da_training_dynamic = da_training_dynamic,
-                        da_validation_dynamic = da_validation_dynamic, 
-                        da_training_bc = da_training_bc,
-                        da_validation_bc = da_validation_bc, 
-                        da_static = da_static)
-    ##------------------------------------------------------------------------.    
+    ##------------------------------------------------------------------------.  
+    # Check training data 
+    if training_data_dynamic is None:  
+        raise ValueError("'training_data_dynamic' must be provided !")
+    ##------------------------------------------------------------------------.  
+    ## Check validation data 
+    if validation_data_dynamic is not None: 
+        if not xr_is_aligned(training_data_dynamic, validation_data_dynamic, exclude="time"):
+             raise ValueError("training_data_dynamic' and 'validation_data_dynamic' does not"
+                              "share same dimensions (order and values)(excluding 'time').")
+    if validation_data_bc is not None: 
+        if training_data_dynamic is None: 
+            raise ValueError("If 'validation_data_bc' is provided, also 'training_data_dynamic' must be specified.")
+        if not xr_is_aligned(training_data_bc, validation_data_bc, exclude="time"):
+            raise ValueError("training_data_bc' and 'validation_data_bc' does not"
+                              "share same dimensions (order and values)(excluding 'time').")
+
+    ##------------------------------------------------------------------------.   
     ## Check early stopping
-    if da_validation_dynamic is None:
+    if validation_data_dynamic is None:
         if early_stopping is not None: 
             if early_stopping.stopping_metric == "total_validation_loss":
                 print("Validation dataset is not provided."
@@ -604,10 +627,14 @@ def AutoregressiveTraining(model,
     ##------------------------------------------------------------------------.
     ### Create Datasets 
     t_i = time.time()
-    trainingDataset = AutoregressiveDataset(da_dynamic = da_training_dynamic,  
-                                            da_bc = da_training_bc,
-                                            da_static = da_static,
+    trainingDataset = AutoregressiveDataset(data_dynamic = training_data_dynamic,  
+                                            data_bc = training_data_bc,
+                                            data_static = data_static,
+                                            bc_generator = bc_generator,  
                                             scaler = scaler,
+                                            # Custom AR batching function
+                                            ar_batch_fun = ar_batch_fun,
+                                            training_mode = True,
                                             # Autoregressive settings  
                                             input_k = input_k,
                                             output_k = output_k,
@@ -616,11 +643,15 @@ def AutoregressiveTraining(model,
                                             stack_most_recent_prediction = stack_most_recent_prediction, 
                                             # GPU settings 
                                             device = device)
-    if da_validation_dynamic is not None:
-        validationDataset = AutoregressiveDataset(da_dynamic = da_validation_dynamic,  
-                                                  da_bc = da_validation_bc,
-                                                  da_static = da_static,   
+    if validation_data_dynamic is not None:
+        validationDataset = AutoregressiveDataset(data_dynamic = validation_data_dynamic,  
+                                                  data_bc = validation_data_bc,
+                                                  data_static = data_static,  
+                                                  bc_generator = bc_generator,  
                                                   scaler = scaler,
+                                                  # Custom AR batching function
+                                                  ar_batch_fun = ar_batch_fun,
+                                                  training_mode = True,
                                                   # Autoregressive settings  
                                                   input_k = input_k,
                                                   output_k = output_k,
@@ -702,7 +733,7 @@ def AutoregressiveTraining(model,
                                                   pin_memory = pin_memory,
                                                   asyncronous_gpu_transfer = asyncronous_gpu_transfer, 
                                                   device = device)
-    if da_validation_dynamic is not None:
+    if validation_data_dynamic is not None:
         validationDataLoader = AutoregressiveDataLoader(dataset = validationDataset, 
                                                         batch_size = validation_batch_size,  
                                                         drop_last_batch = drop_last_batch,
@@ -721,25 +752,33 @@ def AutoregressiveTraining(model,
         validationDataLoader_iter = None
      
     ##------------------------------------------------------------------------.
-    # Initialize ar_TrainingInfo instance if not provided 
+    # Initialize AR_TrainingInfo instance if not provided 
     # - Initialization occurs when a new model training starts
-    # - Passing an ar_TrainingInfo instance allows to continue model training from where it stopped !
+    # - Passing an AR_TrainingInfo instance allows to continue model training from where it stopped !
     #   --> The ar_scheduler of previous training must be provided to ar_Training() !
     if ar_training_info is not None: 
-        if not isinstance(ar_training_info, ar_TrainingInfo):
-            raise TypeError("If provided, 'ar_training_info' must be an instance of ar_TrainingInfo class.")
-            # TODO: Check AR scheduler weights are compatible ! 
+        if not isinstance(ar_training_info, AR_TrainingInfo):
+            raise TypeError("If provided, 'ar_training_info' must be an instance of AR_TrainingInfo class.")
+            # TODO: Check AR scheduler weights are compatible ! or need numpy conversion
             # ar_scheduler = ar_training_info.ar_scheduler
     else: 
-        ar_training_info = ar_TrainingInfo(ar_iterations=ar_iterations,
+        ar_training_info = AR_TrainingInfo(ar_iterations=ar_iterations,
                                            epochs = epochs,
                                            ar_scheduler = ar_scheduler)  
 
     ##------------------------------------------------------------------------.
-    # Get dimension infos
+    # Get dimension and feature infos
+    # TODO: this is only used by the loss, --> future refactoring
     dim_info = trainingDataset.dim_info
-    dim_names = tuple(dim_info.keys())
+    dim_order = trainingDataset.dim_order
+    feature_info = trainingDataset.feature_info
+    feature_order = trainingDataset.feature_order
+    dim_info_dynamic = dim_info['dynamic']
+    # feature_dynamic = list(feature_info['dynamic'])
 
+    ##------------------------------------------------------------------------.
+    # Retrieve custom ar_batch_fun fuction
+    ar_batch_fun = trainingDataset.ar_batch_fun  
     ##------------------------------------------------------------------------.
     # Set model layers (i.e. batchnorm) in training mode 
     model.train()
@@ -777,16 +816,17 @@ def AutoregressiveTraining(model,
             dict_training_loss_per_ar_iteration = {}
             for ar_iteration in range(ar_scheduler.current_ar_iterations+1):
                 # Retrieve X and Y for current AR iteration
-                torch_X, torch_Y = get_ar_batch(ar_iteration = ar_iteration, 
+                # - ar_batch_fun() function stack together the required data from the previous AR iteration
+                torch_X, torch_Y = ar_batch_fun(ar_iteration = ar_iteration, 
                                                 batch_dict = training_batch_dict, 
                                                 dict_Y_predicted = dict_training_Y_predicted,
                                                 asyncronous_gpu_transfer = asyncronous_gpu_transfer,
-                                                device = device)
+                                                device = device)                                         
                 ##-------------------------------------------------------------.                               
                 # # Print memory usage dataloader
                 # if device.type != 'cpu':
                 #     # torch.cuda.synchronize()
-                #     print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
+                #     print("{}: {:.2f} MB".format(ar_iteration, torch.cuda.memory_allocated()/1000/1000)) 
                 ##-------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
                 dict_training_Y_predicted[ar_iteration] = model(torch_X)
@@ -797,12 +837,22 @@ def AutoregressiveTraining(model,
                 # - Collapse all other dimensions to a 'data_points' dimension  
                 Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_training_Y_predicted[ar_iteration],
                                                        Y_obs = torch_Y,
-                                                       dim_names = dim_names)
+                                                       dim_info_dynamic = dim_info_dynamic)
                 dict_training_loss_per_ar_iteration[ar_iteration] = criterion(Y_obs, Y_pred)
-                print(batch_count)
-                print(dict_training_loss_per_ar_iteration[ar_iteration])
-                if dict_training_loss_per_ar_iteration[ar_iteration].item() > 500:
-                    raise ValueError
+                print("Batch", batch_count)
+                print("AR_iteration", ar_iteration)
+                print("Loss", dict_training_loss_per_ar_iteration[ar_iteration])
+                
+                ##-------------------------------------------------------------.
+                # The following code can be used to debug training if loss diverge to nan 
+                if dict_training_loss_per_ar_iteration[ar_iteration].item() > 10000:
+                    ar_training_info_fpath = os.path.join(os.path.dirname(model_fpath), "AR_TrainingInfo.pickle")
+                    with open(ar_training_info_fpath, 'wb') as handle:
+                        pickle.dump(ar_training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                    raise ValueError("The training has diverged. The training info can be recovered using: \n"
+                                      "with open({!r}, 'rb') as handle: \n" 
+                                      "    ar_training_info = pickle.load(handle)".format(ar_training_info_fpath))
+                                       
                 ##-------------------------------------------------------------.
                 # If ar_training_strategy is "AR", perform backward pass at each AR iteration 
                 if ar_training_strategy == "AR":
@@ -829,7 +879,7 @@ def AutoregressiveTraining(model,
                 # # Print memory usage dataloader + model 
                 # if device.type != 'cpu':
                 #     torch.cuda.synchronize()
-                #     print("{}: {:.2f} MB".format(i, torch.cuda.memory_allocated()/1000/1000)) 
+                #     print("{}: {:.2f} MB".format(ar_iteration, torch.cuda.memory_allocated()/1000/1000)) 
             ##----------------------------------------------------------------.
             # - Compute total (AR weighted) loss 
             for i, (ar_iteration, loss) in enumerate(dict_training_loss_per_ar_iteration.items()):
@@ -898,7 +948,7 @@ def AutoregressiveTraining(model,
                         # Autoregressive loop 
                         for ar_iteration in range(ar_scheduler.current_ar_iterations+1):
                             # Retrieve X and Y for current AR iteration
-                            torch_X, torch_Y = get_ar_batch(ar_iteration = ar_iteration, 
+                            torch_X, torch_Y = ar_batch_fun(ar_iteration = ar_iteration, 
                                                             batch_dict = validation_batch_dict, 
                                                             dict_Y_predicted = dict_validation_Y_predicted,
                                                             asyncronous_gpu_transfer = asyncronous_gpu_transfer,
@@ -913,7 +963,7 @@ def AutoregressiveTraining(model,
                             # - The criterion expects [data_points, nodes, features] 
                             Y_pred, Y_obs = reshape_tensors_4_loss(Y_pred = dict_validation_Y_predicted[ar_iteration],
                                                                    Y_obs = torch_Y,
-                                                                   dim_names = dim_names)
+                                                                   dim_info_dynamic = dim_info_dynamic)
                             dict_validation_loss_per_ar_iteration[ar_iteration] = criterion(Y_obs, Y_pred)
                             
                             ##------------------------------------------------.
@@ -951,7 +1001,7 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------. 
             # - Update the AR weights 
             ar_scheduler.step()
-            ar_scheduler.ar_weights
+            print("AR_weights", ar_scheduler.ar_weights)
             ##----------------------------------------------------------------. 
             # - Evaluate stopping metrics  
             # --> Update AR scheduler if the loss has plateau

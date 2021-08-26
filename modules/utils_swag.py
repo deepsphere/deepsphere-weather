@@ -12,9 +12,12 @@ import tqdm
 
 import torch.nn.functional as F
 
-from modules.dataloader_autoregressive import get_ar_batch
+from modules.dataloader_autoregressive import get_aligned_ar_batch
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
+
+# TOCHECK: 
+# check_bn : can found also BN enclosed in ResBlock --> ConvBlock (nestdness?)
 
 def flatten(lst):
     tmp = [i.contiguous().view(-1, 1) for i in lst]
@@ -63,9 +66,12 @@ def _set_momenta(module, momenta):
 
 def bn_update(model, 
              # Data
-             da_dynamic,
-             da_static = None,              
-             da_bc = None, 
+             data_dynamic,
+             data_static = None,              
+             data_bc = None, 
+             bc_generator = None,
+             # AR_batching_function
+             ar_batch_fun = get_aligned_ar_batch,
              # Scaler options
              scaler = None,
              # Dataloader options
@@ -97,10 +103,13 @@ def bn_update(model,
     model.apply(reset_bn)
     model.apply(lambda module: _get_momenta(module, momenta))
 
-    dataset = AutoregressiveDataset(da_dynamic = da_dynamic,  
-                                    da_bc = da_bc,
-                                    da_static = da_static,
+    dataset = AutoregressiveDataset(data_dynamic = data_dynamic,  
+                                    data_bc = data_bc,
+                                    data_static = data_static,
+                                    bc_generator = bc_generator, 
                                     scaler = scaler, 
+                                    # Custom AR batching function
+                                    ar_batch_fun = ar_batch_fun,
                                     # Autoregressive settings  
                                     input_k = input_k,
                                     output_k = output_k,
@@ -108,9 +117,8 @@ def bn_update(model,
                                     ar_iterations = ar_iterations, 
                                     stack_most_recent_prediction = stack_most_recent_prediction, 
                                     # GPU settings 
-                                    device = device,
-                                    # Precision settings
-                                    numeric_precision = numeric_precision)
+                                    training_mode = False,
+                                    device = device)
     
     dataloader = AutoregressiveDataLoader(dataset = dataset, 
                                           batch_size = batch_size,  
@@ -124,7 +132,9 @@ def bn_update(model,
                                           device = device)
 
     n = 0
-
+    ##------------------------------------------------------------------------.
+    # Retrieve custom ar_batch_fun fuction
+    ar_batch_fun = dataset.ar_batch_fun  
     with torch.no_grad():
         ##--------------------------------------------------------------------.     
         # Iterate along training batches       
@@ -133,16 +143,15 @@ def bn_update(model,
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
             dict_Y_predicted = {}
-            for i in range(ar_iterations+1):
+            for ar_iteration in range(ar_iterations+1):
                 # Retrieve X and Y for current AR iteration
                 # - Torch Y stays in CPU with training_mode=False
-                torch_X, _ = get_ar_batch(ar_iteration = i, 
-                                        batch_dict = batch_dict, 
-                                        dict_Y_predicted = dict_Y_predicted,
-                                        device = device, 
-                                        asyncronous_gpu_transfer = asyncronous_gpu_transfer,
-                                        training_mode=False)
-            
+                torch_X, _ = ar_batch_fun(ar_iteration = ar_iteration, 
+                                          batch_dict = batch_dict, 
+                                          dict_Y_predicted = dict_Y_predicted,
+                                          device = device, 
+                                          asyncronous_gpu_transfer = asyncronous_gpu_transfer)
+                                           
                 input_var = torch.autograd.Variable(torch_X)
                 b = input_var.data.size(0)
 
@@ -150,7 +159,7 @@ def bn_update(model,
                 for module in momenta.keys():
                     module.momentum = momentum
 
-                dict_Y_predicted[i] = model(input_var, **kwargs)
+                dict_Y_predicted[ar_iteration] = model(input_var, **kwargs)
                 n += b
                 del torch_X, input_var
 
@@ -169,7 +178,8 @@ def bn_update_with_loader(model,
     model.apply(reset_bn)
     model.apply(lambda module: _get_momenta(module, momenta))
     n = 0
-
+    # Retrieve custom ar_batch_fun fuction
+    ar_batch_fun = loader.ar_batch_fun  
     with torch.no_grad():
         ##--------------------------------------------------------------------.     
         # Iterate along training batches       
@@ -178,15 +188,14 @@ def bn_update_with_loader(model,
             ##----------------------------------------------------------------.      
             ### Perform autoregressive loop
             dict_Y_predicted = {}
-            for i in range(ar_iterations+1):
+            for ar_iteration in range(ar_iterations+1):
                 # Retrieve X and Y for current AR iteration
                 # - Torch Y stays in CPU with training_mode=False
-                torch_X, _ = get_ar_batch(ar_iteration = i, 
-                                        batch_dict = batch_dict, 
-                                        dict_Y_predicted = dict_Y_predicted,
-                                        device = device, 
-                                        asyncronous_gpu_transfer = asyncronous_gpu_transfer,
-                                        training_mode=False)
+                torch_X, _ = ar_batch_fun(ar_iteration = ar_iteration, 
+                                          batch_dict = batch_dict, 
+                                          dict_Y_predicted = dict_Y_predicted,
+                                          device = device, 
+                                          asyncronous_gpu_transfer = asyncronous_gpu_transfer)
             
                 input_var = torch.autograd.Variable(torch_X)
                 b = input_var.data.size(0)
@@ -195,7 +204,7 @@ def bn_update_with_loader(model,
                 for module in momenta.keys():
                     module.momentum = momentum
 
-                dict_Y_predicted[i] = model(input_var, **kwargs)
+                dict_Y_predicted[ar_iteration] = model(input_var, **kwargs)
                 n += b
                 del torch_X, input_var
             

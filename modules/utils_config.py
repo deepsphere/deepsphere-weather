@@ -530,10 +530,10 @@ def pretty_printing(d, indent=0, indent_factor=2):
 #         else:
 #             print('\t' * (indent+1) + str(value))
 
-def print_dim_info(dim_info):
+def print_tensor_info(tensor_info):
     """Pretty printing of tensor dimension information."""
     print("- Input-Output Tensors characteristics:")
-    pretty_printing(dim_info, indent=1, indent_factor=2)  
+    pretty_printing(tensor_info, indent=1, indent_factor=2)  
     
 def print_model_description(cfg, dim_info=None):
     """Pretty printing of experiment settings."""
