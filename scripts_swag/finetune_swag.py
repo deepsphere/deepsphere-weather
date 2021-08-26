@@ -29,7 +29,7 @@ from modules.utils_config import read_config_file
 from modules.utils_config import write_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
-from modules.utils_config import get_AR_settings
+from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_config import get_pytorch_model
 from modules.utils_config import get_model_name
@@ -40,8 +40,8 @@ from modules.utils_config import print_model_description
 from modules.utils_config import print_dim_info
 
 from modules.utils_models import get_pygsp_graph
-from modules.utils_io import get_AR_model_diminfo
-from modules.utils_io import check_AR_DataArrays 
+from modules.utils_io import get_ar_model_diminfo
+from modules.utils_io import check_ar_DataArrays 
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
@@ -72,8 +72,8 @@ from modules.my_plotting import plot_skill_maps
 from modules.my_plotting import plot_global_skill
 from modules.my_plotting import plot_global_skills
 from modules.my_plotting import plot_skills_distribution
-from modules.my_plotting import create_GIF_forecast_error
-from modules.my_plotting import create_GIF_forecast_anom_error
+from modules.my_plotting import create_gif_forecast_error
+from modules.my_plotting import create_gif_forecast_anom_error
 
 # For plotting 
 import matplotlib
@@ -108,14 +108,14 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     cfg['training_settings']["ar_training_strategy"] = "RNN" # "RNN" # "AR" # "RNN"
     cfg['training_settings']['epochs'] = 4
     cfg['training_settings']['learning_rate'] = 0.007
-    cfg['AR_settings']["AR_iterations"] = 6
+    cfg['ar_settings']["ar_iterations"] = 6
     cfg['SWAG_settings']["sampling_scale"] = 0.0
     cfg['SWAG_settings']["nb_samples"] = 1
     cfg['SWAG_settings']["target_learning_rate"] = 0.001
     ##------------------------------------------------------------------------.
     ### Retrieve experiment-specific configuration settings   
     model_settings = get_model_settings(cfg)   
-    AR_settings = get_AR_settings(cfg)
+    ar_settings = get_ar_settings(cfg)
     training_settings = get_training_settings(cfg) 
     dataloader_settings = get_dataloader_settings(cfg) 
     SWAG_settings = get_SWAG_settings(cfg)
@@ -178,13 +178,13 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     
     ##-----------------------------------------------------------------------------.
     ### Check DataArrays      
-    check_AR_DataArrays(da_training_dynamic = da_training_dynamic,
+    check_ar_DataArrays(da_training_dynamic = da_training_dynamic,
                         da_training_bc = da_training_bc,  
                         da_static = da_static,
                         da_validation_dynamic = da_validation_dynamic,
                         da_validation_bc = da_validation_bc,
                         verbose=True)    
-    check_AR_DataArrays(da_training_dynamic = da_test_dynamic,
+    check_ar_DataArrays(da_training_dynamic = da_test_dynamic,
                         da_training_bc = da_test_bc,  
                         da_static = da_static,
                         verbose=True)   
@@ -195,7 +195,7 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
-    dim_info = get_AR_model_diminfo(AR_settings=AR_settings,
+    dim_info = get_ar_model_diminfo(ar_settings=ar_settings,
                                     da_dynamic=da_training_dynamic, 
                                     da_static=da_static, 
                                     da_bc=da_training_bc)
@@ -298,21 +298,21 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
         if training_settings["AR_training_strategy"] == "RNN":
             ar_scheduler = AR_Scheduler(method = "LinearStep",
                                         factor = 0.0005,
-                                        fixed_AR_weights = [0],
+                                        fixed_ar_weights = [0],
 
-                                        initial_AR_absolute_weights = [1,1]) 
+                                        initial_ar_absolute_weights = [1,1]) 
         # - FOR AR : Do not decay weights once they growthed
         elif training_settings["AR_training_strategy"] == "AR":                                
             ar_scheduler = AR_Scheduler(method = "LinearStep",
                                         factor = 0.0005,
-                                        fixed_AR_weights = np.arange(0, AR_settings['AR_iterations']),
-                                        initial_AR_absolute_weights = [1, 1])   
+                                        fixed_ar_weights = np.arange(0, ar_settings['ar_iterations']),
+                                        initial_ar_absolute_weights = [1, 1])   
         else:
             raise NotImplementedError("'AR_training_strategy' must be either 'AR' or 'RNN'.")
 
     ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
-    # - Used also to update AR_scheduler (increase AR iterations) if 'AR_iterations' not reached.
+    # - Used also to update AR_scheduler (increase AR iterations) if 'ar_iterations' not reached.
     patience = 500
     minimum_iterations = 500
     minimum_improvement = 0 # 0 to not stop 
@@ -343,11 +343,11 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
                                                 ar_scheduler = ar_scheduler,                                
                                                 early_stopping = early_stopping,
                                                 # Data
-                                                da_training_dynamic = da_training_dynamic,
-                                                da_validation_dynamic = da_validation_dynamic,
+                                                training_data_dynamic = da_training_dynamic,
+                                                validation_data_dynamic = da_validation_dynamic,
                                                 da_static = da_static,              
-                                                da_training_bc = da_training_bc,         
-                                                da_validation_bc = da_validation_bc,  
+                                                training_data_bc = da_training_bc,         
+                                                validation_data = da_validation_bc,  
                                                 scaler = scaler, 
                                                 # Dataloader settings
                                                 num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
@@ -359,13 +359,13 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
                                                 pin_memory = dataloader_settings['pin_memory'], 
                                                 asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'], 
                                                 # Autoregressive settings  
-                                                input_k = AR_settings['input_k'], 
-                                                output_k = AR_settings['output_k'], 
-                                                forecast_cycle = AR_settings['forecast_cycle'],                         
-                                                AR_iterations = AR_settings['AR_iterations'], 
-                                                stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'], 
+                                                input_k = ar_settings['input_k'], 
+                                                output_k = ar_settings['output_k'], 
+                                                forecast_cycle = ar_settings['forecast_cycle'],                         
+                                                ar_iterations = ar_settings['ar_iterations'], 
+                                                stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
                                                 # Training settings 
-                                                AR_training_strategy = training_settings["AR_training_strategy"],
+                                                ar_training_strategy = training_settings["AR_training_strategy"],
                                                 training_batch_size = training_settings['training_batch_size'], 
                                                 validation_batch_size = training_settings['validation_batch_size'],   
                                                 epochs = training_settings['epochs'], 
@@ -400,11 +400,11 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
         ds_forecasts = AutoregressiveSWAGPredictions(model = swag_model, 
                                                     exp_dir = exp_dir, 
                                                     # Data
-                                                    da_training_dynamic = da_training_dynamic,
-                                                    da_test_dynamic = da_test_dynamic,
-                                                    da_static = da_static,              
-                                                    da_training_bc = da_training_bc,         
-                                                    da_test_bc = da_test_bc, 
+                                                    training_data_dynamic = da_training_dynamic,
+                                                    test_data_dynamic = da_test_dynamic,
+                                                    data_static = da_static,              
+                                                    training_data_bc = da_training_bc,         
+                                                    test_data_bc = da_test_bc, 
                                                     # Scaler options
                                                     scaler_transform = scaler,
                                                     scaler_inverse = scaler,
@@ -417,11 +417,11 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
                                                     pin_memory = dataloader_settings['pin_memory'],
                                                     asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'],
                                                     # Autoregressive settings  
-                                                    input_k = AR_settings['input_k'], 
-                                                    output_k = AR_settings['output_k'], 
-                                                    forecast_cycle = AR_settings['forecast_cycle'],                         
-                                                    AR_iterations = 20, 
-                                                    stack_most_recent_prediction = AR_settings['stack_most_recent_prediction'],
+                                                    input_k = ar_settings['input_k'], 
+                                                    output_k = ar_settings['output_k'], 
+                                                    forecast_cycle = ar_settings['forecast_cycle'],                         
+                                                    ar_iterations = 20, 
+                                                    stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'],
                                                     # SWAG settings
                                                     no_cov_mat=SWAG_settings['no_cov_mat'],
                                                     sampling_scale = SWAG_settings["sampling_scale"],
@@ -510,22 +510,22 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     ds_obs_test = ds_obs_test.chunk({'time': 100,'node': -1})
     ds_obs = ds_obs_test.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_obs = ds_obs.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
-    # - Plot GIF for different months (variable states)
+    # - Plot gif for different months (variable states)
     for month in range(1,13):
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_GIF_forecast_error(GIF_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
+        create_gif_forecast_error(gif_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
                                   ds_forecast = ds_forecast,
                                   ds_obs = ds_obs,
                                   aspect_cbar = 40,
                                   antialiased = False,
                                   edgecolors = None)
-    # - Plot GIF for different months (variable anomalies)
+    # - Plot gif for different months (variable anomalies)
     hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
     for month in range(1,13):
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_GIF_forecast_anom_error(GIF_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
+        create_gif_forecast_anom_error(gif_fpath = os.path.join(exp_dir, f"figs/sampling_{sampling_scale}/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
                                        ds_forecast = ds_forecast,
                                        ds_obs = ds_obs,
                                        scaler = hourly_weekly_anomaly_scaler,
