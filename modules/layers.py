@@ -111,12 +111,15 @@ def conv_cheb(laplacian, inputs, weight):
     x : torch.Tensor
         Inputs after applying Chebyshev convolution.
     """
+    ##------------------------------------------------------------------------.
     # Terminology
-    # B = batch size
-    # V = nb vertices (nodes)
-    # Fin = nb input features
-    # Fout = nb output features
-    # K = order of Chebyshev polynomials (kenel size)
+    # - B = batch size
+    # - V = nb vertices (nodes)
+    # - Fin = nb input features
+    # - Fout = nb output features
+    # - K = order of Chebyshev polynomials (kenel size)
+    # Input dimension : B, V, Fin 
+    # - Example: reshape from ['sample', 'node', 'time-feature'] 
     ##------------------------------------------------------------------------.
     # Get input tensor shape 
     B, V, Fin1 = inputs.shape
@@ -133,7 +136,8 @@ def conv_cheb(laplacian, inputs, weight):
                          "- Expected tensor shape :{} \n".format(Fin))
     ##------------------------------------------------------------------------.  
     # Transform to Chebyshev basis    
-    x0 = inputs.permute(1, 2, 0).contiguous()  # V x Fin x B
+    # - Example: reshape from ['sample', 'node', 'time-feature'] to ['node','time-feature', 'sample']
+    x0 = inputs.permute(1, 2, 0).contiguous() # V x Fin x B
     x0 = x0.view([V, Fin * B])  # V x Fin*B
     x = x0.unsqueeze(0)  # 1 x V x Fin*B
     ##------------------------------------------------------------------------.
