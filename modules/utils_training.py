@@ -105,7 +105,7 @@ def plot_loss(iterations,
 # ########################### 
 ### Training Info object ####
 # ###########################
-class ar_TrainingInfo():
+class AR_TrainingInfo():
     """Training info Object."""
     
     def __init__(self, ar_iterations, epochs, ar_scheduler):
@@ -562,12 +562,12 @@ class ar_TrainingInfo():
         ##--------------------------------------------------------------------.   
         ### - Plot the loss at each AR iteration (in separate figures)
         for ar_iteration in range(self.ar_iterations+1):
-            fname = os.path.join(exp_dir, "figs/training_info/Loss_at_ar_{}.png".format(ar_iteration)) 
             fig = self.plot_loss_per_ar_iteration(ar_iteration = ar_iteration,
                                                   linewidth=0.6,
                                                   ylim = ylim,
                                                   title="Loss evolution at AR iteration {}".format(ar_iteration))
             if exp_dir is not None:
+                fname = os.path.join(exp_dir, "figs/training_info/Loss_at_ar_{}.png".format(ar_iteration)) 
                 fig.savefig(fname) 
             else:
                 plt.show()
