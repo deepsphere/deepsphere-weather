@@ -69,7 +69,7 @@ chunks_400km = {'node': -1,
                 'time': 24*365*1, # we assume to load the 400 km in memory 
                 'feature': 1} 
 chunks_100km = {'node': -1,
-                'time': 72,  # TODO OPTIMIZATION
+                'time': 36,   
                 'feature': 1} 
 chunks_dict = {'Healpix_400km': chunks_400km,
                'Icosahedral_400km': chunks_400km,
