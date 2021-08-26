@@ -7,7 +7,8 @@ Created on Mon Dec 14 13:25:46 2020
 import xarray as xr
 import numpy as np
 import os
-
+import time 
+ 
 # import xscaler
 # xscaler.GlobalScaler.MinMaxScaler
 # xscaler.GlobalScaler.StandardScaler  
@@ -16,6 +17,10 @@ import os
 # TemporalScaler 
 # xr.ALL_DIMS # ...
 
+## Make "elapsed time" optional
+
+## GitHub issues related to groupby(time)
+# - https://github.com/pydata/xarray/issues/2237
 ##----------------------------------------------------------------------------.
 ## TODO 
 # - Robust standardization (IQR, MEDIAN) (https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.RobustScaler.html#sklearn.preprocessing.RobustScaler)
@@ -280,8 +285,11 @@ def get_time_groupby_idx(data, time_dim, time_groups, time_groupby_factors=None)
             # Retrieve max time aggregation
             time_agg_max = get_time_group_max(time_group=time_group)
             # Retrieve time index (for specific time group)
-            # idx = data[time_dim].dt.isocalendar().week  # dt.week, dt.weekofyear has been deprecated in Pandas ... but xarray not updated
-            idx = data[time_dim].dt.__getattribute__(time_group)
+            # -  dt.week, dt.weekofyear has been deprecated in Pandas ...
+            if time_group == "weekofyear":
+                idx = data[time_dim].dt.isocalendar().week
+            else:
+                idx = data[time_dim].dt.__getattribute__(time_group)
             l_time_groups_dims.append(idx)
             # Preprocessing if 'season' (string to integer)
             if time_group == 'season':
@@ -500,7 +508,7 @@ class GlobalStandardScaler():
             self.variable_dim = variable_dim
 
     ##------------------------------------------------------------------------.
-    def fit(self):
+    def fit(self, show_progress=True):
         """Fit the GlobalStandardScaler."""
         #---------------------------------------------------------------------.
         # Checks
@@ -508,10 +516,13 @@ class GlobalStandardScaler():
             raise ValueError("The scaler has been already fitted!")
         #---------------------------------------------------------------------.
         # Fit the scaler 
+        t_i = time.time()
         if self.center:
-            self.mean_ = self.data.mean(self.aggregating_dims).compute() 
+            self.mean_ = self.data.mean(self.aggregating_dims).compute()
         if self.standardize:
-            self.std_ = self.data.std(self.aggregating_dims).compute() 
+            self.std_ = self.data.std(self.aggregating_dims).compute()
+        print('- Elapsed time: {:.2f}min'.format((time.time() - t_i)/60))
+        # Set fitted flag to True 
         self.fitted = True
         # del self.data
     
@@ -551,7 +562,6 @@ class GlobalStandardScaler():
                            'standardize': str(self.standardize),
                            }
         ds_scaler.to_netcdf(fpath)
-        print("The GlobalStandardScaler has been written to disk!")
         
     ##------------------------------------------------------------------------.   
     def transform(self, new_data, variable_dim=None, rename_dict=None): 
@@ -797,7 +807,7 @@ class GlobalMinMaxScaler():
             self.variable_dim = variable_dim
 
     ##------------------------------------------------------------------------.
-    def fit(self):
+    def fit(self, show_progress=True):
         """Fit the GlobalMinMaxScaler."""
         #---------------------------------------------------------------------.
         # Checks
@@ -805,9 +815,11 @@ class GlobalMinMaxScaler():
             raise ValueError("The scaler has been already fitted!")
         #---------------------------------------------------------------------.
         # Fit the scaler 
+        t_i = time.time()
         self.min_ = self.data.min(self.aggregating_dims).compute()
         self.max_ = self.data.max(self.aggregating_dims).compute()
         self.range_ = self.max_ - self.min_  
+        print('- Elapsed time: {:.2f}min'.format((time.time() - t_i)/60))
         self.fitted = True
         # del self.data
     
@@ -845,7 +857,6 @@ class GlobalMinMaxScaler():
                            'feature_max': self.feature_max,
                            }
         ds_scaler.to_netcdf(fpath)
-        print("The GlobalMinMaxScaler has been written to disk!")
         
     ##------------------------------------------------------------------------.   
     def transform(self, new_data, variable_dim=None, rename_dict=None): 
@@ -1116,17 +1127,19 @@ class TemporalStandardScaler():
             self.variable_dim = variable_dim  
         
     ##------------------------------------------------------------------------. 
-    def fit(self):
+    def fit(self, show_progress=True):
         """Fit the TemporalStandardScaler."""
         ##---------------------------------------------------------------------.
         if self.fitted: 
             raise ValueError("The scaler has been already fitted!")
         ##---------------------------------------------------------------------.
         # Fit the scaler 
+        t_i = time.time()
         if self.center:
-            self.mean_ = self.data.groupby(self.time_groupby_idx).mean(self.aggregating_dims).compute() 
+            self.mean_ = self.data.groupby(self.time_groupby_idx).mean(self.aggregating_dims).compute()
         if self.standardize:
-            self.std_ = self.data.groupby(self.time_groupby_idx).std(self.aggregating_dims).compute() 
+            self.std_ = self.data.groupby(self.time_groupby_idx).std(self.aggregating_dims).compute()
+        print('- Elapsed time: {:.2f}min'.format((time.time() - t_i)/60))
         self.fitted = True
         # del self.data
     
@@ -1171,7 +1184,6 @@ class TemporalStandardScaler():
                            'time_groupby_name': self.time_groupby_name
                            }
         ds_scaler.to_netcdf(fpath)
-        print("The TemporalStandardScaler has been written to disk!")
         
     ##------------------------------------------------------------------------.   
     def transform(self, new_data, variable_dim=None, rename_dict=None): 
@@ -1490,16 +1502,18 @@ class TemporalMinMaxScaler():
             self.variable_dim = variable_dim  
         
     ##------------------------------------------------------------------------. 
-    def fit(self):
+    def fit(self, show_progress=True):
         """Fit the TemporalMinMaxScaler."""
         ##--------------------------------------------------------------------.
         if self.fitted: 
             raise ValueError("The scaler has been already fitted!")
         ##--------------------------------------------------------------------.
         # Fit the scaler 
+        t_i = time.time()
         self.min_ = self.data.groupby(self.time_groupby_idx).min(self.aggregating_dims).compute()
         self.max_ = self.data.groupby(self.time_groupby_idx).max(self.aggregating_dims).compute()
         self.range_ = self.max_ - self.min_  
+        print('- Elapsed time: {:.2f}min'.format((time.time() - t_i)/60))
         self.fitted = True
         # del self.data
     
@@ -1540,7 +1554,6 @@ class TemporalMinMaxScaler():
                            'time_groupby_name': self.time_groupby_name
                            }
         ds_scaler.to_netcdf(fpath)
-        print("The TemporalMinMaxScaler has been written to disk!")
         
     ##------------------------------------------------------------------------.   
     def transform(self, new_data, variable_dim=None, rename_dict=None): 
@@ -1780,12 +1793,12 @@ class SequentialScaler():
         self.fitted = False
         self.scaler_class = 'SequentialScaler'
 
-    def fit(self): 
+    def fit(self, show_progress=True): 
         """Fit all scalers within a SequentialScaler."""
         new_list_scaler = []
         for scaler in self.list_scalers:
             if not scaler.fitted:
-                scaler.fit()
+                scaler.fit(show_progress=show_progress)
             new_list_scaler.append(scaler)
         self.list_scalers = new_list_scaler
         self.fitted = True
@@ -1941,7 +1954,6 @@ class Climatology():
                          'time_groupby_name': self.time_groupby_name
                          }
         ds_clim.to_netcdf(fpath)
-        print("The Climatology has been written to disk!")
         
     ##------------------------------------------------------------------------.
     def forecast(self, time, mean=True):
