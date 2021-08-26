@@ -7,6 +7,42 @@ import matplotlib.pyplot as plt
 
 from modules.remap import compute_interpolation_weights
 
+# https://pytorch.org/tutorials/recipes/recipes/tensorboard_with_pytorch.html
+# https://torchmetrics.readthedocs.io/en/latest/pages/quickstart.html
+# https://torchmetrics.readthedocs.io/en/latest/pages/overview.html
+# https://torchmetrics.readthedocs.io/en/latest/pages/implement.html#implement
+# https://torchmetrics.readthedocs.io/en/latest/references/functional.html#r2-score-func
+
+## feature last dimension: 
+# - compute per feature 
+# - torchmetrics multiouput: uniform/variance weighted average across variables or raw ... 
+
+
+# def metrics(loss, list_metrics, reshape_fun)
+#     YPRED YOBS = reshape_fun(YPRED YOBS)
+#     YPRED YOBS = reshape_fun(YPRED YOBS)
+#     LOSS(pred,obs)
+#     metrics(prd,obs)
+
+#------------------------------------------------------------------------------.
+##########################
+### Custom loss utils ####
+##########################
+def reshape_tensors_4_loss(Y_pred, Y_obs, dim_info_dynamic):
+    """Reshape tensors for loss computation as currently expexted by WeightedMSELoss ."""
+    # Retrieve tensor dimension names
+    ordered_dynamic_variables_= [k for k, v in sorted(dim_info_dynamic.items(), key=lambda item: item[1])]
+    # Retrieve dimensions to flat out (consider it as datapoint for loss computation)
+    vars_to_flatten = np.array(ordered_dynamic_variables_)[np.isin(ordered_dynamic_variables_,['node','feature'], invert=True)].tolist()
+    # Reshape to (data_points, node, feature)
+    Y_pred = Y_pred.rename(*ordered_dynamic_variables_).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+    Y_obs = Y_obs.rename(*ordered_dynamic_variables_).align_to(...,'node','feature').flatten(vars_to_flatten, 'data_points').rename(None)
+    return Y_pred, Y_obs
+
+#------------------------------------------------------------------------------.
+###########################
+### General loss utils ####
+###########################
 def AreaWeights(graph):
     """Compute area weights."""
     ds = compute_interpolation_weights(graph, graph, method='conservative', normalization='fracarea')  
@@ -57,7 +93,11 @@ def plot_weights(weights, pygsp_graph, crs_proj=None):
                   add_colorbar=True)
     ax.coastlines(alpha=0.2)
     plt.show()
-    
+
+#------------------------------------------------------------------------------.
+########################
+### Loss definitions ###
+########################
 class WeightedMSELoss(nn.MSELoss):
     def __init__(self, reduction='mean', weights=None):
         super(WeightedMSELoss, self).__init__(reduction='none')
@@ -92,3 +132,5 @@ class WeightedMSELoss(nn.MSELoss):
             raise TypeError("Weights type is not a torch.Tensor. Got {}".format(type(weights)))
         if len(weights.shape) != 1:
             raise ValueError("Weights is a 1D vector. Got {}".format(weights.shape))
+
+#------------------------------------------------------------------------------.
