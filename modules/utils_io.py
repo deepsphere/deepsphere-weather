@@ -18,11 +18,19 @@ def is_dask_DataArray(da):
 
 def xr_time_align(x,y, time_dim='time'):
     if x is None or y is None:
-        return x,y
+        return x, y
     all_dims = set(list(x.dims) + list(y.dims))
     exclude_dims = all_dims.remove(time_dim) 
     x, y = xr.align(x, y, join='inner', exclude=exclude_dims) 
     return x,y 
+
+def xr_start_time_align(x, y, time_dim='time'):
+    if x is None or y is None:
+        return x, y
+    time_start = np.min([x[time_dim].values, y[time_dim].values])
+    x = x.sel({time_dim: slice(time_start, None)})
+    y = y.sel({time_dim: slice(time_start, None)})
+    return x, y
 
 def xr_is_aligned(x,y, exclude=None):
     if isinstance(exclude, str):

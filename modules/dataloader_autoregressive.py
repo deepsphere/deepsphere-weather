@@ -26,6 +26,8 @@ from modules.utils_autoregressive import get_dict_X_bc
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
 from modules.utils_io import xr_time_align
+from modules.utils_io import xr_start_time_align
+
 from modules.utils_io import xr_have_same_timesteps
 from modules.utils_io import is_dask_DataArray
 from modules.utils_io import _check_temporal_data
@@ -71,7 +73,8 @@ from modules.utils_torch import get_time_function
 ### Current assumptions 
 # - Currently data_dynamic and data_bc must have the same number of timesteps (TO IMPROVE)
 # --> The dataloader loads the same positional indices along the time dimension (TO IMPROVE)
- 
+# - We use a map-style datasets, the main process generates the indices using sampler
+#   and sends them to the workers
 ##----------------------------------------------------------------------------.
 # ############################
 ### DataLoader utils      ####
@@ -87,6 +90,10 @@ def cylic_iterator(iterable):
 
 def worker_init_fn(worker_id):
     """Function to initialize the seed of the DataLoader workers."""
+    # - Eeach worker has an independent seed that is initialized to 
+    #   the curent random seed + the id of the worker
+    # - Need to reset the numpy random seed at the beginning of each epoch
+    #   because all random seed modifications in __getitem__ are local to each worker
     initial_seed = int(torch.initial_seed() % (2**32-1))
     worker_seed = initial_seed + worker_id
     np.random.seed(worker_seed)
@@ -492,14 +499,6 @@ class AutoregressiveDataset(Dataset):
         _check_temporal_data(data_bc, data_type = 'data_bc', 
                              time_dim = "time", feature_dim='feature')
         
-        ##---------------------------------------------------------------------.
-        # Check time alignment of data_dynamic and data_bc if training_mode = True
-        if training_mode: 
-            if not xr_have_same_timesteps(data_dynamic, data_bc, time_dim = "time"):
-                print("'data_dynamic' and 'data_bc' do not have the same timesteps."
-                      "Data are going to be re-aligned along the 'time' dimension.")
-                data_dynamic, data_bc = xr_time_align(data_dynamic, data_bc, time_dim='time')
-              
         ## -------------------------------------------------------------------.
         # Checks device
         device = check_device(device)
@@ -519,6 +518,9 @@ class AutoregressiveDataset(Dataset):
         ### - Define data precision
         self.torch_dtype = torch.get_default_dtype() 
         ##--------------------------------------------------------------------.
+        ### - Define optional timesteps subsets
+        self.subset_timesteps = subset_timesteps
+        ##--------------------------------------------------------------------.
         ### Initialize scaler 
         self.scaler = scaler 
         ##--------------------------------------------------------------------.
@@ -536,7 +538,22 @@ class AutoregressiveDataset(Dataset):
         data_availability['bc'] = data_bc is not None  
         data_availability['bc_generator'] = bc_generator is not None  
         self.data_availability = data_availability
-         
+        
+        ##---------------------------------------------------------------------.
+        # Check time alignment of data_dynamic and data_bc if training_mode = True
+        # - If training_mode = False, check only that start_time is the same and 
+        #   end_time of data_bc equal or is after data-dynamic 
+        if training_mode: 
+            if not xr_have_same_timesteps(data_dynamic, data_bc, time_dim = "time"):
+                print("'data_dynamic' and 'data_bc' do not have the same timesteps."
+                      "Data are going to be re-aligned along the 'time' dimension.")
+                data_dynamic, data_bc = xr_time_align(data_dynamic, data_bc, time_dim='time')
+        else:
+            data_dynamic, data_bc = xr_start_time_align(data_dynamic, data_bc, time_dim='time')
+            if data_availability['bc']:
+                if np.max(data_bc['time'].values) < np.max(data_dynamic['time'].values):
+                    raise ValueError("'data_bc' must have a 'time' dimension equal or longer than 'data_dynamic'.")
+
         ##--------------------------------------------------------------------.
         ### - Test bc generation and get a mock sample 
         if data_availability['bc_generator']:
@@ -609,28 +626,129 @@ class AutoregressiveDataset(Dataset):
             self.torch_static = None
             
         ##--------------------------------------------------------------------.
-        ### - Restricts self.idxs to match specific timesteps 
-        # - This is useful to launch prediction for specific forecast reference times  
-        # - It restrics the self.idxs in update_indexes() that can be loaded by the DataLoader
-        # - subset_idxs refers to range(0, n_timesteps)
-        subset_idxs = None
-        if subset_timesteps is not None:
-            timesteps = data_dynamic['time'].values
-            subset_timesteps = np.array(subset_timesteps)
-            subset_idxs = _get_subset_timesteps_idxs(timesteps, subset_timesteps, strict_match=True) 
-            self.subset_timesteps = timesteps[subset_idxs]                                        
-        self.subset_idxs = subset_idxs
-        
-        ##--------------------------------------------------------------------.
         ### - Generate indexing
-        if isinstance(data_dynamic, xr.Dataset):
-            self.n_timesteps = data_dynamic[list(data_dynamic.data_vars.keys())[0]].shape[0] 
-        else: 
-            self.n_timesteps = data_dynamic.shape[0]
         self.update_indexing()
         
         ##--------------------------------------------------------------------.    
-   
+    def update_indexing(self):
+        """Update indices."""
+        input_k = self.input_k 
+        output_k = self.output_k
+        forecast_cycle = self.forecast_cycle
+        ar_iterations = self.ar_iterations
+        stack_most_recent_prediction = self.stack_most_recent_prediction
+
+        ##--------------------------------------------------------------------.
+        ## Update dictionary Y to stack and remove 
+        dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(ar_iterations = ar_iterations, 
+                                                                forecast_cycle = forecast_cycle, 
+                                                                input_k = input_k, 
+                                                                output_k = output_k,
+                                                                stack_most_recent_prediction = stack_most_recent_prediction)
+        self.dict_Y_to_stack = dict_Y_to_stack
+        self.dict_Y_to_remove = dict_Y_to_remove
+
+        ##--------------------------------------------------------------------.
+        # - Update valid data range and idxs for training (and prediction)
+        available_timesteps = self.data_dynamic['time'].values
+        n_timesteps = len(available_timesteps)
+        idx_start = get_first_valid_idx(input_k)
+        if self.training_mode:
+            idx_end = get_last_valid_idx(output_k = output_k,
+                                         forecast_cycle = forecast_cycle, 
+                                         ar_iterations = ar_iterations)
+            idx_end = n_timesteps - 1 - idx_end 
+        else: 
+            idx_end = n_timesteps - 1
+        self.idxs = np.arange(n_timesteps)[idx_start:idx_end+1]
+
+        ##--------------------------------------------------------------------.
+        # - Restricts self.idxs to match specific timesteps 
+        # - This is useful to launch prediction for specific forecast reference times  
+        # - It restrics self.idxs that can be loaded by the DataLoader
+        if self.subset_timesteps is not None:
+            subset_timesteps = np.array(self.subset_timesteps) 
+            subset_idxs = _get_subset_timesteps_idxs(timesteps = available_timesteps, 
+                                                     subset_timesteps = subset_timesteps,
+                                                     strict_match=True) 
+    
+            if any(subset_idxs < idx_start):
+                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
+                                 list(available_timesteps[subset_idxs < idx_start]))
+            if any(subset_idxs > idx_end):  
+                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
+                                 list(available_timesteps[subset_idxs > idx_end]))            
+            self.idxs = subset_idxs          
+
+        ##--------------------------------------------------------------------.
+        # - Retrieve timesteps of forecast leadtime 0 available (rel_idx = 0)
+        self.available_starts = available_timesteps[self.idxs]
+        
+        ##--------------------------------------------------------------------.
+        # - Compute the number of samples available
+        self.n_samples = len(self.idxs)
+        if self.n_samples == 0: 
+            raise ValueError("No samples available. Maybe reduce number of AR iterations.")
+
+        ##--------------------------------------------------------------------.
+        ### - Update dictionary with indexing information for autoregressive training
+        self.dict_rel_idx_Y = get_dict_Y(ar_iterations = ar_iterations,
+                                         forecast_cycle = forecast_cycle, 
+                                         output_k = output_k)
+        self.dict_rel_idx_X_dynamic = get_dict_X_dynamic(ar_iterations = ar_iterations,
+                                                         forecast_cycle = forecast_cycle, 
+                                                         input_k = input_k)
+        self.dict_rel_idx_X_bc = get_dict_X_bc(ar_iterations = ar_iterations,
+                                               forecast_cycle = forecast_cycle,
+                                               input_k = input_k)
+
+        ##---------------------------------------------------------------------.
+        # Check that data_bc is enough long for the specified ar iterations
+        #  in training_mode = False  
+        if self.data_availability['bc'] and not self.training_mode:
+            n_bc_timesteps = len(self.data_bc['time'].values)
+            max_rel_idx_bc_k = np.max(list(self.dict_rel_idx_X_bc.values()))
+            idxs_bc_required = self.idxs + max_rel_idx_bc_k
+            valid_start_idxs = self.idxs[self.idxs + max_rel_idx_bc_k < n_bc_timesteps]
+            unvalid_start_idxs = self.idxs[self.idxs + max_rel_idx_bc_k >= n_bc_timesteps]
+            if len(unvalid_start_idxs) > 0: 
+                last_valid_ref_time = available_timesteps[valid_start_idxs[-1] + max(input_k)]
+                print("'data_bc' is not enough long in the 'time' dimension"
+                      "to run full predictions. The last valid 'forecast_reference_time"
+                      "is: {!r}".format(last_valid_ref_time))
+                raise ValueError("Try to reduce the number of 'ar_iterations' !")
+
+        ##---------------------------------------------------------------------.
+        ### - Based on the current value of ar_iterations, create a
+        #     list of (relative) indices required to load data from da_dynamic and da_bc 
+        #   --> This indices are updated when Dataset.update_ar_iterations() is called
+        rel_idx_X_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_dynamic.values() if x is not None]))
+        if self.training_mode:
+            rel_idx_Y_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_Y.values() if x is not None]))
+            self.rel_idx_dynamic_required = np.unique(np.concatenate((rel_idx_X_dynamic_required, rel_idx_Y_dynamic_required)))
+        else:
+            self.rel_idx_dynamic_required = np.unique(rel_idx_X_dynamic_required)
+
+        if self.data_availability['bc'] or self.data_availability['bc_generator']:
+            self.rel_idx_bc_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_bc.values() if x is not None]))
+        else: 
+            self.rel_idx_bc_required = None
+            
+        ##--------------------------------------------------------------------.
+            
+    def update_ar_iterations(self, new_ar_iterations):  
+        """Update Dataset informations.
+        
+        If the number of forecast iterations changes, the function update
+        the relative indices in order to retrieve only the needed amount of data 
+        The changes to the Dataset implicitly affect the next DataLoader call!
+        """
+        if self.ar_iterations != new_ar_iterations:                
+            # Update AR iterations
+            self.ar_iterations = new_ar_iterations
+            # Update valid idxs and rel_idx_dictionaries 
+            self.update_indexing()
+
     ##------------------------------------------------------------------------.
     def __len__(self):
         """Return the number of samples available."""
@@ -670,6 +788,7 @@ class AutoregressiveDataset(Dataset):
             # t_i = time.time()
             da_dynamic_subset = self.scaler.transform(da_dynamic_subset, variable_dim='feature')
             # print("scaler", time.time() - t_i)
+        ## -------------------------------------------------------------------.    
         # - Assign relative indices (onto the "rel_idx" dimension)
         da_dynamic_subset = da_dynamic_subset.assign_coords(rel_idx=('time', self.rel_idx_dynamic_required)).swap_dims({'time': 'rel_idx'}) 
         ## -------------------------------------------------------------------.
@@ -734,16 +853,13 @@ class AutoregressiveDataset(Dataset):
             if is_dask_DataArray(da_bc_subset): 
                 da_bc_subset = da_bc_subset.compute()
             ## ---------------------------------------------------------------.
-            ### Load bc data 
             # - Apply scaler 
             if self.scaler is not None:
                 da_bc_subset = self.scaler.transform(da_bc_subset, variable_dim='feature')
             ## ---------------------------------------------------------------.
             # - Assign relative indices (onto the "rel_idx" dimension)
             da_bc_subset = da_bc_subset.assign_coords(rel_idx=('time', self.rel_idx_bc_required)).swap_dims({'time': 'rel_idx'}) 
-            # - If not preloaded in CPU, read from disk the zarr chunks (with dask)  
-            if is_dask_DataArray(da_bc_subset): 
-                da_bc_subset = da_bc_subset.compute() 
+            ## ---------------------------------------------------------------.
             # - Loop over leadtimes and store Numpy arrays in a dictionary(leadtime) 
             dict_X_bc_data = {}
             for i in range(self.ar_iterations + 1): 
@@ -775,88 +891,6 @@ class AutoregressiveDataset(Dataset):
                 'training_mode': self.training_mode, 
                 'data_availability': self.data_availability
                 }
-    
-    def update_indexing(self):
-        """Update indices."""
-        input_k = self.input_k 
-        output_k = self.output_k
-        forecast_cycle = self.forecast_cycle
-        ar_iterations = self.ar_iterations
-        stack_most_recent_prediction = self.stack_most_recent_prediction
-        n_timesteps = self.n_timesteps
-        ##--------------------------------------------------------------------.
-        ## Update dictionary Y to stack and remove 
-        dict_Y_to_stack, dict_Y_to_remove = get_dict_stack_info(ar_iterations = ar_iterations, 
-                                                                forecast_cycle = forecast_cycle, 
-                                                                input_k = input_k, 
-                                                                output_k = output_k, 
-                                                                stack_most_recent_prediction = stack_most_recent_prediction)
-        self.dict_Y_to_stack = dict_Y_to_stack
-        self.dict_Y_to_remove = dict_Y_to_remove
-        ##--------------------------------------------------------------------.
-        # - Update valid data range indexing 
-        idx_start = get_first_valid_idx(input_k)
-        idx_end = get_last_valid_idx(output_k = output_k,
-                                     forecast_cycle = forecast_cycle, 
-                                     ar_iterations = ar_iterations)
-        
-        # - Define valid idx for training (and prediction)
-        subset_idxs = self.subset_idxs
-        if subset_idxs is not None:
-            subset_timesteps = self.subset_timesteps
-            if any(subset_idxs < idx_start):
-                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
-                                 list(subset_timesteps[subset_idxs < idx_start]))
-            if any(subset_idxs > n_timesteps - idx_end):
-                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
-                                 list(subset_timesteps[subset_idxs > idx_end]))            
-            self.idxs = subset_idxs
-        else: 
-            self.idxs = np.arange(n_timesteps)[idx_start:(-1*idx_end - 1)]
-       
-        # - Compute the number of samples available
-        self.n_samples = len(self.idxs)
-        if self.n_samples == 0: 
-            raise ValueError("No samples available. Maybe reduce number of AR iterations.")
-        ##--------------------------------------------------------------------.
-        ### - Update dictionary with indexing information for autoregressive training
-        self.dict_rel_idx_Y = get_dict_Y(ar_iterations = ar_iterations,
-                                         forecast_cycle = forecast_cycle, 
-                                         output_k = output_k)
-        self.dict_rel_idx_X_dynamic = get_dict_X_dynamic(ar_iterations = ar_iterations,
-                                                         forecast_cycle = forecast_cycle, 
-                                                         input_k = input_k)
-        self.dict_rel_idx_X_bc = get_dict_X_bc(ar_iterations = ar_iterations,
-                                               forecast_cycle = forecast_cycle,
-                                               input_k = input_k)
-        
-        ##--------------------------------------------------------------------.
-        ### - Based on the current value of ar_iterations, create a
-        #     list of (relative) indices required to load data from da_dynamic and da_bc 
-        #   --> This indices are updated when Dataset.update_ar_iterations() is called
-        rel_idx_X_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_dynamic.values() if x is not None]))
-        rel_idx_Y_dynamic_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_Y.values() if x is not None]))
-        self.rel_idx_dynamic_required = np.unique(np.concatenate((rel_idx_X_dynamic_required, rel_idx_Y_dynamic_required)))
-        
-        if self.data_availability['bc'] or self.data_availability['bc_generator']:
-            self.rel_idx_bc_required = np.unique(np.concatenate([x for x in self.dict_rel_idx_X_bc.values() if x is not None]))
-        else: 
-            self.rel_idx_bc_required = None
-            
-        ##--------------------------------------------------------------------.
-            
-    def update_ar_iterations(self, new_ar_iterations):  
-        """Update Dataset informations.
-        
-        If the number of forecast iterations changes, the function update
-        the relative indices in order to retrieve only the needed amount of data 
-        The changes to the Dataset implicitly affect the next DataLoader call!
-        """
-        if self.ar_iterations != new_ar_iterations:                
-            # Update AR iterations
-            self.ar_iterations = new_ar_iterations
-            # Update valid idxs and rel_idx_dictionaries 
-            self.update_indexing()
                 
 ##----------------------------------------------------------------------------.    
 
