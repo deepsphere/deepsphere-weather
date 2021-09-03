@@ -37,11 +37,10 @@ from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
-from modules.utils_config import print_dim_info
+from modules.utils_config import print_tensor_info
 
 from modules.utils_models import get_pygsp_graph
-from modules.utils_io import get_ar_model_diminfo
-from modules.utils_io import check_ar_DataArrays 
+from modules.utils_io import get_ar_model_tensor_info
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.predictions_autoregressive import rechunk_forecasts_for_verification
@@ -52,6 +51,7 @@ from modules.loss import WeightedMSELoss, AreaWeights
 
 ## Project specific functions
 import modules.my_models_graph as my_architectures
+# import modules.my_models_graph_old as my_architectures
 
 ## Side-project utils (maybe migrating to separate packages in future)
 import modules.xsphere  # required for xarray 'sphere' accessor 
@@ -82,7 +82,7 @@ warnings.filterwarnings("ignore")
 
 ##----------------------------------------------------------------------------.
 ## Current assumptions 
-# - Assume data to be aligned 
+# - Assume training data to be aligned 
 # - Assume data with same temporal resolution 
 # - Assume data without missing timesteps 
 # - Do not expect data with different scales 
@@ -100,17 +100,27 @@ warnings.filterwarnings("ignore")
 # - Disabling deterministic training with training_settings["deterministic_training"] = False 
 #   should improve computing performance and allows also benchmarking cuDNN
 #   algorithms if training_settings["benchmark_cuDNN"] = True   
-##----------------------------------------------------------------------------.
-## Tensor dimension order !!!
-# - The input DataArray must have dimensions ['time','node','feature'] 
-# - The 'sample' dimension will be assigned to become the first dimension
-#   --> Example: ['sample','time', 'node', ..., 'feature']
 
 ##----------------------------------------------------------------------------.
-data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
+## Tensor dimension order !!!
+# - The current model input DataArray has dimensions  ['sample','time','node','feature'] 
+# - For performing ConvCheb, data are expected to be  ['sample','node', (..., 'time','feature')]
+# - The 'sample' dimension is always set to be the first dimension in the DataLoader
+ 
+##----------------------------------------------------------------------------.
+data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES"
 exp_dir = "/data/weather_prediction/experiments_GG/new"
-cfg_path = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
-data_sampling_dir = os.path.join(data_dir, "Healpix_400km")
+cfg_path = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Cubed_400km/MaxAreaPool-Graph_knn.json'
+data_sampling_dir = os.path.join(data_dir, "Cubed_400km")
+
+force = True
+cfg = read_config_file(fpath=cfg_path)
+
+# data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
+# exp_dir = "/data/weather_prediction/experiments_GG/new"
+# cfg_path = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
+# data_sampling_dir = os.path.join(data_dir, "Healpix_400km")
+
 # data_dir = "/data/weather_prediction/data"
 # data_dir =  "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
 # exp_dir = "/data/weather_prediction/experiments_GG/new"
@@ -118,8 +128,7 @@ data_sampling_dir = os.path.join(data_dir, "Healpix_400km")
 # data_dir = "/home/ghiggi/Projects/DeepSphere/data/toy_data/ERA5_HRES/"
 # exp_dir =  "/home/ghiggi/Projects/DeepSphere/data/experiments_GG"
 # cfg_path = './configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
-# force = True
-# cfg = read_config_file(fpath=cfg_path)
+
     
 # # cfg['training_settings']["training_batch_size"] = 2
 # cfg['dataloader_settings']["random_shuffling"] = False
@@ -148,24 +157,46 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     dataloader_settings = get_dataloader_settings(cfg) 
 
     ##------------------------------------------------------------------------.
-    #### Load Datasets
+    # TODO REMOVE 
+    training_settings['seed_model_weights'] = 20 # 10 bugs 
+    training_settings['learning_rate'] = 0.005 # > 0.01 no hope
+    ar_settings['ar_iterations'] = 6
+    dataloader_settings['num_workers'] = 8
+    dataloader_settings['random_shuffling'] = False
+    dataloader_settings['autotune_num_workers'] = False
+    training_settings['training_batch_size'] = 10 
+    training_settings['validation_batch_size'] = 10 
+    model_settings['incremental_learning'] = False
+    training_settings['scoring_interval'] = 10
+    ##------------------------------------------------------------------------.
+    #### Load Zarr Datasets
     data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
 
-    da_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr"))["data"]
-    da_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr"))["data"]
+    data_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
+    data_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr")) 
     ds_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
-    # - Align Datasets (currently required)
-    # ds_dynamic, ds_bc = xr.align(ds_dynamic, ds_bc) 
-    # - Select dynamic features 
-    da_dynamic = da_dynamic.sel(feature=["z500", "t850"])
 
+    # - Select dynamic features 
+    data_dynamic = data_dynamic[['z500','t850']]    
+    
     ##------------------------------------------------------------------------.
-    # Preload data in memory
-    t_i = time.time() 
-    da_dynamic = da_dynamic.compute()
-    da_bc = da_bc.compute()
-    ds_static = ds_static.compute()
-    print('- Preload data in memory: {:.2f} minutes'.format((time.time() - t_i)/60))
+    # #### Load Zarr Datasets
+    # data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
+
+    # data_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr"))["data"]
+    # data_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr"))["data"]
+    # ds_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
+
+    # # - Select dynamic features 
+    # data_dynamic = data_dynamic.sel(feature=["z500", "t850"])
+
+    # # Preload data in memory
+    # t_i = time.time() 
+    # data_dynamic = data_dynamic.compute()
+    # data_bc = data_bc.compute()
+    # ds_static = ds_static.compute()
+    # print('- Preload data in memory: {:.2f} minutes'.format((time.time() - t_i)/60))
+
     ##------------------------------------------------------------------------.
     # - Prepare static data 
     # - Keep land-surface mask as it is 
@@ -177,11 +208,12 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # ds_slt_OHE = xscaler.OneHotEnconding(ds_static['slt'])
     # ds_static = xr.merge([ds_static, ds_slt_OHE])
     # ds_static = ds_static.drop('slt')
+    # - Load static data 
+    ds_static = ds_static.load()
     # - Convert to DataArray 
-    da_static = ds_static.to_array(dim="feature")  
-
-    ##------------------------------------------------------------------------.
-    #### Define scaler to apply on the fly within DataLoader 
+    data_static = ds_static.to_array(dim="feature")  
+    #------------------------------------------------------------------------.
+    ### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
     dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
     bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
@@ -197,30 +229,17 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     # - Split data sets 
     t_i = time.time()
-    da_training_dynamic = da_dynamic.sel(time=slice(training_years[0], training_years[-1]))
-    da_training_bc = da_bc.sel(time=slice(training_years[0], training_years[-1]))
+    training_data_dynamic = data_dynamic.sel(time=slice(training_years[0], training_years[-1]))
+    training_data_bc = data_bc.sel(time=slice(training_years[0], training_years[-1]))
         
-    da_validation_dynamic = da_dynamic.sel(time=slice(validation_years[0], validation_years[-1]))
-    da_validation_bc = da_bc.sel(time=slice(validation_years[0], validation_years[-1]))
+    validation_data_dynamic = data_dynamic.sel(time=slice(validation_years[0], validation_years[-1]))
+    validation_data_bc = data_bc.sel(time=slice(validation_years[0], validation_years[-1]))
 
-    da_test_dynamic = da_dynamic.sel(time=slice(test_years[0], test_years[-1]))
-    da_test_bc = da_bc.sel(time=slice(test_years[0], test_years[-1]))
+    test_data_dynamic = data_dynamic.sel(time=slice(test_years[0], test_years[-1]))
+    test_data_bc = data_bc.sel(time=slice(test_years[0], test_years[-1]))
 
     print('- Splitting data into train, validation and test sets: {:.2f}s'.format(time.time() - t_i))
-
-    ##-----------------------------------------------------------------------------.
-    ### Check DataArrays      
-    check_ar_DataArrays(da_training_dynamic = da_training_dynamic,
-                        da_training_bc = da_training_bc,  
-                        da_static = da_static,
-                        da_validation_dynamic = da_validation_dynamic,
-                        da_validation_bc = da_validation_bc,
-                        verbose=True)    
-    check_ar_DataArrays(da_training_dynamic = da_test_dynamic,
-                        da_training_bc = da_test_bc,  
-                        da_static = da_static,
-                        verbose=True)   
-
+    
     ##------------------------------------------------------------------------.
     ### Define pyTorch settings (before PyTorch model definition)
     # - Here inside is eventually set the seed for fixing model weights initialization
@@ -229,14 +248,14 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
-    dim_info = get_ar_model_diminfo(ar_settings=ar_settings,
-                                    da_dynamic=da_training_dynamic, 
-                                    da_static=da_static, 
-                                    da_bc=da_training_bc)
-    print_dim_info(dim_info)         
+    tensor_info = get_ar_model_tensor_info(ar_settings = ar_settings,
+                                           data_dynamic = training_data_dynamic, 
+                                           data_static = data_static, 
+                                           data_bc = training_data_bc)
+    print_tensor_info(tensor_info)         
     # - Add dim info to cfg file 
-    model_settings['dim_info'] = dim_info
-    cfg['model_settings']['dim_info'] = dim_info 
+    model_settings['tensor_info'] = tensor_info
+    cfg['model_settings']['tensor_info'] = tensor_info 
 
     ##------------------------------------------------------------------------.
     # Print model settings 
@@ -258,12 +277,13 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     
     ###-----------------------------------------------------------------------.
     ### Summarize the model 
-    input_size=(training_settings["training_batch_size"], *dim_info['input_shape'])
-    summary(model, input_size, col_names = ["input_size", "output_size","num_params"])
-    
+    input_shape = tensor_info['input_shape'] 
+    input_shape[0] = training_settings["training_batch_size"]
+    print(summary(model, input_shape, col_names = ["input_size", "output_size","num_params"]))
+ 
     _ = summarize_model(model=model, 
-                        input_size=dim_info['input_shape'],  
-                        batch_size=training_settings["training_batch_size"], 
+                        input_size = tuple(tensor_info['input_shape'][1:]),  
+                        batch_size = training_settings["training_batch_size"], 
                         device=device)
 
     ###-----------------------------------------------------------------------.
@@ -327,12 +347,16 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     else:
         raise NotImplementedError("'ar_training_strategy' must be either 'AR' or 'RNN'.")
 
+    # ar_scheduler = AR_Scheduler(method = "LinearStep",
+    #                             factor = 0.0005,
+    #                             fixed_ar_weights = [0],
+    #                             initial_ar_absolute_weights = [1]) 
     ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
     # - Used also to update ar_scheduler (aka increase AR iterations) if 'ar_iterations' not reached.
-    patience = 500
-    minimum_iterations = 500
-    minimum_improvement = 0.001 # 0 to not stop 
+    patience = int(250 / training_settings['scoring_interval'])  # with 1000 and lr 0.005 crashed without AR update !
+    minimum_iterations = 2000
+    minimum_improvement = 0.001   
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
     early_stopping = EarlyStopping(patience = patience,
@@ -357,11 +381,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                                ar_scheduler = ar_scheduler,                                
                                                early_stopping = early_stopping,
                                                # Data
-                                               da_training_dynamic = da_training_dynamic,
-                                               da_validation_dynamic = da_validation_dynamic,
-                                               da_static = da_static,              
-                                               da_training_bc = da_training_bc,         
-                                               da_validation_bc = da_validation_bc,  
+                                               data_static = data_static,   
+                                               training_data_dynamic = training_data_dynamic,
+                                               training_data_bc = training_data_bc, 
+                                               validation_data_dynamic = validation_data_dynamic,
+                                               validation_data_bc = validation_data_bc,  
                                                scaler = scaler, 
                                                # Dataloader settings
                                                num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
@@ -408,9 +432,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     dask.config.set(scheduler='synchronous') # This is very important otherwise the dataloader hang
     ds_forecasts = AutoregressivePredictions(model = model, 
                                              # Data
-                                             da_dynamic = da_test_dynamic,
-                                             da_static = da_static,              
-                                             da_bc = da_test_bc, 
+                                             data_dynamic = test_data_dynamic,
+                                             data_static = data_static,              
+                                             data_bc = test_data_bc, 
                                              scaler_transform = scaler,
                                              scaler_inverse = scaler,
                                              # Dataloader options
@@ -455,7 +479,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     print("- Run deterministic verification")
     # dask.config.set(scheduler='processes')
     # - Compute skills
-    ds_obs = da_test_dynamic.to_dataset('feature')
+    ds_obs = test_data_dynamic.to_dataset('feature')
     ds_obs = ds_obs.chunk({'time': -1,'node': 1})
     ds_skill = xverif.deterministic(pred = ds_verification_format,
                                     obs = ds_obs, 
@@ -541,9 +565,13 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
-    default_data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
+    default_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES" # new data
     default_exp_dir = "/data/weather_prediction/experiments_GG/new"
     default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
+   
+    
+    exp_dir = "/data/weather_prediction/experiments_GG"
+   
     parser = argparse.ArgumentParser(description='Training a numerical weather prediction model emulator')
     parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--data_dir', type=str, default=default_data_dir)

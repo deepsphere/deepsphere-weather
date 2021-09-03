@@ -121,6 +121,10 @@ def timing_AR_Training(dataset,
 
     """
     ##------------------------------------------------------------------------.
+    # Check at least 1 pass is done 
+    if n_repetitions < 1: 
+        n_repetitions = 1
+    ##------------------------------------------------------------------------.
     if not isinstance(num_workers, int):
         raise TypeError("'num_workers' must be a integer larger than 0.")
     if num_workers < 0: 
@@ -369,6 +373,8 @@ def tune_num_workers(dataset,
                      # Timing options
                      training_mode = True, 
                      n_repetitions = 10,
+                     n_pass_to_skip = 4, 
+                     summary_stat = "max", 
                      verbose = True):
     """
     Search for the best value of 'num_workers'.
@@ -413,6 +419,15 @@ def tune_num_workers(dataset,
         The default is True.
     n_repetitions : int, optional
         Number of runs to time. The default is 10.
+    n_pass_to_skip : int 
+        The default is 2. 
+        Avoid timing also the worker initialization when num_workers > 0
+    summary_stat : bool, optional 
+        Statical function to summarize timing 
+        The default is 'max'.
+        Valid values are ('min','mean','median','max').
+        The first 'n_pass_to_skip' batch pass are excluded because they might not 
+        be representative of the actual performance (workers initializations)
     verbose : bool, optional
         Wheter to print the timing summary. The default is True.
 
@@ -422,9 +437,25 @@ def tune_num_workers(dataset,
         Optimal num_workers to use for efficient data loading.
     """
     ##------------------------------------------------------------------------.
+    # Check at least 1 pass is done 
+    if n_pass_to_skip < 0:
+        n_pass_to_skip = 0 
+    n_repetitions = n_repetitions + n_pass_to_skip
+    ##------------------------------------------------------------------------.
     # Checks arguments 
     if isinstance(num_workers_list, int):
         num_workers_list = [num_workers_list]
+    # Define summary statistic 
+    if summary_stat == "median":
+        summary_fun = np.median 
+    elif summary_stat == "max":
+        summary_fun = np.max
+    elif summary_stat == "min":
+        summary_fun = np.min
+    elif summary_stat == "mean":
+        summary_fun = np.mean
+    else:
+        raise ValueError("Valid summary_stat values are ('min','mean','median','max').")
     ##------------------------------------------------------------------------.
     # Initialize dictionary 
     Dataloader_timing = {i: [] for i in num_workers_list }
@@ -457,13 +488,13 @@ def tune_num_workers(dataset,
                                                       training_mode = training_mode, 
                                                       n_repetitions = n_repetitions,
                                                       verbose = False) 
-        Dataloader_timing[num_workers] = timing_info['Dataloader']
-        ar_batch_timing[num_workers] = timing_info['AR Batch']
-        ar_data_removal_timing[num_workers] = timing_info['Delete']
-        ar_forward_timing[num_workers] = timing_info['Forward']
-        ar_loss_timing[num_workers] = timing_info['Loss']
-        Backprop_timing[num_workers] = timing_info['Backward']
-        Total_timing[num_workers] = timing_info['Total']
+        Dataloader_timing[num_workers] = timing_info['Dataloader'][n_pass_to_skip:]
+        ar_batch_timing[num_workers] = timing_info['AR Batch'][n_pass_to_skip:]
+        ar_data_removal_timing[num_workers] = timing_info['Delete'][n_pass_to_skip:]
+        ar_forward_timing[num_workers] = timing_info['Forward'][n_pass_to_skip:]
+        ar_loss_timing[num_workers] = timing_info['Loss'][n_pass_to_skip:]
+        Backprop_timing[num_workers] = timing_info['Backward'][n_pass_to_skip:]
+        Total_timing[num_workers] = timing_info['Total'][n_pass_to_skip:]
         Memory_Info[num_workers] = memory_info
 
     ##------------------------------------------------------------------------. 
@@ -472,15 +503,15 @@ def tune_num_workers(dataset,
     table = []
     dtloader = []
     for num_workers in num_workers_list:
-        dtloader.append(np.median(Dataloader_timing[num_workers]).round(4))
+        dtloader.append(summary_fun(Dataloader_timing[num_workers]).round(4))
         table.append([num_workers,    
-                      np.median(Total_timing[num_workers]).round(4),
-                      np.median(Dataloader_timing[num_workers]).round(4),
-                      np.median(ar_batch_timing[num_workers]).round(4),
-                      np.median(ar_data_removal_timing[num_workers]).round(4),
-                      np.median(ar_forward_timing[num_workers]).round(4),
-                      np.median(ar_loss_timing[num_workers]).round(4),
-                      np.median(Backprop_timing[num_workers]).round(4)])
+                      summary_fun(Total_timing[num_workers]).round(4),
+                      summary_fun(Dataloader_timing[num_workers]).round(4),
+                      summary_fun(ar_batch_timing[num_workers]).round(4),
+                      summary_fun(ar_data_removal_timing[num_workers]).round(4),
+                      summary_fun(ar_forward_timing[num_workers]).round(4),
+                      summary_fun(ar_loss_timing[num_workers]).round(4),
+                      summary_fun(Backprop_timing[num_workers]).round(4)])
     ##------------------------------------------------------------------------.
     # Select best num_workers
     optimal_num_workers = num_workers_list[np.argmin(dtloader)]
@@ -540,6 +571,7 @@ def AutoregressiveTraining(model,
                            validation_batch_size = 128, 
                            epochs = 10, 
                            scoring_interval = 10, 
+                           print_frequency = 10, 
                            save_model_each_epoch = False,
                            ar_training_info = None, 
                            # SWAG settings
@@ -572,9 +604,14 @@ def AutoregressiveTraining(model,
     prefetch_in_gpu = check_prefetch_in_gpu(prefetch_in_gpu=prefetch_in_gpu, num_workers=num_workers, device=device) 
     prefetch_factor = check_prefetch_factor(prefetch_factor=prefetch_factor, num_workers=num_workers)
     ar_training_strategy = check_ar_training_strategy(ar_training_strategy)
+    ##------------------------------------------------------------------------.  
     # Check ar_scheduler 
     if len(ar_scheduler.ar_weights) > ar_iterations+1:
         raise ValueError("The AR scheduler has {} AR weights, but ar_iterations is specified to be {}".format(len(ar_scheduler.ar_weights), ar_iterations))
+    if ar_iterations == 0: 
+        if ar_scheduler.method != "constant":
+            print("Since 'ar_iterations' is 0, ar_scheduler 'method' is changed to 'constant'.")
+            ar_scheduler.method = "constant"
     ##------------------------------------------------------------------------.   
     # Check that autoregressive settings are valid 
     # - input_k and output_k must be numpy arrays hereafter ! 
@@ -839,19 +876,26 @@ def AutoregressiveTraining(model,
                                                        Y_obs = torch_Y,
                                                        dim_info_dynamic = dim_info_dynamic)
                 dict_training_loss_per_ar_iteration[ar_iteration] = criterion(Y_obs, Y_pred)
-                print("Batch", batch_count)
-                print("AR_iteration", ar_iteration)
-                print("Loss", dict_training_loss_per_ar_iteration[ar_iteration])
-                
+
                 ##-------------------------------------------------------------.
-                # The following code can be used to debug training if loss diverge to nan 
-                if dict_training_loss_per_ar_iteration[ar_iteration].item() > 10000:
-                    ar_training_info_fpath = os.path.join(os.path.dirname(model_fpath), "AR_TrainingInfo.pickle")
-                    with open(ar_training_info_fpath, 'wb') as handle:
-                        pickle.dump(ar_training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                    raise ValueError("The training has diverged. The training info can be recovered using: \n"
-                                      "with open({!r}, 'rb') as handle: \n" 
-                                      "    ar_training_info = pickle.load(handle)".format(ar_training_info_fpath))
+                # Printing infos 
+                if batch_count % print_frequency == 0:
+                    print("Epoch: {} | Batch: {}/{} | AR: {} | Loss: {} | "
+                          "ES: {}/{}".format(epoch, batch_count, num_batches, 
+                                             ar_iteration,
+                                             dict_training_loss_per_ar_iteration[ar_iteration].item(),
+                                             early_stopping.counter, early_stopping.patience)
+                    )
+
+                    ##-------------------------------------------------------------.
+                    # The following code can be used to debug training if loss diverge to nan 
+                    if dict_training_loss_per_ar_iteration[0].item() > 10000:
+                        ar_training_info_fpath = os.path.join(os.path.dirname(model_fpath), "AR_TrainingInfo.pickle")
+                        with open(ar_training_info_fpath, 'wb') as handle:
+                            pickle.dump(ar_training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                        raise ValueError("The training has diverged. The training info can be recovered using: \n"
+                                        "with open({!r}, 'rb') as handle: \n" 
+                                        "    ar_training_info = pickle.load(handle)".format(ar_training_info_fpath))
                                        
                 ##-------------------------------------------------------------.
                 # If ar_training_strategy is "AR", perform backward pass at each AR iteration 
@@ -1001,7 +1045,6 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------. 
             # - Update the AR weights 
             ar_scheduler.step()
-            print("AR_weights", ar_scheduler.ar_weights)
             ##----------------------------------------------------------------. 
             # - Evaluate stopping metrics  
             # --> Update AR scheduler if the loss has plateau
