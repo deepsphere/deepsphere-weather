@@ -139,6 +139,29 @@ def get_xarray_variables(data, variable_dim = None):
     else: 
         raise TypeError("Provide an xarray Dataset or DataArray")
 
+def _check_is_fitted(self): 
+    # TODO: this could be assigned to a superclass of scalers
+    if not self.fitted:
+        raise ValueError("Please fit() the scaler before saving it!")
+
+def _check_save_fpath(fpath, force):
+    # Check basepath exists 
+    if not os.path.exists(os.path.dirname(fpath)):
+        # If not exist, create directory 
+        os.makedirs(os.path.dirname(fpath))
+        print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
+    # Check end with .nc 
+    if fpath[-3:] != ".nc":
+        fpath = fpath + ".nc"
+        print("Added .nc extension to the provided fpath.")   
+    # If the netCDF file already exists, remove if force=True 
+    if os.path.exists(fpath):
+        if force: 
+            os.remove(fpath)
+        else: 
+            raise ValueError("{} already exists on disk. Set force=True to overwrite.".format(fpath))
+    return fpath 
+
 #-----------------------------------------------------------------------------.
 # ################################
 #### Utils for TemporalScalers ###
@@ -526,21 +549,12 @@ class GlobalStandardScaler():
         self.fitted = True
         # del self.data
     
-    def save(self, fpath):
+    def save(self, fpath, force=False):
         """Save the scaler object to disk in netCDF format."""
         ##--------------------------------------------------------------------.
-        # Checks
-        if not self.fitted:
-            raise ValueError("Please fit() the scaler before saving it!")
-        # Check basepath exists 
-        if not os.path.exists(os.path.dirname(fpath)):
-            # If not exist, create directory 
-            os.makedirs(os.path.dirname(fpath))
-            print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
-        # Check end with .nc 
-        if fpath[-3:] != ".nc":
-            fpath = fpath + ".nc"
-            print("Added .nc extension to the provided fpath.")
+        # Check 
+        _check_is_fitted(self)
+        fpath = _check_save_fpath(fpath=fpath, force=force)
         ##--------------------------------------------------------------------.
         # Create xarray Dataset (to save as netCDF)
         mean_ = self.mean_.to_array()
@@ -823,21 +837,11 @@ class GlobalMinMaxScaler():
         self.fitted = True
         # del self.data
     
-    def save(self, fpath):
+    def save(self, fpath, force=False):
         """Save the scaler object to disk in netCDF format."""
-        ##--------------------------------------------------------------------.
-        # Checks
-        if not self.fitted:
-            raise ValueError("Please fit() the scaler before saving it!")
-        # Check basepath exists 
-        if not os.path.exists(os.path.dirname(fpath)):
-            # If not exist, create directory 
-            os.makedirs(os.path.dirname(fpath))
-            print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
-        # Check end with .nc 
-        if fpath[-3:] != ".nc":
-            fpath = fpath + ".nc"
-            print("Added .nc extension to the provided fpath.")
+        # Check 
+        _check_is_fitted(self)
+        fpath = _check_save_fpath(fpath=fpath, force=force)
         ##--------------------------------------------------------------------.
         # Create xarray Dataset (to save as netCDF)
         # - Convert to DataArray
@@ -1143,19 +1147,11 @@ class TemporalStandardScaler():
         self.fitted = True
         # del self.data
     
-    def save(self, fpath):
+    def save(self, fpath, force=False):
         """Save the scaler object to disk in netCDF format."""
-        if not self.fitted:
-            raise ValueError("Please fit() the scaler before saving it!")
-        # Check basepath exists 
-        if not os.path.exists(os.path.dirname(fpath)):
-            # If not exist, create directory 
-            os.makedirs(os.path.dirname(fpath))
-            print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
-        # Check end with .nc 
-        if fpath[-3:] != ".nc":
-            fpath = fpath + ".nc"
-            print("Added .nc extension to the provided fpath.")
+        # Check 
+        _check_is_fitted(self)
+        fpath = _check_save_fpath(fpath=fpath, force=force)
         #---------------------------------------------------------------------.
         ## Create xarray Dataset (to save as netCDF)
         if self.center:
@@ -1255,10 +1251,15 @@ class TemporalStandardScaler():
             check_new_time_groupby_idx(time_groupby_idx, scaler_stat = self.std_)    
         ##--------------------------------------------------------------------.
         ## Transform variables 
+        # TODO: 
+        # - Time group: weeofofyear, Hourly weekofyear
+        # - Solve PerformanceWarning: Slicing with an out-of-order index is generating XXX times more chunks
+        # - weeofofyear: Input time chunk : -1 --> Output time chunk : 168
+        # https://github.com/pydata/xarray/issues/2237
         new_data = new_data.copy()
         for var in transform_vars:
             if self.center: 
-                new_data[var] = new_data[var].groupby(time_groupby_idx) - self.mean_[var] 
+                new_data[var] = new_data[var].groupby(time_groupby_idx) - self.mean_[var]
             if self.standardize: 
                 new_data[var] = new_data[var].groupby(time_groupby_idx) / (self.std_[var] + self.eps)    
                 
@@ -1517,19 +1518,11 @@ class TemporalMinMaxScaler():
         self.fitted = True
         # del self.data
     
-    def save(self, fpath):
+    def save(self, fpath, force=False):
         """Save the scaler object to disk in netCDF format."""
-        if not self.fitted:
-            raise ValueError("Please fit() the scaler before saving it!")
-        # Check basepath exists 
-        if not os.path.exists(os.path.dirname(fpath)):
-            # If not exist, create directory 
-            os.makedirs(os.path.dirname(fpath))
-            print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
-        # Check end with .nc 
-        if fpath[-3:] != ".nc":
-            fpath = fpath + ".nc"
-            print("Added .nc extension to the provided fpath.")
+        # Checks 
+        _check_is_fitted(self)
+        fpath = _check_save_fpath(fpath=fpath, force=force)
         ##---------------------------------------------------------------------.
         ## Create xarray Dataset (to save as netCDF)
         # - Convert to DataArray
@@ -1848,8 +1841,8 @@ class Climatology():
         # Create a climatology object if ds_climatology is a xr.Dataset 
         if isinstance(ds_climatology, xr.Dataset):            
             self.fitted = True
-            self.mean = ds_climatology['Mean'].to_dataset(dim='variable')
-            self.variability = ds_climatology['Variability'].to_dataset(dim='variable')
+            self.mean_ = ds_climatology['Mean'].to_dataset(dim='variable')
+            self.variability_ = ds_climatology['Variability'].to_dataset(dim='variable')
             self.variable_dim = ds_climatology.attrs['variable_dim'] if ds_climatology.attrs['variable_dim'] != 'None' else None
             self.aggregating_dims = ds_climatology.attrs['aggregating_dims'] if ds_climatology.attrs['aggregating_dims'] != 'None' else None
             self.groupby_dims = ds_climatology.attrs['groupby_dims'] if ds_climatology.attrs['groupby_dims'] != 'None' else None   
@@ -1882,10 +1875,10 @@ class Climatology():
         self.scaler.fit()
         self.fitted = self.scaler.fitted 
         # Retrieve mean and variability 
-        self.mean = self.scaler.mean_  
-        self.variability = self.scaler.std_
+        self.mean_ = self.scaler.mean_  
+        self.variability_ = self.scaler.std_
         # Extract time group dimensions 
-        self.time_dim=self.scaler.time_dim
+        self.time_dim = self.scaler.time_dim
         self.time_groups = self.scaler.time_groups
         self.time_groupby_factors = self.scaler.time_groupby_factors
         self.time_groupby_name = self.scaler.time_groupby_name
@@ -1896,55 +1889,67 @@ class Climatology():
         self.groupby_dims = self.scaler.groupby_dims
         
         # Add extended time group dimensions
-        if self.mean is not None:
+        if self.mean_ is not None:
             for k in self.time_groups.keys():
-                self.mean[k] = time_groupby_dims[k]
-                self.mean = self.mean.set_coords(k)
-                
-        if self.variability is not None: 
+                if k == "weekofyear":
+                    k = "week"
+                self.mean_[k] = time_groupby_dims[k]
+                self.mean_ = self.mean_.set_coords(k)
+
+        if self.variability_ is not None: 
             for k in self.time_groups.keys():
-                self.variability[k] = time_groupby_dims[k]
-                self.variability = self.variability.set_coords(k)
+                if k == "weekofyear":
+                    k = "week"
+                self.variability_[k] = time_groupby_dims[k]
+                self.variability_ = self.variability_.set_coords(k)
 
         # Return DataArray if input data is dataarray 
         if self.variable_dim is not None:
-            if self.mean is not None:
-                self.mean = self.mean.to_array(self.variable_dim)
-            if self.variability is not None: 
-                self.variability = self.variability.to_array(self.variable_dim)
-   
+            if self.mean_ is not None:
+                self.mean_ = self.mean_.to_array(self.variable_dim)
+            if self.variability_ is not None: 
+                self.variability_ = self.variability_.to_array(self.variable_dim)
+    
+    @property
+    def mean(self):
+        if self.mean_ is not None:
+            # Remove time groups 
+            ds = self.mean_.drop(self.time_groupby_name)
+            ds = ds.swap_dims({self.time_groupby_name: "time_group"})
+            return ds 
+        
+    @property
+    def variability(self):
+        if self.variability_ is not None:
+            # Remove time groups 
+            ds = self.variability_.drop(self.time_groupby_name)
+            ds = ds.swap_dims({self.time_groupby_name: "time_group"})
+            return ds         
+
     ##------------------------------------------------------------------------. 
-    def save(self, fpath):
+    def save(self, fpath, force=False):
         """Save the Climatogy object to disk in netCDF format."""
-        if not self.fitted:
-            raise ValueError("Please fit() the Climatology object before saving it!")
-        # Check basepath exists 
-        if not os.path.exists(os.path.dirname(fpath)):
-            # If not exist, create directory 
-            os.makedirs(os.path.dirname(fpath))
-            print("The directory {} did not exist and has been created !".format(os.path.dirname(fpath)))
-        # Check end with .nc 
-        if fpath[-3:] != ".nc":
-            fpath = fpath + ".nc"
-            print("Added .nc extension to the provided fpath.")
+        # Check 
+        _check_is_fitted(self)
+        fpath = _check_save_fpath(fpath=fpath, force=force)
         ##---------------------------------------------------------------------.
         ## Create Climatology xarray Dataset (to save as netCDF)
         # - Reshape mean and variability into DataArray
-        if self.mean is not None:
-            mean_ = self.mean.to_array()
+        if self.mean_ is not None:
+            mean_ = self.mean_.to_array()
             mean_.name = "Mean"
-        if self.variability is not None:
-            std_ = self.variability.to_array()  
+        if self.variability_ is not None:
+            std_ = self.variability_.to_array()  
             std_.name = "Variability"
         # - Pack data into a Dataset  
-        if self.mean is not None and self.variability is not None:
+        if self.mean_ is not None and self.variability_ is not None:
             ds_clim = xr.merge((mean_, std_))
-        elif self.mean is not None:
+        elif self.mean_ is not None:
             ds_clim = mean_.to_dataset()
         else:
             ds_clim = std_.to_dataset()
+
         # Add attributes 
-        
         ds_clim.attrs = {'aggregating_dims': self.aggregating_dims if self.aggregating_dims is not None else 'None', 
                          'groupby_dims': self.groupby_dims if self.groupby_dims is not None else 'None',
                          'variable_dim': self.variable_dim if self.variable_dim is not None else 'None',
@@ -1996,7 +2001,7 @@ class Climatology():
         dims_shape.append(len(time))
         if groupby_dims is not None:
             for groupbydim in groupby_dims:
-                dims_shape.append(self.mean.dims[groupbydim])
+                dims_shape.append(self.mean_.dims[groupbydim])
                 
         ##--------------------------------------------------------------------. 
         # Define coords
@@ -2004,7 +2009,7 @@ class Climatology():
         coords.append(time)
         if groupby_dims is not None:
             for groupbydim in groupby_dims:
-                coords.append(self.mean[groupbydim].values)
+                coords.append(self.mean_[groupbydim].values)
                 
         ##--------------------------------------------------------------------.
         # Create DataArray of 1 
@@ -2020,8 +2025,9 @@ class Climatology():
                                                  time_groupby_factors=self.time_groupby_factors)
         time_groupby_dims = time_groupby_info['time_groupby_dims']
         time_groupby_idx = time_groupby_info['time_groupby_idx']
+
         # - Mean 
-        ds_forecast = da_ones.groupby(time_groupby_idx) * self.mean
+        ds_forecast = da_ones.groupby(time_groupby_idx) * self.mean_
         
         ##--------------------------------------------------------------------.
         # Remove time groups 
