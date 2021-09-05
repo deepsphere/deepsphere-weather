@@ -23,6 +23,22 @@ from xskillscore import crps_ensemble
 # error * weights_lat 
 
 ##----------------------------------------------------------------------------.
+def xr_common_vars(x,y):
+    """ Retrieve common variables between two xr.Dataset."""  
+    if not isinstance(x, xr.Dataset):
+        raise TypeError("Expecting xr.Dataset.")
+    if not isinstance(y, xr.Dataset):
+        raise TypeError("Expecting xr.Dataset.")
+    # Retrieve common vars
+    x_vars = list(x.data_vars.keys())
+    y_vars = list(y.data_vars.keys())
+    common_vars = list(set(x_vars).intersection(set(y_vars)))
+    if len(common_vars) == 0: 
+        return None 
+    else: 
+        return common_vars
+
+##----------------------------------------------------------------------------.
 def _match_nans(a, b, weights=None):
     """
     Considers missing values pairwise. 
@@ -325,8 +341,14 @@ def deterministic(pred, obs,
     if forecast_type not in ["continuous", "categorical"]:
         raise ValueError("'forecast_type' must be either 'continuous' or 'categorical'.") 
     #------------------------------------------------------------------------.
-    # Align dataset
+    # Align dataset (dimensions)
     pred, obs = xr.align(pred, obs, join="inner")
+    # Align dataset (variables): 
+    common_vars = xr_common_vars(pred, obs)
+    if common_vars is None: 
+        raise ValueError("No common variables between obs and pred xr.Dataset.")
+    pred = pred[common_vars]
+    obs = obs[common_vars]
     #------------------------------------------------------------------------.
     # Run deterministic verification
     if forecast_type == 'continuous':
