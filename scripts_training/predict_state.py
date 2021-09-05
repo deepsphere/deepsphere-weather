@@ -19,10 +19,12 @@ from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
 from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
+from modules.utils_config import check_same_dict
 from modules.utils_config import get_pytorch_model
 from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
-from modules.utils_io import get_ar_model_diminfo
+from modules.utils_config import print_tensor_info
+from modules.utils_io import get_ar_model_tensor_info
 from modules.predictions_autoregressive import AutoregressivePredictions
 
 ## Project specific functions
@@ -67,9 +69,6 @@ def main(data_dir,
     if dst_dirpath is None:
         dst_dirpath = os.path.join(model_dir, "model_predictions/space_chunked")
     #-------------------------------------------------------------------------.
-    # Define forecast_reference_times
-    forecast_reference_times = np.array(forecast_reference_times, dtype='M8[m]')
-    #-------------------------------------------------------------------------.
     # Define forecast_zarr_fpath
     forecast_zarr_fpath = os.path.join(dst_dirpath, zarr_fname)
     if os.path.exists(forecast_zarr_fpath):
@@ -93,53 +92,58 @@ def main(data_dir,
     dataloader_settings = get_dataloader_settings(cfg) 
     
     ##------------------------------------------------------------------------.
-    #### Load Datasets
-    # - Retrieve directory with required data 
+    #### Load Zarr Datasets
     data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
-    da_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr"))["data"]
-    da_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr"))["data"]
-    ds_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
+
+    data_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
+    data_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr")) 
+    data_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
     
-    # - Align Datasets (currently required)
-    # ds_dynamic, ds_bc = xr.align(ds_dynamic, ds_bc) 
     # - Select dynamic features 
-    da_dynamic = da_dynamic.sel(feature=["z500", "t850"])
- 
+    # data_dynamic = data_dynamic[['z500','t850']]    
+
     ##------------------------------------------------------------------------.
-    # - Prepare static data 
+    ### Prepare static data 
     # - Keep land-surface mask as it is 
+
     # - Keep sin of latitude and remove longitude information 
-    ds_static = ds_static.drop(["sin_longitude","cos_longitude"])
+    data_static = data_static.drop(["sin_longitude","cos_longitude"])
+
     # - Scale orography between 0 and 1 (is already left 0 bounded)
-    ds_static['orog'] = ds_static['orog']/ds_static['orog'].max()
+    data_static['orog'] = data_static['orog']/data_static['orog'].max()
+
     # - One Hot Encode soil type 
-    # ds_slt_OHE = xscaler.OneHotEnconding(ds_static['slt'])
-    # ds_static = xr.merge([ds_static, ds_slt_OHE])
-    # ds_static = ds_static.drop('slt')
-    # - Convert to DataArray 
-    da_static = ds_static.to_array(dim="feature")  
+    # ds_slt_OHE = xscaler.OneHotEnconding(data_static['slt'])
+    # data_static = xr.merge([data_static, ds_slt_OHE])
+    # data_static = data_static.drop('slt')
+
+    # - Load static data 
+    data_static = data_static.load()
     
     ##------------------------------------------------------------------------.
     #### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
     dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
     bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
-    static_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_static.nc"))
-    # # - Create single scaler 
-    scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
+     # # - Create single scaler 
+    scaler = SequentialScaler(dynamic_scaler, bc_scaler)
 
     ##------------------------------------------------------------------------.
-    ### Define pyTorch settings 
+    ### Define pyTorch settings (before PyTorch model definition)
+    # - Here inside is eventually set the seed for fixing model weights initialization
+    # - Here inside the training precision is set (currently only float32 works)
     device = set_pytorch_settings(training_settings)
 
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
-    dim_info = get_ar_model_diminfo(ar_settings=ar_settings,
-                                    da_dynamic=da_dynamic, 
-                                    da_static=da_static, 
-                                    da_bc=da_bc)
-    # Check that dim_info match between training and now 
-    assert model_settings['dim_info'] == dim_info
+    tensor_info = get_ar_model_tensor_info(ar_settings = ar_settings,
+                                           data_dynamic = data_dynamic, 
+                                           data_static = data_static, 
+                                           data_bc = data_bc)
+    print_tensor_info(tensor_info)         
+
+    # Check that tensor_info match between model training and now 
+    check_same_dict(model_settings['tensor_info'], tensor_info)
 
     ##------------------------------------------------------------------------.
     ### Define the model architecture  
@@ -154,15 +158,15 @@ def main(data_dir,
     ###-----------------------------------------------------------------------.
     ### Transfer model to the device (i.e. GPU)
     model = model.to(device)
-
+    
     ##------------------------------------------------------------------------.
     # Run predictions 
     dask.config.set(scheduler='synchronous')
     ds_forecasts = AutoregressivePredictions( model = model, 
                                               # Data
-                                              da_dynamic = da_dynamic,
-                                              da_static = da_static,              
-                                              da_bc = da_bc, 
+                                              data_dynamic = data_dynamic,
+                                              data_static = data_static,              
+                                              data_bc = data_bc, 
                                               scaler_transform = scaler,
                                               scaler_inverse = scaler,
                                               # Dataloader options

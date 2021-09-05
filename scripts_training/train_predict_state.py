@@ -13,14 +13,9 @@ import warnings
 import time
 import dask
 import argparse
-# import torch
-# import pickle
-# import pygsp as pg
-# import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
-
 from torch import optim
 from torchinfo import summary
 
@@ -38,8 +33,6 @@ from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_tensor_info
-
-from modules.utils_models import get_pygsp_graph
 from modules.utils_io import get_ar_model_tensor_info
 from modules.training_autoregressive import AutoregressiveTraining
 from modules.predictions_autoregressive import AutoregressivePredictions
@@ -51,7 +44,6 @@ from modules.loss import WeightedMSELoss, AreaWeights
 
 ## Project specific functions
 import modules.my_models_graph as my_architectures
-# import modules.my_models_graph_old as my_architectures
 
 ## Side-project utils (maybe migrating to separate packages in future)
 import modules.xsphere  # required for xarray 'sphere' accessor 
@@ -60,7 +52,6 @@ import modules.xverif as xverif
 from modules.xscaler import LoadScaler
 from modules.xscaler import SequentialScaler
 from modules.xscaler import LoadAnomaly
-
 
 # - Plotting functions
 from modules.my_plotting import plot_skill_maps
@@ -108,13 +99,13 @@ warnings.filterwarnings("ignore")
 # - The 'sample' dimension is always set to be the first dimension in the DataLoader
  
 ##----------------------------------------------------------------------------.
-data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES"
-exp_dir = "/data/weather_prediction/experiments_GG/new"
-cfg_path = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Cubed_400km/MaxAreaPool-Graph_knn.json'
-data_sampling_dir = os.path.join(data_dir, "Cubed_400km")
+# data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES"
+# exp_dir = "/data/weather_prediction/experiments_GG/new"
+# cfg_path = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Cubed_400km/MaxAreaPool-Graph_knn.json'
+# data_sampling_dir = os.path.join(data_dir, "Cubed_400km")
 
-force = True
-cfg = read_config_file(fpath=cfg_path)
+# force = True
+# cfg = read_config_file(fpath=cfg_path)
 
 # data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
 # exp_dir = "/data/weather_prediction/experiments_GG/new"
@@ -159,59 +150,47 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
     training_settings['seed_model_weights'] = 20 # 10 bugs 
-    training_settings['learning_rate'] = 0.005 # > 0.01 no hope
-    ar_settings['ar_iterations'] = 6
-    dataloader_settings['num_workers'] = 8
-    dataloader_settings['random_shuffling'] = False
-    dataloader_settings['autotune_num_workers'] = False
-    training_settings['training_batch_size'] = 10 
-    training_settings['validation_batch_size'] = 10 
+    training_settings['learning_rate'] = 0.0005 # 0.005 # > 0.01 no hope  #(0.00075 with patience =25 works )
+    dataloader_settings['num_workers'] = 15
+    dataloader_settings['random_shuffling'] = True
+    dataloader_settings['autotune_num_workers'] = True
+    training_settings['training_batch_size'] = 20 
+    training_settings['validation_batch_size'] = 20 
     model_settings['incremental_learning'] = False
     training_settings['scoring_interval'] = 10
+
     ##------------------------------------------------------------------------.
     #### Load Zarr Datasets
     data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
 
     data_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
     data_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr")) 
-    ds_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
+    data_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
 
     # - Select dynamic features 
     data_dynamic = data_dynamic[['z500','t850']]    
-    
+
+    # - Load lat and lon coordinates
+    data_dynamic['lat'] = data_dynamic['lat'].load()
+    data_dynamic['lon'] = data_dynamic['lon'].load()
     ##------------------------------------------------------------------------.
-    # #### Load Zarr Datasets
-    # data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
-
-    # data_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr"))["data"]
-    # data_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr"))["data"]
-    # ds_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
-
-    # # - Select dynamic features 
-    # data_dynamic = data_dynamic.sel(feature=["z500", "t850"])
-
-    # # Preload data in memory
-    # t_i = time.time() 
-    # data_dynamic = data_dynamic.compute()
-    # data_bc = data_bc.compute()
-    # ds_static = ds_static.compute()
-    # print('- Preload data in memory: {:.2f} minutes'.format((time.time() - t_i)/60))
-
-    ##------------------------------------------------------------------------.
-    # - Prepare static data 
+    ### Prepare static data 
     # - Keep land-surface mask as it is 
+
     # - Keep sin of latitude and remove longitude information 
-    ds_static = ds_static.drop(["sin_longitude","cos_longitude"])
+    data_static = data_static.drop(["sin_longitude","cos_longitude"])
+
     # - Scale orography between 0 and 1 (is already left 0 bounded)
-    ds_static['orog'] = ds_static['orog']/ds_static['orog'].max()
+    data_static['orog'] = data_static['orog']/data_static['orog'].max()
+
     # - One Hot Encode soil type 
-    # ds_slt_OHE = xscaler.OneHotEnconding(ds_static['slt'])
-    # ds_static = xr.merge([ds_static, ds_slt_OHE])
-    # ds_static = ds_static.drop('slt')
+    # ds_slt_OHE = xscaler.OneHotEnconding(data_static['slt'])
+    # data_static = xr.merge([data_static, ds_slt_OHE])
+    # data_static = data_static.drop('slt')
+
     # - Load static data 
-    ds_static = ds_static.load()
-    # - Convert to DataArray 
-    data_static = ds_static.to_array(dim="feature")  
+    data_static = data_static.load()
+ 
     #------------------------------------------------------------------------.
     ### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
@@ -277,7 +256,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     
     ###-----------------------------------------------------------------------.
     ### Summarize the model 
-    input_shape = tensor_info['input_shape'] 
+    input_shape = tensor_info['input_shape'].copy()
     input_shape[0] = training_settings["training_batch_size"]
     print(summary(model, input_shape, col_names = ["input_size", "output_size","num_params"]))
  
@@ -347,16 +326,12 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     else:
         raise NotImplementedError("'ar_training_strategy' must be either 'AR' or 'RNN'.")
 
-    # ar_scheduler = AR_Scheduler(method = "LinearStep",
-    #                             factor = 0.0005,
-    #                             fixed_ar_weights = [0],
-    #                             initial_ar_absolute_weights = [1]) 
     ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
     # - Used also to update ar_scheduler (aka increase AR iterations) if 'ar_iterations' not reached.
-    patience = int(250 / training_settings['scoring_interval'])  # with 1000 and lr 0.005 crashed without AR update !
-    minimum_iterations = 2000
-    minimum_improvement = 0.001   
+    patience = int(2000 / training_settings['scoring_interval'])  # with 1000 and lr 0.005 crashed without AR update !
+    minimum_iterations = 8000     # wtih 8000 worked
+    minimum_improvement = 0.0001   
     stopping_metric = 'validation_total_loss'   # training_total_loss                                                     
     mode = "min" # MSE best when low  
     early_stopping = EarlyStopping(patience = patience,
@@ -428,7 +403,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ### - Create predictions 
     print("========================================================================================")
     print("- Running predictions")
-    forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/spatial_chunks/test_pred.zarr")
+    forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/forecast_chunked/test_forecasts.zarr")
     dask.config.set(scheduler='synchronous') # This is very important otherwise the dataloader hang
     ds_forecasts = AutoregressivePredictions(model = model, 
                                              # Data
@@ -455,32 +430,29 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                              zarr_fpath = forecast_zarr_fpath,  # None --> do not write to disk
                                              rounding = 2,             # Default None. Accept also a dictionary 
                                              compressor = "auto",      # Accept also a dictionary per variable
-                                             chunks = "auto",          
-                                             timedelta_unit='hour')
+                                             chunks = "auto")
     ##------------------------------------------------------------------------.
     ### Reshape forecast Dataset for verification
-    # - For efficient verification, data must be contiguous in time, 
-    #   but chunked over space (and leadtime) 
-    client = dask.distributed.Client() # multiprocess enabled
-    print(client)
-    ## Reshape from 'forecast_reference_time'-'leadtime' to 'time (aka) forecasted_time'-'leadtime'  
-    # - Rechunk Dataset over space on disk and then reshape the for verification
+    # - For efficient verification, data must be contiguous in time, but chunked over space (and leadtime) 
+    # - It also neeed to swap from 'forecast_reference_time' to the (forecasted) 'time' dimension 
+    #   The (forecasted) 'time'dimension is calculed as the 'forecast_reference_time'+'leadtime'  
     print("========================================================================================")
-    print("- Reshape test set predictions for verification")
-    verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/temporal_chunks/test_pred.zarr")
+    print("- Rechunk and reshape test set forecasts for verification")
+    dask.config.set(scheduler='threads')
+    t_i = time.time()
+    verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/space_chunked/test_forecasts.zarr")
     ds_verification_format = rechunk_forecasts_for_verification(ds=ds_forecasts, 
                                                                 chunks="auto", 
                                                                 target_store=verification_zarr_fpath,
                                                                 max_mem = '1GB')
-     
+    print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60)) 
     ##------------------------------------------------------------------------.
     ### - Run deterministic verification 
     print("========================================================================================")
     print("- Run deterministic verification")
     # dask.config.set(scheduler='processes')
     # - Compute skills
-    ds_obs = test_data_dynamic.to_dataset('feature')
-    ds_obs = ds_obs.chunk({'time': -1,'node': 1})
+    ds_obs = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "space_chunked", "dynamic.zarr"))  
     ds_skill = xverif.deterministic(pred = ds_verification_format,
                                     obs = ds_obs, 
                                     forecast_type="continuous",
@@ -493,11 +465,6 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     print("========================================================================================")
     print("- Create verification summary plots and maps")
     # - Add mesh information 
-    # ---> TODO: To generalize based on cfg sampling !!!
-    # pygsp_graph = get_pygsp_graph(sampling = model_settings['sampling'], 
-    #                               resolution = model_settings['resolution'],
-    #                               knn = model_settings['knn'])
-    # ds_skill = ds_skill.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_skill = ds_skill.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
     
     # - Compute global and latitudinal skill summary statistics    
@@ -528,11 +495,10 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     print("- Create forecast error animations")
     t_i = time.time()
     # - Add information related to mesh area
-    # ds_forecasts = ds_forecasts.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
-    # ds_obs = ds_obs.sphere.add_nodes_from_pygsp(pygsp_graph=pygsp_graph)
     ds_forecasts = ds_forecasts.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
-    ds_obs = ds_obs.chunk({'time': 100,'node': -1})
+    ds_obs = test_data_dynamic 
     ds_obs = ds_obs.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
+
     # - Plot GIF for different months (variable states)
     for month in [1,4,7,10]:
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
@@ -544,18 +510,18 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                   antialiased = False,
                                   edgecolors = None)
     # - Plot GIF for different months (variable anomalies)
-    hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
-    for month in [1,4,7,10]:
-        idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
-        ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_gif_forecast_anom_error(gif_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
-                                       ds_forecast = ds_forecast,
-                                       ds_obs = ds_obs,
-                                       scaler = hourly_weekly_anomaly_scaler,
-                                       anom_title = "Hourly-Weekly Std. Anomaly",
-                                       aspect_cbar = 40,
-                                       antialiased = True,
-                                       edgecolors = None)
+    # hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
+    # for month in [1,4,7,10]:
+    #     idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
+    #     ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
+    #     create_gif_forecast_anom_error(gif_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
+    #                                    ds_forecast = ds_forecast,
+    #                                    ds_obs = ds_obs,
+    #                                    scaler = hourly_weekly_anomaly_scaler,
+    #                                    anom_title = "Hourly-Weekly Std. Anomaly",
+    #                                    aspect_cbar = 40,
+    #                                    antialiased = True,
+    #                                    edgecolors = None)
     ##-------------------------------------------------------------------------.                                     
     print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
     ##-------------------------------------------------------------------------.                            
@@ -568,10 +534,7 @@ if __name__ == '__main__':
     default_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES" # new data
     default_exp_dir = "/data/weather_prediction/experiments_GG/new"
     default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
-   
-    
-    exp_dir = "/data/weather_prediction/experiments_GG"
-   
+      
     parser = argparse.ArgumentParser(description='Training a numerical weather prediction model emulator')
     parser.add_argument('--config_file', type=str, default=default_config)
     parser.add_argument('--data_dir', type=str, default=default_data_dir)
