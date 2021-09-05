@@ -8,6 +8,7 @@ Created on Thu Feb 18 17:51:40 2021
 import torch
 import numpy as np
 from typing import Dict
+from torch.nn import Identity
 from torch.nn import Linear
 from torch.nn import BatchNorm1d
 from torch.nn import functional as F       
@@ -66,7 +67,7 @@ class ConvBlock(GeneralConvBlock):
                  in_channels, 
                  out_channels, 
                  laplacian,
-                 kernel_size,
+                 kernel_size = 3,
                  conv_type = 'graph', 
                  bias = True, 
                  batch_norm = False, 
@@ -102,12 +103,12 @@ class ConvBlock(GeneralConvBlock):
         It expect a tensor with shape: (sample, nodes, time-feature).
         """
         x = self.conv(x)
-        if self.norm and self.batch_norm_before_activation:   
+        if self.norm and self.bn_before_act:   
             # [batch, node, time-feature]
             x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
         if self.act:
             x = self.act_fun(x)
-        if self.norm and not self.batch_norm_before_activation:   
+        if self.norm and not self.bn_before_act:   
             # [batch, node, time-feature]
             x = self.bn(x.permute(0, 2, 1)).permute(0, 2, 1)
         return x
@@ -129,6 +130,8 @@ class ResBlock(torch.nn.Module):
     convblock_kwargs : TYPE
         Arguments for the ConvBlock layer.
     """
+    # No activation function on last conv layer because if act_fun like Relu, 
+    #  the ResBlock can only output positive increments
     
     def __init__(self,
                  in_channels, 
@@ -137,17 +140,29 @@ class ResBlock(torch.nn.Module):
                  convblock_kwargs,
                  **kwargs):
         super().__init__()
+        ##--------------------------------------------------------
+        # ResBlock options
+        self.rezero = True 
+        ##--------------------------------------------------------
         # Check out_channels type (if an int --> a single conv)
         if not isinstance(out_channels, (int, tuple, list)):
             raise TypeError("'output_channels' must be int or list/tuple of int.")
         if not isinstance(out_channels, (tuple, list)): 
             out_channels = [out_channels]
         out_channels = list(out_channels)
-        # Initialize list of convolutional layer within the ResBlock 
+        ##--------------------------------------------------------
+        ### Define list of convolutional layer
+        # - Initialize list of convolutional layer within the ResBlock 
         conv_names_list = []
         tmp_in = in_channels
+        n_layers = len(out_channels)
         for i, tmp_out in enumerate(out_channels):
+            # - Define conv layer name 
             tmp_conv_name = 'convblock' + str(i+1)
+            # - If last conv layer, do not add the activation function and BN 
+            if i == n_layers -1: 
+                convblock_kwargs["activation"] = False
+            # - Create the conv layer
             tmp_conv = ConvBlock(tmp_in, tmp_out,  
                                 laplacian = laplacian, 
                                 **convblock_kwargs)
@@ -156,17 +171,39 @@ class ResBlock(torch.nn.Module):
             tmp_in = tmp_out   
             
         self.conv_names_list = conv_names_list 
+        ##--------------------------------------------------------
+        ### Define the residual connection 
+        if in_channels == out_channels[-1]: 
+            self.res_connection = Identity()
+        else:
+            self.res_connection = Linear(in_channels, out_channels[-1])
         
-        self.conv_res = Linear(in_channels, out_channels[-1])
+        ##--------------------------------------------------------
+        ### Define multiplier initialized at 0 for ReZero trick 
+        if self.rezero:
+            self.rezero_weight = torch.nn.Parameter(torch.zeros(1), requires_grad=True)
         
+        ##--------------------------------------------------------
+        # Zero-initialize the last BN in each residual branch
+        # --> Each ResBlock behave like identity if input_channels == output_channels
+        if convblock_kwargs["batch_norm"]:
+            last_convblock = getattr(self, conv_names_list[-1])          
+            torch.nn.init.constant_(last_convblock.bn.weight, 0)
+            torch.nn.init.constant_(last_convblock.bn.bias, 0)
+    
+        ##--------------------------------------------------------
+
     def forward(self, x):
         """Define forward pass of a ResBlock."""
         # Perform convolutions 
         x_out = x  
         for conv_name in self.conv_names_list:
             x_out = getattr(self, conv_name)(x_out)
+        # Rezero trick
+        if self.rezero:
+            x_out *= self.rezero_weight 
         # Add residual connection 
-        x_out += self.conv_res(x)
+        x_out += self.res_connection(x)
         return x_out
 
 ##----------------------------------------------------------------------------.     
@@ -242,11 +279,11 @@ class UNetSpherical(UNet, torch.nn.Module):
                  tensor_info: Dict,
                  sampling: str,
                  sampling_kwargs: Dict, 
-                 knn: int = 10, 
                  # Convolutions options 
                  kernel_size_conv: int = 3,
                  conv_type: str = "graph",
                  graph_type: str = 'knn', 
+                 knn: int = 20, 
                  # Options for classical image convolution on equiangular sampling 
                  lonlat_ratio: float = 2,
                  periodic_padding: bool = True, 
@@ -280,8 +317,8 @@ class UNetSpherical(UNet, torch.nn.Module):
         self.output_n_feature = tensor_info['output_n_feature']
         self.input_n_time = tensor_info['input_n_time']
         self.output_n_time = tensor_info['output_n_time']
-        self.input_node_dim = tensor_info['input_shape_info']['dynamic']['node']  
-        self.output_node_dim = tensor_info['output_shape_info']['dynamic']['node']  
+        self.input_n_node = tensor_info['input_shape_info']['dynamic']['node']  
+        self.output_n_node = tensor_info['output_shape_info']['dynamic']['node']  
         
         ##--------------------------------------------------------------------.
         # Define size of last dimension for ConvChen conv (merging time-feature dimension)
@@ -296,7 +333,6 @@ class UNetSpherical(UNet, torch.nn.Module):
         ### Check arguments 
         sampling = check_sampling(sampling)
         conv_type = check_conv_type(conv_type, sampling)
-        # resolution = check_resolution(resolution)
         pool_method = check_pool_method(pool_method)
         skip_connection = check_skip_connection(skip_connection)
         ##--------------------------------------------------------------------.   
@@ -335,6 +371,7 @@ class UNetSpherical(UNet, torch.nn.Module):
         ##--------------------------------------------------------------------.
         ### Initialize graphs and laplacians
         # - If conv_type == 'image', self.laplacians = [None] * UNet_depth
+        # - self.init_graph_and_laplacians() defines self.graphs and self.laplacians
         self.init_graph_and_laplacians(sampling_list = sampling_list, 
                                        sampling_kwargs_list = sampling_kwargs_list,
                                        graph_type = graph_type,
@@ -402,6 +439,9 @@ class UNetSpherical(UNet, torch.nn.Module):
                                      laplacian = self.laplacians[0], 
                                      convblock_kwargs = convblock_kwargs)
         ##--------------------------------------------------------------------.
+        # Rezero trick for the full architecture if increment learning ... 
+        if self.increment_learning:
+            self.res_increment = torch.nn.Parameter(torch.zeros(1), requires_grad=True)
         
     ##------------------------------------------------------------------------.
     def encode(self, x):
@@ -417,7 +457,7 @@ class UNetSpherical(UNet, torch.nn.Module):
         ##--------------------------------------------------------------------.
         # Reorder and reshape data to ['sample', 'node', 'time-feature'] --> [B, V, Fin] for ConvCheb
         x = x.rename(*self.dim_names).align_to('sample','node','time','feature').rename(None)   
-        x = x.reshape(batch_size, self.input_node_dim, self.input_channels)  # reshape to ['sample', 'node', 'time-feature'] 
+        x = x.reshape(batch_size, self.input_n_node, self.input_channels)  # reshape to ['sample', 'node', 'time-feature'] 
         ##--------------------------------------------------------------------.
         ## Define encoder computation
         # Level 1
@@ -454,11 +494,12 @@ class UNetSpherical(UNet, torch.nn.Module):
         # Reshape data to ['sample', 'time', 'node', 'feature']
         batch_size = x.shape[0]   # 
         # Reshape from ['sample', 'node', 'time-feature']  to ['sample', 'node', 'time', 'feature']
-        x = x.reshape(batch_size, self.output_node_dim, self.output_n_time, self.output_n_feature)   
+        x = x.reshape(batch_size, self.output_n_node, self.output_n_time, self.output_n_feature)   
         x = x.rename(*['sample', 'node', 'time', 'feature']).align_to(*self.dim_names).rename(None)  
         ##--------------------------------------------------------------------.
         # Add tensor of most recent past timestep
         if self.increment_learning:
+            x *= self.res_increment 
             # print(x.shape)
             # print(x_last_timestep.shape)
             x += x_last_timestep
