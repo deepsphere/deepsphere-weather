@@ -7,7 +7,7 @@ Created on Mon Jan  4 00:04:12 2021
 """
 from re import I
 import time
-from warnings import WarningMessage
+import warnings
 import torch
 import random
 import inspect
@@ -25,11 +25,13 @@ from modules.utils_autoregressive import get_dict_X_dynamic
 from modules.utils_autoregressive import get_dict_X_bc    
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
-from modules.utils_io import xr_time_align
-from modules.utils_io import xr_start_time_align
-
+from modules.utils_io import xr_align_dim
+from modules.utils_io import xr_align_start_time
+from modules.utils_io import xr_has_uniform_resolution
 from modules.utils_io import xr_have_same_timesteps
 from modules.utils_io import is_dask_DataArray
+from modules.utils_io import check_timesteps_format
+from modules.utils_io import check_no_duplicate_timesteps
 from modules.utils_io import _check_temporal_data
 from modules.utils_io import _check_static_data
 from modules.utils_io import _get_feature_info_dicts
@@ -519,7 +521,7 @@ class AutoregressiveDataset(Dataset):
         self.torch_dtype = torch.get_default_dtype() 
         ##--------------------------------------------------------------------.
         ### - Define optional timesteps subsets
-        self.subset_timesteps = subset_timesteps
+        self.subset_timesteps = check_timesteps_format(subset_timesteps)
         ##--------------------------------------------------------------------.
         ### Initialize scaler 
         self.scaler = scaler 
@@ -540,6 +542,18 @@ class AutoregressiveDataset(Dataset):
         self.data_availability = data_availability
         
         ##---------------------------------------------------------------------.
+        # Retrieve data temporal resoltuon and check dynamic and bc data have the same  
+        if not xr_has_uniform_resolution(data_dynamic, dim = "time"):
+            raise ValueError("'data_dynamic' does not have an uniform 'time' resolution.")
+        self.t_res_timedelta = np.diff(data_dynamic['time'].values)[0] 
+
+        if data_availability['bc']:
+            if not xr_has_uniform_resolution(data_bc, dim = "time"):
+                raise ValueError("'data_bc' does not have an uniform 'time' resolution.")
+            if self.t_res_timedelta != np.diff(data_bc['time'].values)[0]:
+                raise ValueError("'data_dynamic' and 'data_bc' does not have the same 'time' resolution.")
+
+        ##---------------------------------------------------------------------.
         # Check time alignment of data_dynamic and data_bc if training_mode = True
         # - If training_mode = False, check only that start_time is the same and 
         #   end_time of data_bc equal or is after data-dynamic 
@@ -547,12 +561,12 @@ class AutoregressiveDataset(Dataset):
             if not xr_have_same_timesteps(data_dynamic, data_bc, time_dim = "time"):
                 print("'data_dynamic' and 'data_bc' do not have the same timesteps."
                       "Data are going to be re-aligned along the 'time' dimension.")
-                data_dynamic, data_bc = xr_time_align(data_dynamic, data_bc, time_dim='time')
+                data_dynamic, data_bc = xr_align_dim(data_dynamic, data_bc, dim='time')
         else:
-            data_dynamic, data_bc = xr_start_time_align(data_dynamic, data_bc, time_dim='time')
+            data_dynamic, data_bc = xr_align_start_time(data_dynamic, data_bc, time_dim='time')
             if data_availability['bc']:
                 if np.max(data_bc['time'].values) < np.max(data_dynamic['time'].values):
-                    raise ValueError("'data_bc' must have a 'time' dimension equal or longer than 'data_dynamic'.")
+                    raise ValueError("'data_bc' must have a 'time' dimension equal or longer than 'data_dynamic'.")        
 
         ##--------------------------------------------------------------------.
         ### - Test bc generation and get a mock sample 
@@ -667,18 +681,38 @@ class AutoregressiveDataset(Dataset):
         # - This is useful to launch prediction for specific forecast reference times  
         # - It restrics self.idxs that can be loaded by the DataLoader
         if self.subset_timesteps is not None:
-            subset_timesteps = np.array(self.subset_timesteps) 
+            subset_timesteps = self.subset_timesteps
+            subset_timesteps.sort() # ensure the temporal order 
+            check_no_duplicate_timesteps(subset_timesteps, var_name='subset_timesteps')
+            # - Remove 'subset_timesteps' that are outside the time range of data_dynamic 
             subset_idxs = _get_subset_timesteps_idxs(timesteps = available_timesteps, 
                                                      subset_timesteps = subset_timesteps,
-                                                     strict_match=True) 
-    
-            if any(subset_idxs < idx_start):
-                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
-                                 list(available_timesteps[subset_idxs < idx_start]))
-            if any(subset_idxs > idx_end):  
-                raise ValueError("With current AR settings, the following 'subset_timesteps' are not allowed:",
-                                 list(available_timesteps[subset_idxs > idx_end]))            
-            self.idxs = subset_idxs          
+                                                     strict_match=False) 
+           
+            # - Retrieve subset_idxs that are not valid because of current AR settings (and 'data_dynamic')
+            unvalid_idxs = subset_idxs[subset_idxs < idx_start]
+            if len(unvalid_idxs) > 0:
+                warnings.warn("With current 'data_dynamic' and AR settings, the following 'forecast_start_time' are "
+                              "not allowed: {} \n".format(list(available_timesteps[unvalid_idxs])))
+            unvalid_idxs = subset_idxs[subset_idxs > idx_end]                   
+            if len(unvalid_idxs) > 0:
+                warnings.warn("With current 'data_dynamic' and AR settings, the following 'forecast_start_time' are "
+                              "not allowed: {} \n".format(list(available_timesteps[unvalid_idxs])))
+            # - Select only valid subset_idxs
+            subset_idxs = subset_idxs[subset_idxs >= idx_start]
+            if len(subset_idxs) == 0: 
+                raise ValueError("Because of 'data_dynamic' time coverage and current AR settings, "
+                                 "the specified 'forecast_reference_times' are not valid.")
+            subset_idxs = subset_idxs[subset_idxs <= idx_end]
+            if len(subset_idxs) == 0: 
+                raise ValueError("Because of 'data_dynamic' time coverage and current AR settings, "
+                                 "the specified 'forecast_reference_times' are not valid.")
+            # - Update valid idxs 
+            self.idxs = subset_idxs  
+            # - Update valid subset_timesteps based on 'data_dynamic' and 'ÂR settings'    
+            subset_timesteps = available_timesteps[subset_idxs]
+            self.subset_timesteps = subset_timesteps     
+                   
 
         ##--------------------------------------------------------------------.
         # - Retrieve timesteps of forecast leadtime 0 available (rel_idx = 0)
@@ -709,14 +743,31 @@ class AutoregressiveDataset(Dataset):
             n_bc_timesteps = len(self.data_bc['time'].values)
             max_rel_idx_bc_k = np.max(list(self.dict_rel_idx_X_bc.values()))
             idxs_bc_required = self.idxs + max_rel_idx_bc_k
-            valid_start_idxs = self.idxs[self.idxs + max_rel_idx_bc_k < n_bc_timesteps]
-            unvalid_start_idxs = self.idxs[self.idxs + max_rel_idx_bc_k >= n_bc_timesteps]
+            valid_start_idxs = self.idxs[idxs_bc_required < n_bc_timesteps]
+            unvalid_start_idxs = self.idxs[idxs_bc_required >= n_bc_timesteps]
+            # If any forecast can be generated, raise an error 
+            if len(valid_start_idxs) == 0: 
+                raise ValueError("Because of 'data_bc' time coverage and current AR settings, "
+                                 "it's not possible to generate any forecast with {} 'ar_iterations'.\n"
+                                 "Try to reduce the number of 'ar_iterations'!".format(self.ar_iterations))
+        
+            # Restrict the idxs to possible ones
             if len(unvalid_start_idxs) > 0: 
                 last_valid_ref_time = available_timesteps[valid_start_idxs[-1] + max(input_k)]
-                print("'data_bc' is not enough long in the 'time' dimension"
-                      "to run full predictions. The last valid 'forecast_reference_time"
-                      "is: {!r}".format(last_valid_ref_time))
-                raise ValueError("Try to reduce the number of 'ar_iterations' !")
+                print("'data_bc' is not long enough in the 'time' dimension "
+                      "to generate all forecast specified.\n"
+                      "The last forecast which can be generated has 'forecast_reference_time': {!r}".format(last_valid_ref_time))
+                # - Update valid idxs and subset timesteps 
+                self.idxs = valid_start_idxs
+                self.subset_timesteps = available_timesteps[self.idxs]
+                # - Update available timesteps of forecast leadtime 0  (rel_idx = 0)
+                self.available_starts = available_timesteps[self.idxs]
+
+        ##--------------------------------------------------------------------.
+        # - Compute the number of samples available
+        self.n_samples = len(self.idxs)
+        if self.n_samples == 0: 
+            raise ValueError("No samples available. Maybe reduce number of AR iterations.")
 
         ##---------------------------------------------------------------------.
         ### - Based on the current value of ar_iterations, create a
@@ -813,8 +864,10 @@ class AutoregressiveDataset(Dataset):
         ##--------------------------------------------------------------------.
         ####################################
         ## Retrieve forecast time infos ####
-        ####################################     
-        # - Forecast start time 
+        ####################################  
+        # - Define timedelta 
+        t_res_timedelta = self.t_res_timedelta  
+        # - Forecast start time (time of rel_idx = 0) 
         forecast_start_time = self.data_dynamic.isel(time=xr_idx_k_0).time.values
         # - Forecast reference time 
         reference_time_idx = xr_idx_k_0 + max(self.input_k)
@@ -825,7 +878,7 @@ class AutoregressiveDataset(Dataset):
         dict_forecasted_time = {}
         dict_forecast_leadtime = {}
         for i in range(self.ar_iterations + 1): 
-            dict_forecasted_time[i] = da_dynamic_subset.sel(rel_idx=self.dict_rel_idx_Y[i]).time.values 
+            dict_forecasted_time[i] = forecast_start_time + self.dict_rel_idx_Y[i]*t_res_timedelta
             dict_forecast_leadtime[i] = dict_forecasted_time[i] - forecast_reference_time
         # - Create forecast_time_info dictionary 
         forecast_time_info = {'forecast_start_time': forecast_start_time,

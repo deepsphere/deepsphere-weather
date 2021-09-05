@@ -8,6 +8,7 @@ Created on Mon Jan 18 23:56:40 2021
 import datetime
 import numpy as np 
 import xarray as xr
+import warnings
 
 def is_dask_DataArray(da):
     """Check if data in the xarray DataArray are lazy loaded."""
@@ -16,15 +17,22 @@ def is_dask_DataArray(da):
     else: 
         return False
 
-def xr_time_align(x,y, time_dim='time'):
+def xr_has_uniform_resolution(x, dim = "time"):
+    dt = np.unique(np.diff(x[dim].values))
+    if len(dt) == 1: 
+        return True 
+    else:
+        return False 
+        
+def xr_align_dim(x,y, dim='time'):
     if x is None or y is None:
         return x, y
     all_dims = set(list(x.dims) + list(y.dims))
-    exclude_dims = all_dims.remove(time_dim) 
+    exclude_dims = all_dims.remove(dim) 
     x, y = xr.align(x, y, join='inner', exclude=exclude_dims) 
     return x,y 
 
-def xr_start_time_align(x, y, time_dim='time'):
+def xr_align_start_time(x, y, time_dim='time'):
     if x is None or y is None:
         return x, y
     time_start = np.min([x[time_dim].values, y[time_dim].values])
@@ -59,32 +67,51 @@ def xr_have_same_timesteps(x, y, time_dim='time'):
         return True 
     return np.array_equal(x[time_dim].values, y[time_dim].values)
 
+def check_timesteps_format(timesteps): 
+    """Ensure timesteps format is numpy array of numpy.datetime64."""
+    if timesteps is None:
+        return None
+    if not isinstance(timesteps, (str, list, np.ndarray, datetime.datetime, np.datetime64)):
+        raise ValueError("The timestep(s) must be provided as a str, list, np.array of datetime or np.datetime64.")
+    if isinstance(timesteps, str): 
+        timesteps = np.array([timesteps], dtype='M8')
+    if isinstance(timesteps, list): 
+         timesteps = np.array(timesteps, dtype='M8')
+    if isinstance(timesteps, np.datetime64):
+        timesteps = np.array([timesteps])
+    if isinstance(timesteps, datetime.datetime):
+        timesteps = np.array([timesteps], dtype='M8')
+    if isinstance(timesteps, np.ndarray): 
+        if len(timesteps.shape) == 0:  # array('2019-01-01', dtype='datetime64) --> fail len(timesteps)
+            timesteps = np.array([timesteps.tolist()],dtype="M8")
+    # Ensure is datetime64
+    timesteps = timesteps.astype('M8')
+    return timesteps
+
+def check_no_duplicate_timesteps(timesteps, var_name="timesteps"):
+    """Check if there are missing timesteps in a list or numpy datetime64 array."""
+    n_timesteps = len(timesteps) 
+    n_unique_timesteps = len(np.unique(timesteps))
+    if n_timesteps != n_unique_timesteps:
+        raise ValueError("{!r} contains non-unique timesteps".format(var_name)) 
+    return None
+
 def _check_timesteps(timesteps):
     """Check timesteps object and return a numpy array."""
-    if isinstance(timesteps, str): 
-        timesteps = np.array([np.datetime64(timesteps)])
-        return timesteps
+    # - Check is not None
     if timesteps is None: 
         raise ValueError("'timesteps' is None.")
+    # - Ensure format np.array([...], dtype='M8')
+    try: 
+        timesteps = check_timesteps_format(timesteps)
+    except ValueError: 
+        raise ValueError("Unvalid 'timesteps' specification.")
+    # - Check there are timesteps 
     if len(timesteps) == 0: 
         raise ValueError("'timesteps' is empty.")
-    elif isinstance(timesteps, (np.datetime64, datetime.datetime)):
-        timesteps = np.array([timesteps])
-        return timesteps 
-    elif isinstance(timesteps, list): 
-        if all([isinstance(v, (np.datetime64, datetime.datetime)) for v in timesteps]):
-            timesteps = np.array(timesteps)
-            return timesteps
-        else: 
-            raise ValueError("The list must contain np.datetime64 or datetime.datetime objects.")
-    elif isinstance(timesteps, np.ndarray):
-        if isinstance(timesteps[0], np.datetime64):
-            return timesteps
-        else:
-            raise ValueError("The numpy array must contain datetime objects.")
-    else: 
-        raise ValueError("Unvalid timesteps specification.")
-    
+    # - Return timesteps 
+    return timesteps        
+
 def check_no_missing_timesteps(timesteps, verbose=True):
     """Check if there are missing timesteps in a list or numpy datetime64 array."""
     timesteps = _check_timesteps(timesteps) 
@@ -176,7 +203,7 @@ def _has_Dataset_DataArrays_samedims(ds):
             return False
     return True 
 
-def _check_temporal_data(data, data_type, feature_dim='feature', time_dim = 'time', verbose=True):
+def _check_temporal_data(data, data_type, feature_dim='feature', time_dim = 'time', verbose=False):
     if data is None: 
         return None
     # - Checks data type 
@@ -235,18 +262,22 @@ def _check_static_data(data, data_type, feature_dim='feature', time_dim = 'time'
 
 def _get_subset_timesteps_idxs(timesteps, subset_timesteps, strict_match=True):
     """Check subset_timesteps are within timesteps and return the matching indices."""
+    # Check timesteps format 
     subset_timesteps = _check_timesteps(subset_timesteps)
     timesteps = _check_timesteps(timesteps)
-    subset_timesteps = subset_timesteps.astype(timesteps.dtype) # same precision required for comparison
+    # Ensure same time precision for comparison 
+    subset_timesteps = subset_timesteps.astype(timesteps.dtype)  
+    # Retrieve idxs corresponding to subset_timesteps 
     subset_idxs = np.array([idx for idx, v in enumerate(timesteps) if v in set(subset_timesteps)])  
+    # If no idxs available,means that subset_timesteps are not in the period covered by 'data_dyamic
     if subset_idxs.size == 0:
-        raise ValueError("The 'subset_timesteps' are not within the available 'timesteps'.")
+        raise ValueError("All 'forecast_reference_times' are not within the time period covered by 'data_dynamic'.")
     if len(subset_idxs) != len(subset_timesteps):
         timesteps_not_in = subset_timesteps[np.isin(subset_timesteps, timesteps, invert=True)] 
         if strict_match:
-            raise ValueError("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))       
+            raise ValueError("The following 'forecast_start_time(s)' are not within the time period covered by 'data_dynamic': {}".format(list(timesteps_not_in)))      
         else:
-            raise Warning("The following 'subset_timesteps' are not within 'timesteps':", list(timesteps_not_in))
+            warnings.warn("The following 'forecast_start_time(s)' are not within the time period covered by 'data_dynamic': {}".format(list(timesteps_not_in)))
     return subset_idxs
 
 def _get_dim_order(data):
@@ -255,6 +286,14 @@ def _get_dim_order(data):
         return None
     # If DataArray retrieve dimension position 
     dims = list(data.dims) 
+    if isinstance(data, xr.DataArray):
+        if 'feature' not in dims:
+            raise ValueError("The 'feature' dimension is required in a DataArray.")
+        # If last dimension is not 'feature', move to last position (it's done in the dataset/dataloader)
+        if dims[-1] != 'feature': 
+            warnings.warn("The last dimension of a DataArray should be 'feature'.")
+            dims = [dim for dim in dims if dim != 'feature']
+            dims.append('feature')
     # If Dataset data.dims does not correspond to the dimension of within DataArrays !!!
     if isinstance(data, xr.Dataset):
         # - Here I assume that all within DataArrays have same dimension order !!!
@@ -263,18 +302,6 @@ def _get_dim_order(data):
         dims = dims + ['feature']
     dim_order = ['sample'] + dims   
     return dim_order
-
-# def _get_dim_info(data):
-#     # If None, return None
-#     if data is None: 
-#         return None
-#     # If DataArray or Dataset, retrieve dimension position 
-#     dims = list(data.dims)
-#     dim_info = {dim : np.argwhere(np.array(dims) == dim)[0][0] + 1 for dim in dims}
-#     dim_info['sample'] = 0 
-#     if isinstance(data, xr.Dataset):
-#         dim_info['feature'] = len(dims) + 1 # 'feature' will go in last position 
-#     return dim_info
 
 def _get_dim_info(data):
     # If None, return None
@@ -295,6 +322,9 @@ def _get_feature_order(data):
         feature_order = data['feature'].values.tolist()    
     else:
         raise NotImplementedError
+    # Ensure that all feature string are str and not np.str_ 
+    feature_order = [str(f) for f in feature_order]
+    # Return feature order 
     return feature_order
 
 def _get_feature_info(data):
