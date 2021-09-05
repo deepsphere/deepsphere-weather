@@ -14,6 +14,7 @@ import shutil
 import inspect 
 import types
 import numpy as np
+import deepdiff
 
 from modules.utils_torch import set_pytorch_deterministic
 from modules.utils_torch import set_pytorch_numeric_precision
@@ -139,20 +140,12 @@ def write_config_file(cfg, fpath):
 def get_model_settings(cfg): 
     """Return model settings from the config file."""
     # Initialize model settings 
-    model_settings = {}
+    model_settings = cfg['model_settings']
     default_model_settings = get_default_model_settings()
     
+    # Retrieve mandatory and optional keys
     mandatory_keys = ['architecture_name', 'sampling', 'sampling_kwargs', "sampling_name"]
-    optional_keys = list(default_model_settings.keys())
-    available_keys = mandatory_keys + optional_keys
-  
-    # Check that only correct keys are specified 
-    cfg_keys = np.array(list(cfg['model_settings'].keys())) 
-    invalid_keys = cfg_keys[np.isin(cfg_keys, available_keys, invert=True)]
-    if len(invalid_keys) > 0: 
-        for key in invalid_keys: 
-            print("'{}' is an unvalid model setting key!".format(key))
-        raise ValueError('Specify only correct model setting keys in the config file!')        
+    optional_keys = list(default_model_settings.keys())    
     
     # Retrieve mandatory model settings  
     model_settings["architecture_name"] = cfg['model_settings'].get("architecture_name", None)
@@ -279,6 +272,13 @@ def get_SWAG_settings(cfg):
     # Return AR settings 
     return SWAG_settings
 
+def check_same_dict(x,y): 
+    ddif = deepdiff.DeepDiff(x,y, ignore_type_in_groups=[(str, np.str_)])
+    if len(ddif)> 0: 
+        print("The two dictionaries have the following mismatches :")
+        print(ddif)
+        raise ValueError("Not same dictionary.")
+    return None
 #-----------------------------------------------------------------------------.
 #################################
 ### Checks config key values ####
@@ -448,9 +448,9 @@ def get_model_name(cfg):
                                architecture_name,
                                sampling_name,
                                conv_title,
-                               pool_method + "Pooling",
+                               pool_method + "Pooling"
                                ])
-        model_name = model_name[:-2] # remove last "-"
+        #model_name = model_name[:-1] # remove last "-"
     ##------------------------------------------------------------------------.
     # Add prefix and suffix if specified 
     if model_name_prefix is not None: 
@@ -488,8 +488,8 @@ def create_experiment_directories(exp_dir, model_name, force=False):
     figs_skills_dir = os.path.join(figures_dir, "skills")
     figs_training_info_dir = os.path.join(figures_dir, "training_info")
     model_predictions_dir = os.path.join(exp_dir, "model_predictions")
-    spatial_chunks_dir = os.path.join(model_predictions_dir, "spatial_chunks")
-    temporal_chunks_dir = os.path.join(model_predictions_dir, "temporal_chunks")
+    spatial_chunks_dir = os.path.join(model_predictions_dir, "space_chunked")
+    temporal_chunks_dir = os.path.join(model_predictions_dir, "forecast_chunked")
     model_skills_dir = os.path.join(exp_dir, "model_skills")
     training_info_dir = os.path.join(exp_dir, "training_info")
     
