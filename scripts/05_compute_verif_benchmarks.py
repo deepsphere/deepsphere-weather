@@ -139,7 +139,7 @@ if __name__ == '__main__':
     # Launch computations 
     for sampling_name in sampling_name_list:
         print("==================================================================")
-        print("Computing scalers for", sampling_name, "data")
+        print("Computing verification benchmarks for", sampling_name, "data")
         t_i = time.time()
         #----------------------------------------------------------------------.
         compute_verif(sampling_name = sampling_name, 
