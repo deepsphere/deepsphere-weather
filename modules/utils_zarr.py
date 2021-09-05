@@ -334,11 +334,11 @@ def write_zarr(zarr_fpath, ds,
         
     ##------------------------------------------------------------------------.
     ### - Write zarr files
-    # - Define zarr store  
-    zarr_store = zarr.DirectoryStore(zarr_fpath)  
     compute = not show_progress
     # - Write data to new zarr store 
     if not append: 
+        # - Define zarr store  
+        zarr_store = zarr.DirectoryStore(zarr_fpath)  
         r = ds.to_zarr(store=zarr_store, 
                        mode='w', # overwrite if exists already
                        synchronizer=None, group=None, 
@@ -348,9 +348,9 @@ def write_zarr(zarr_fpath, ds,
             with ProgressBar():
                 r.compute()    
     # - Append data to existing zarr store 
-    # ---> !!! Do not check if data are repeated !!! 
+    # ---> !!! Attention: It do not check if data are repeated !!! 
     else: 
-        r = ds.to_zarr(store = zarr_store,
+        r = ds.to_zarr(store = zarr_fpath,
                        mode="a", 
                        append_dim = append_dim,
                        synchronizer = None, group = None, 
