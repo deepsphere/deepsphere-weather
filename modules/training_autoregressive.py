@@ -571,7 +571,6 @@ def AutoregressiveTraining(model,
                            validation_batch_size = 128, 
                            epochs = 10, 
                            scoring_interval = 10, 
-                           print_frequency = 10, 
                            save_model_each_epoch = False,
                            ar_training_info = None, 
                            # SWAG settings
@@ -864,6 +863,7 @@ def AutoregressiveTraining(model,
                 # if device.type != 'cpu':
                 #     # torch.cuda.synchronize()
                 #     print("{}: {:.2f} MB".format(ar_iteration, torch.cuda.memory_allocated()/1000/1000)) 
+
                 ##-------------------------------------------------------------.
                 # Forward pass and store output for stacking into next AR iterations
                 dict_training_Y_predicted[ar_iteration] = model(torch_X)
@@ -877,26 +877,6 @@ def AutoregressiveTraining(model,
                                                        dim_info_dynamic = dim_info_dynamic)
                 dict_training_loss_per_ar_iteration[ar_iteration] = criterion(Y_obs, Y_pred)
 
-                ##-------------------------------------------------------------.
-                # Printing infos 
-                if batch_count % print_frequency == 0:
-                    print("Epoch: {} | Batch: {}/{} | AR: {} | Loss: {} | "
-                          "ES: {}/{}".format(epoch, batch_count, num_batches, 
-                                             ar_iteration,
-                                             dict_training_loss_per_ar_iteration[ar_iteration].item(),
-                                             early_stopping.counter, early_stopping.patience)
-                    )
-
-                    ##-------------------------------------------------------------.
-                    # The following code can be used to debug training if loss diverge to nan 
-                    if dict_training_loss_per_ar_iteration[0].item() > 10000:
-                        ar_training_info_fpath = os.path.join(os.path.dirname(model_fpath), "AR_TrainingInfo.pickle")
-                        with open(ar_training_info_fpath, 'wb') as handle:
-                            pickle.dump(ar_training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                        raise ValueError("The training has diverged. The training info can be recovered using: \n"
-                                        "with open({!r}, 'rb') as handle: \n" 
-                                        "    ar_training_info = pickle.load(handle)".format(ar_training_info_fpath))
-                                       
                 ##-------------------------------------------------------------.
                 # If ar_training_strategy is "AR", perform backward pass at each AR iteration 
                 if ar_training_strategy == "AR":
@@ -924,6 +904,7 @@ def AutoregressiveTraining(model,
                 # if device.type != 'cpu':
                 #     torch.cuda.synchronize()
                 #     print("{}: {:.2f} MB".format(ar_iteration, torch.cuda.memory_allocated()/1000/1000)) 
+
             ##----------------------------------------------------------------.
             # - Compute total (AR weighted) loss 
             for i, (ar_iteration, loss) in enumerate(dict_training_loss_per_ar_iteration.items()):
@@ -954,12 +935,32 @@ def AutoregressiveTraining(model,
                                                        ar_scheduler = ar_scheduler, 
                                                        lr_scheduler = lr_scheduler)
             ##----------------------------------------------------------------.
+            # Printing infos (if no validation data available) 
+            if validationDataset is None:
+                if batch_count % scoring_interval == 0:
+                    print("Epoch: {} | Batch: {}/{} | AR: {} | Loss: {} | "
+                            "ES: {}/{}".format(epoch, batch_count, num_batches, 
+                                               ar_iteration,
+                                               round(dict_training_loss_per_ar_iteration[ar_iteration].item(),5),
+                                               early_stopping.counter, early_stopping.patience)
+                         )
+                ##-------------------------------------------------------------.
+                # The following code can be used to debug training if loss diverge to nan 
+                if dict_training_loss_per_ar_iteration[0].item() > 10000:
+                    ar_training_info_fpath = os.path.join(os.path.dirname(model_fpath), "AR_TrainingInfo.pickle")
+                    with open(ar_training_info_fpath, 'wb') as handle:
+                        pickle.dump(ar_training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                    raise ValueError("The training has diverged. The training info can be recovered using: \n"
+                                    "with open({!r}, 'rb') as handle: \n" 
+                                    "    ar_training_info = pickle.load(handle)".format(ar_training_info_fpath))
+                                
+            ##-----------------------------------------------------------------.
             # TODO: SWAG Description
             if swag_training:
                 if batch_count in collection_indices:
                     swag_model.collect_model(model)
                     
-            ##----------------------------------------------------------------. 
+            ##-----------------------------------------------------------------. 
             ### Run validation 
             if validationDataset is not None:
                 if ar_training_info.iteration_from_last_scoring == scoring_interval:
@@ -1037,6 +1038,25 @@ def AutoregressiveTraining(model,
                     model.train() 
                     
                     ##--------------------------------------------------------.
+                    ### Print scoring 
+                    print("Epoch: {} | Batch: {}/{} | AR: {} | Loss: {} | "
+                          "ES: {}/{}".format(epoch, batch_count, num_batches, 
+                                             ar_iteration,
+                                             round(dict_validation_loss_per_ar_iteration[ar_iteration].item(),5),
+                                             early_stopping.counter, early_stopping.patience)
+                          )
+                    
+                    ##---------------------------------------------------------.
+                    # The following code can be used to debug training if loss diverge to nan 
+                    if dict_validation_loss_per_ar_iteration[0].item() > 10000:
+                        ar_training_info_fpath = os.path.join(os.path.dirname(model_fpath), "AR_TrainingInfo.pickle")
+                        with open(ar_training_info_fpath, 'wb') as handle:
+                            pickle.dump(ar_training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                        raise ValueError("The training has diverged. The training info can be recovered using: \n"
+                                        "with open({!r}, 'rb') as handle: \n" 
+                                        "    ar_training_info = pickle.load(handle)".format(ar_training_info_fpath))
+                    ##--------------------------------------------------------.
+            
             ##----------------------------------------------------------------. 
             # - Update learning rate 
             if lr_scheduler is not None:
@@ -1045,9 +1065,9 @@ def AutoregressiveTraining(model,
             ##----------------------------------------------------------------. 
             # - Update the AR weights 
             ar_scheduler.step()
+
             ##----------------------------------------------------------------. 
-            # - Evaluate stopping metrics  
-            # --> Update AR scheduler if the loss has plateau
+            # - Evaluate stopping metrics and update AR scheduler if the loss has plateau
             if ar_training_info.iteration_from_last_scoring == scoring_interval:
                 # Reset counter for scoring 
                 ar_training_info.reset_counter()  
