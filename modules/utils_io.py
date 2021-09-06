@@ -9,63 +9,12 @@ import datetime
 import numpy as np 
 import xarray as xr
 import warnings
+from modules.utils_xr import xr_have_Dataset_vars_same_dims
 
-def is_dask_DataArray(da):
-    """Check if data in the xarray DataArray are lazy loaded."""
-    if da.chunks is not None:
-        return True
-    else: 
-        return False
-
-def xr_has_uniform_resolution(x, dim = "time"):
-    dt = np.unique(np.diff(x[dim].values))
-    if len(dt) == 1: 
-        return True 
-    else:
-        return False 
-        
-def xr_align_dim(x,y, dim='time'):
-    if x is None or y is None:
-        return x, y
-    all_dims = set(list(x.dims) + list(y.dims))
-    exclude_dims = all_dims.remove(dim) 
-    x, y = xr.align(x, y, join='inner', exclude=exclude_dims) 
-    return x,y 
-
-def xr_align_start_time(x, y, time_dim='time'):
-    if x is None or y is None:
-        return x, y
-    time_start = np.min([x[time_dim].values, y[time_dim].values])
-    x = x.sel({time_dim: slice(time_start, None)})
-    y = y.sel({time_dim: slice(time_start, None)})
-    return x, y
-
-def xr_is_aligned(x,y, exclude=None):
-    if isinstance(exclude, str):
-        exclude = [exclude]
-    # - Retrieve dims  
-    dims_x = set(list(x.dims))
-    dims_y = set(list(y.dims))
-    # - Remove dims to exclude
-    if exclude is not None:
-        _ = [dims_x.discard(excl) for excl in exclude]
-        _ = [dims_y.discard(excl) for excl in exclude]
-    # - Check dim order 
-    if not np.array_equal(list(dims_x), list(dims_y)):
-        return False 
-    # - Check dimension values matching
-    dims = list(dims_x)
-    x_dims_dict = {dim: x[dim].values for dim in dims}
-    y_dims_dict = {dim: y[dim].values for dim in dims}
-    for dim in dims: 
-        if not np.array_equal(x_dims_dict[dim], y_dims_dict[dim]):
-            return False 
-    return True 
-
-def xr_have_same_timesteps(x, y, time_dim='time'):
-    if x is None or y is None: 
-        return True 
-    return np.array_equal(x[time_dim].values, y[time_dim].values)
+#------------------------------------------------------------------------------.
+#########################
+### Timesteps checks ####
+#########################
 
 def check_timesteps_format(timesteps): 
     """Ensure timesteps format is numpy array of numpy.datetime64."""
@@ -136,6 +85,11 @@ def check_no_missing_timesteps(timesteps, verbose=True):
         raise ValueError("The process has been interrupted") 
     return 
 
+#------------------------------------------------------------------------------.
+###########################
+### Data values checks ####
+###########################
+
 def check_finite_Dataset(ds):
     """Check Dataset does not contain NaN and Inf values."""
     # Check is a Dataset
@@ -162,7 +116,11 @@ def check_finite_Dataset(ds):
     if flag_raise_error: 
         raise ValueError('The variables {} contain Inf values.'.format(list_vars_with_inf))
         
-##------------------------------------------------------------------------. 
+#------------------------------------------------------------------------------.
+############################################
+### Check data format for AR dataloader ####
+############################################
+
 def _check_input_data(data, feature_dim = 'feature'):  
     if not isinstance(data, (xr.DataArray, xr.Dataset)):
         raise TypeError("Expecting xr.DataArray or xr.Dataset")
@@ -182,27 +140,6 @@ def _check_has_time_dimension(data, time_dim = "time"):
             raise ValueError("The '{!r}' must have a dimension called 'time'".format(type(data)))
      return None 
 
-def _has_Dataset_DataArrays_samedims(ds):
-    if not isinstance(ds, xr.Dataset):
-        raise TypeError("Expecting a xr.Dataset within _has_Dataset_DataArrays_samedims().")
-    unordered_dims = list(ds.dims) # This does not correspond to dims of DataArrays !!!!
-    variables = list(ds.data_vars.keys()) 
-    # - Get the dimension of the first DataArray as reference (and check it has all the Dataset dimensions)
-    dims = list(ds[variables[0]].dims)
-    missing_dim = np.array(unordered_dims)[np.isin(unordered_dims, dims, invert=True)].tolist()
-    if len(missing_dim) >= 1:
-        print("The Dataset variable {!r} does not have dimensions {!r}.".format(variables[0], missing_dim)) 
-    for var in variables:
-        da_dims = list(ds[var].dims)
-        if not np.array_equal(da_dims, dims):
-            missing_dim = np.array(dims)[np.isin(dims, da_dims, invert=True)].tolist()
-            if len(missing_dim) >= 1:
-                print("The Dataset variable {!r} does not have dimensions {!r}.".format(var, missing_dim))
-            else:
-                print("The Dataset variable {!r} have dimension {!r} instead of {!r}.".format(var, da_dims, dims))
-            return False
-    return True 
-
 def _check_temporal_data(data, data_type, feature_dim='feature', time_dim = 'time', verbose=False):
     if data is None: 
         return None
@@ -214,7 +151,7 @@ def _check_temporal_data(data, data_type, feature_dim='feature', time_dim = 'tim
     _check_has_time_dimension(data, time_dim = time_dim)
     # - If Dataset, check that all DataArray have same dimensions
     if isinstance(data, xr.Dataset): 
-        if not _has_Dataset_DataArrays_samedims(data):
+        if not xr_have_Dataset_vars_same_dims(data):
             raise ValueError("All xr.DataArray(s) within the {!r} xr.Dataset must have the same dimensions.".format(data_type)) 
     # - If Dataset, conversion to DataArray for further checks 
     if isinstance(data, xr.Dataset):
@@ -242,7 +179,7 @@ def _check_static_data(data, data_type, feature_dim='feature', time_dim = 'time'
         raise ValueError("{!r} must not contain the 'time' dimension.".format(data_type))
     # - If Dataset, check that all DataArray have same dimensions
     if isinstance(data, xr.Dataset): 
-        if not _has_Dataset_DataArrays_samedims(data):
+        if not xr_have_Dataset_vars_same_dims(data):
             raise ValueError("All xr.DataArray(s) within the {!r} xr.Dataset must have the same dimensions.".format(data_type)) 
     # - If Dataset, conversion to DataArray for further checks 
     if isinstance(data, xr.Dataset):
@@ -260,6 +197,10 @@ def _check_static_data(data, data_type, feature_dim='feature', time_dim = 'time'
         raise ValueError("{!r} must have at least one additional dimension (i.e. space) other than {!r}".format(data_type, dims_required))
     return None
 
+#------------------------------------------------------------------------------.
+#############################
+#### Tensor Info Getters ####
+#############################
 def _get_subset_timesteps_idxs(timesteps, subset_timesteps, strict_match=True):
     """Check subset_timesteps are within timesteps and return the matching indices."""
     # Check timesteps format 
@@ -297,7 +238,7 @@ def _get_dim_order(data):
     # If Dataset data.dims does not correspond to the dimension of within DataArrays !!!
     if isinstance(data, xr.Dataset):
         # - Here I assume that all within DataArrays have same dimension order !!!
-        # --> _has_Dataset_DataArrays_samedims(data) must be performed before !
+        # --> xr_have_Dataset_vars_same_dims(data) must be performed before !
         dims = list(data[list(data.data_vars.keys())[0]].dims)
         dims = dims + ['feature']
     dim_order = ['sample'] + dims   

@@ -28,7 +28,7 @@ from modules.utils_torch import check_prefetch_in_gpu
 from modules.utils_torch import check_prefetch_factor
 from modules.utils_torch import check_ar_training_strategy
 from modules.utils_torch import get_time_function
-from modules.utils_io import xr_is_aligned
+from modules.utils_xr import xr_is_aligned
 from modules.loss import reshape_tensors_4_loss 
 
 from modules.utils_swag import bn_update_with_loader

@@ -25,11 +25,11 @@ from modules.utils_autoregressive import get_dict_X_dynamic
 from modules.utils_autoregressive import get_dict_X_bc    
 from modules.utils_autoregressive import check_input_k
 from modules.utils_autoregressive import check_output_k 
-from modules.utils_io import xr_align_dim
-from modules.utils_io import xr_align_start_time
-from modules.utils_io import xr_has_uniform_resolution
-from modules.utils_io import xr_have_same_timesteps
-from modules.utils_io import is_dask_DataArray
+from modules.utils_xr import xr_align_dim
+from modules.utils_xr import xr_align_start_time
+from modules.utils_xr import xr_has_uniform_resolution
+from modules.utils_xr import xr_have_same_timesteps
+from modules.utils_xr import is_dask_DataArray
 from modules.utils_io import check_timesteps_format
 from modules.utils_io import check_no_duplicate_timesteps
 from modules.utils_io import _check_temporal_data
