@@ -51,7 +51,6 @@ import modules.my_models_graph_old as my_architectures
 ## Side-project utils (maybe migrating to separate packages in future)
 import modules.xsphere  # required for xarray 'sphere' accessor 
 import modules.xverif as xverif
-# import modules.xscaler as xscaler  
 from modules.xscaler import LoadScaler
 from modules.xscaler import SequentialScaler
 from modules.xscaler import LoadAnomaly
@@ -61,6 +60,7 @@ from modules.my_plotting import plot_skill_maps
 from modules.my_plotting import plot_global_skill
 from modules.my_plotting import plot_global_skills
 from modules.my_plotting import plot_skills_distribution
+from modules.my_plotting import create_hovmoller_plots
 from modules.my_plotting import create_gif_forecast_error
 from modules.my_plotting import create_gif_forecast_anom_error
 
@@ -91,8 +91,10 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
-    model_settings["model_name_prefix"] = 'OLD'
-    training_settings['seed_model_weights'] = 20  
+    model_settings["model_name_prefix"] = 'OLD_fine_tuned1'
+    training_settings['seed_model_weights'] = 200 # 20 the previous   
+    training_settings['seed_random_shuffling'] = 1024 # 15 the previous     
+ 
     model_settings['knn'] = 20
     model_settings['bias'] = True
     model_settings['batch_norm'] = True
@@ -100,7 +102,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     model_settings['activation'] = True
     model_settings['activation_fun'] = 'relu'
 
-    training_settings['learning_rate'] = 0.007  
+    training_settings['learning_rate'] = 0.002 # 0.007 was working   
     training_settings['scoring_interval'] = 10
     training_settings['training_batch_size'] = 16
     training_settings['validation_batch_size'] = 16
@@ -125,34 +127,34 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     #### Load Zarr Datasets
     data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
 
-    data_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
-    data_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr")) 
-    data_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
+    ds_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
+    ds_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr")) 
+    ds_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
 
     # - Select dynamic features 
-    data_dynamic = data_dynamic[['z500','t850']]    
+    ds_dynamic = ds_dynamic[['z500','t850']]    
 
     # - Load lat and lon coordinates
-    data_dynamic['lat'] = data_dynamic['lat'].load()
-    data_dynamic['lon'] = data_dynamic['lon'].load()
+    ds_dynamic['lat'] = ds_dynamic['lat'].load()
+    ds_dynamic['lon'] = ds_dynamic['lon'].load()
 
     ##------------------------------------------------------------------------.
     ### Prepare static data 
     # - Keep land-surface mask as it is 
 
     # - Keep sin of latitude and remove longitude information 
-    data_static = data_static.drop(["sin_longitude","cos_longitude"])
+    ds_static = ds_static.drop(["sin_longitude","cos_longitude"])
 
     # - Scale orography between 0 and 1 (is already left 0 bounded)
-    data_static['orog'] = data_static['orog']/data_static['orog'].max()
+    ds_static['orog'] = ds_static['orog']/ds_static['orog'].max()
 
     # - One Hot Encode soil type 
-    # ds_slt_OHE = xscaler.OneHotEnconding(data_static['slt'])
-    # data_static = xr.merge([data_static, ds_slt_OHE])
-    # data_static = data_static.drop('slt')
+    # ds_slt_OHE = xscaler.OneHotEnconding(ds_static['slt'])
+    # ds_static = xr.merge([ds_static, ds_slt_OHE])
+    # ds_static = ds_static.drop('slt')
 
     # - Load static data 
-    data_static = data_static.load()
+    ds_static = ds_static.load()
  
     #------------------------------------------------------------------------.
     ### Define scaler to apply on the fly within DataLoader 
@@ -171,14 +173,14 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     # - Split data sets 
     t_i = time.time()
-    training_data_dynamic = data_dynamic.sel(time=slice(training_years[0], training_years[-1]))
-    training_data_bc = data_bc.sel(time=slice(training_years[0], training_years[-1]))
+    training_ds_dynamic = ds_dynamic.sel(time=slice(training_years[0], training_years[-1]))
+    training_ds_bc = ds_bc.sel(time=slice(training_years[0], training_years[-1]))
         
-    validation_data_dynamic = data_dynamic.sel(time=slice(validation_years[0], validation_years[-1]))
-    validation_data_bc = data_bc.sel(time=slice(validation_years[0], validation_years[-1]))
+    validation_ds_dynamic = ds_dynamic.sel(time=slice(validation_years[0], validation_years[-1]))
+    validation_ds_bc = ds_bc.sel(time=slice(validation_years[0], validation_years[-1]))
 
-    test_data_dynamic = data_dynamic.sel(time=slice(test_years[0], test_years[-1]))
-    test_data_bc = data_bc.sel(time=slice(test_years[0], test_years[-1]))
+    test_ds_dynamic = ds_dynamic.sel(time=slice(test_years[0], test_years[-1]))
+    test_ds_bc = ds_bc.sel(time=slice(test_years[0], test_years[-1]))
 
     print('- Splitting data into train, validation and test sets: {:.2f}s'.format(time.time() - t_i))
     
@@ -191,9 +193,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
     tensor_info = get_ar_model_tensor_info(ar_settings = ar_settings,
-                                           data_dynamic = training_data_dynamic, 
-                                           data_static = data_static, 
-                                           data_bc = training_data_bc)
+                                           data_dynamic = training_ds_dynamic, 
+                                           data_static = ds_static, 
+                                           data_bc = training_ds_bc)
     print_tensor_info(tensor_info)         
     # - Add dim info to cfg file 
     model_settings['tensor_info'] = tensor_info
@@ -292,9 +294,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
     # - Used also to update ar_scheduler (aka increase AR iterations) if 'ar_iterations' not reached.
-    patience = int(5000 / training_settings['scoring_interval'])   
-    minimum_iterations = 500     
-    minimum_improvement = 0.001   # could try to use 0.0001
+    patience = 400 # when 'scoring_interval' = 10  --> minimum 4000 batches    
+    minimum_iterations = 2000      # 1000
+    minimum_improvement = 0.0001   # could try to use 0.0001
     stopping_metric = 'validation_total_loss' # training_total_loss                                                     
     mode = "min" # MSE best when low  
     early_stopping = EarlyStopping(patience = patience,
@@ -319,11 +321,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                                ar_scheduler = ar_scheduler,                                
                                                early_stopping = early_stopping,
                                                # Data
-                                               data_static = data_static,   
-                                               training_data_dynamic = training_data_dynamic,
-                                               training_data_bc = training_data_bc, 
-                                               validation_data_dynamic = validation_data_dynamic,
-                                               validation_data_bc = validation_data_bc,  
+                                               data_static = ds_static,   
+                                               training_data_dynamic = training_ds_dynamic,
+                                               training_data_bc = training_ds_bc, 
+                                               validation_data_dynamic = validation_ds_dynamic,
+                                               validation_data_bc = validation_ds_bc,  
                                                scaler = scaler, 
                                                # Dataloader settings
                                                num_workers = dataloader_settings['num_workers'],  # dataloader_settings['num_workers'], 
@@ -363,16 +365,18 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ar_training_info.plots(exp_dir=exp_dir, ylim=(0,0.06)) 
     
     ##-------------------------------------------------------------------------.
-    ### - Create predictions 
+    ##########################################
+    ### - Run predictions for the test set ###
+    ##########################################  
     print("========================================================================================")
     print("- Running predictions")
     forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/forecast_chunked/test_forecasts.zarr")
     dask.config.set(scheduler='synchronous') # This is very important otherwise the dataloader hang
     ds_forecasts = AutoregressivePredictions(model = model, 
                                              # Data
-                                             data_dynamic = test_data_dynamic,
-                                             data_static = data_static,              
-                                             data_bc = test_data_bc, 
+                                             data_dynamic = test_ds_dynamic,        
+                                             data_bc = test_ds_bc, 
+                                             data_static = ds_static,  
                                              scaler_transform = scaler,
                                              scaler_inverse = scaler,
                                              # Dataloader options
@@ -394,7 +398,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                              rounding = 2,             # Default None. Accept also a dictionary 
                                              compressor = "auto",      # Accept also a dictionary per variable
                                              chunks = "auto")
+
     ##------------------------------------------------------------------------.
+    #########################################
+    ### - Run deterministic verification ####
+    #########################################
     ### Reshape forecast Dataset for verification
     # - For efficient verification, data must be contiguous in time, but chunked over space (and leadtime) 
     # - It also neeed to swap from 'forecast_reference_time' to the (forecasted) 'time' dimension 
@@ -409,8 +417,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                                                 target_store=verification_zarr_fpath,
                                                                 max_mem = '1GB')
     print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60)) 
+
     ##------------------------------------------------------------------------.
-    ### - Run deterministic verification 
+    ### Run deterministic verification
     print("========================================================================================")
     print("- Run deterministic verification")
     # dask.config.set(scheduler='processes')
@@ -424,7 +433,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ds_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_spatial_skill.nc"))
     
     ##------------------------------------------------------------------------.
-    ### - Create verification summary plots and maps
+    ####################################################
+    ### - Create verification summary plots and maps ###
+    ####################################################
     print("========================================================================================")
     print("- Create verification summary plots and maps")
     # - Add mesh information 
@@ -453,13 +464,15 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     plot_skills_distribution(ds_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_distribution.png"))
         
     ##------------------------------------------------------------------------.
-    ### - Create animations 
+    ############################
+    ### - Create animations ####
+    ############################
     print("========================================================================================")
     print("- Create forecast error animations")
     t_i = time.time()
     # - Add information related to mesh area
     ds_forecasts = ds_forecasts.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
-    ds_obs = test_data_dynamic 
+    ds_obs = ds_dynamic 
     ds_obs = ds_obs.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
 
     # - Plot GIF for different months (variable states)
@@ -472,6 +485,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                   aspect_cbar = 40,
                                   antialiased = False,
                                   edgecolors = None)
+        
     # - Plot GIF for different months (variable anomalies)
     # hourly_weekly_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "WeeklyHourlyStdAnomalyScaler_dynamic.nc"))
     # for month in [1,4,7,10]:
@@ -485,8 +499,81 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     #                                    aspect_cbar = 40,
     #                                    antialiased = True,
     #                                    edgecolors = None)
-    ##-------------------------------------------------------------------------.                                     
+                                   
     print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
+
+    ##-------------------------------------------------------------------------. 
+    ###########################################################
+    ### - Create Hovmoller plot of multi-years simulations ####
+    ###########################################################
+    print("========================================================================================")
+    print("- Create Hovmoller plots of multi-years simulations")
+    t_i = time.time()
+    # - Define multi-years simulations settings
+    n_year_sims = 2
+    forecast_cycle = ar_settings['forecast_cycle']
+    ar_iterations = 24/forecast_cycle*365*n_year_sims
+    ar_blocks = None # Do all predictions in one-run
+    forecast_reference_times = ['1992-07-22T00:00:00','2015-12-31T18:00:00','2016-04-01T10:00:00']
+    batch_size = len(forecast_reference_times)
+    long_forecast_zarr_fpath = os.path.join(model_dir, "model_predictions", "long_simulation", "2year_sim.zarr")
+    # - Run long-term simulations
+    dask.config.set(scheduler='synchronous')
+    ds_long_forecasts = AutoregressivePredictions(model = model, 
+                                                  # Data
+                                                  data_dynamic = ds_dynamic,
+                                                  data_static = ds_static,              
+                                                  data_bc = ds_bc, 
+                                                  scaler_transform = scaler,
+                                                  scaler_inverse = scaler,
+                                                  # Dataloader options
+                                                  device = device,
+                                                  batch_size = batch_size,  # number of forecasts per batch
+                                                  num_workers = dataloader_settings['num_workers'], 
+                                                  prefetch_factor = dataloader_settings['prefetch_factor'], 
+                                                  prefetch_in_gpu = dataloader_settings['prefetch_in_gpu'],  
+                                                  pin_memory = dataloader_settings['pin_memory'],
+                                                  asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'],
+                                                  # Autoregressive settings
+                                                  input_k = ar_settings['input_k'], 
+                                                  output_k = ar_settings['output_k'], 
+                                                  forecast_cycle = ar_settings['forecast_cycle'],                         
+                                                  stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
+                                                  # Prediction options 
+                                                  forecast_reference_times = forecast_reference_times, 
+                                                  ar_blocks = ar_blocks,
+                                                  ar_iterations = ar_iterations,  # How many time to autoregressive iterate
+                                                  # Save options 
+                                                  zarr_fpath = long_forecast_zarr_fpath, # None --> do not write to disk
+                                                  rounding = 2,             # Default None. Accept also a dictionary 
+                                                  compressor = "auto",      # Accept also a dictionary per variable
+                                                  chunks = "auto")
+
+    # - Load anomaly scalers
+    monthly_std_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc"))
+    # - Create directory where to save figures
+    os.makedirs(os.path.join(exp_dir, "figs/hovmoller_plots"))
+    # - Create figures 
+    for i in range(len(forecast_reference_times)):
+        # Select 1 forecast 
+        ds_forecast = ds_long_forecasts.isel(forecast_reference_time=i)
+        # Plot variable 'State' Hovmoller 
+        fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+                                     ds_pred = ds_forecast, 
+                                     scaler = None,
+                                     arg = "state",
+                                     time_groups = None)
+        fig.savefig(os.path.join(exp_dir, "figs/hovmoller_plots", "state_sim" + '{:01}.png'.format(i)))
+        # Plot variable 'standard anomalies' Hovmoller 
+        fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+                                     ds_pred = ds_forecast, 
+                                     scaler = monthly_std_anomaly_scaler,
+                                     arg = "anom",
+                                     time_groups = None)
+        fig.savefig(os.path.join(exp_dir, "figs/hovmoller_plots", "anom_sim" + '{:01}.png'.format(i)))
+                                   
+    print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
+
     ##-------------------------------------------------------------------------.                            
     print("========================================================================================")
     print("- Model training and verification terminated. Elapsed time: {:.1f} hours ".format((time.time() - t_start)/60/60))  

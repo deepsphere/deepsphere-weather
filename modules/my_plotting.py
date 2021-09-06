@@ -6,17 +6,15 @@ Created on Sat Feb 27 21:39:12 2021
 @author: ghiggi
 """
 import os
-import glob
 import subprocess
 import tempfile
 import shutil
-import cartopy
+import numpy as np
+import xarray as xr
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt 
-import xarray as xr
-import pygsp as pg
-import numpy as np
-from PIL import Image 
+from modules.utils_xr import xr_common_vars
+from modules.xscaler import HovmollerDiagram
 import modules.xsphere as xsphere
 
 # TODO: ylabels add unit
@@ -647,6 +645,122 @@ def benchmark_global_skills(skills_dict, skills=['BIAS','RMSE','rSD','pearson_R2
             ax_i += 1
         fig.tight_layout()
     return fig 
+
+#------------------------------------------------------------------------------.
+def create_hovmoller_plots(ds_obs, ds_pred, scaler=None, arg="state", time_groups=None):
+    dims = list(ds_pred.dims)
+    coords = list(ds_pred.coords)
+    # Retrieve time 
+    if "leadtime" in dims:
+        if "forecast_reference_time" not in coords: 
+            raise ValueError("If 'leadtime' is a dimension, 'forecast_reference_time' must be a coordinate.")
+        if ds_pred["forecast_reference_time"].values.size != 1: 
+            raise ValueError("Provide data with a single 'forecast_reference_time'")
+        # Drop forecast_reference_time dimension
+        if "forecast_reference_time" in dims:
+            ds_pred = ds_pred.isel(forecast_reference_time=0)
+        # Compute prediction time
+        ds_pred['time'] = ds_pred['forecast_reference_time'].values + ds_pred['leadtime']
+        ds_pred = ds_pred.set_coords('time').swap_dims({"leadtime": "time"}) 
+    # Check time dimension exist 
+    dims = list(ds_pred.dims)
+    if "time" not in dims: 
+        raise ValueError("Either 'time' or 'forecast_reference_time' must be dimension of ds_pred.")
+    ##-----------------------------------------------------------------------.
+    # Ensure pred and obs have same variables 
+    variables = xr_common_vars(ds_obs, ds_pred)
+    n_vars = len(variables)
+    if n_vars == 0: 
+        raise ValueError("No common variables between obs and pred.")
+    ds_obs = ds_obs[variables]
+    ds_pred = ds_pred[variables]
+    
+    # Align dimensions and load data
+    ds_obs, ds_pred = xr.align(ds_obs, ds_pred)
+    ds_pred = ds_pred.compute()
+    ds_obs = ds_obs.compute()
+    
+    ##-----------------------------------------------------------------------.
+    # Scale data (i.e. anomalies)
+    if scaler is not None:
+        ds_obs = scaler.transform(ds_obs)
+        ds_pred = scaler.transform(ds_pred)
+    ##-----------------------------------------------------------------------.    
+    # Compute hovmollers
+    hovmoller_obs = HovmollerDiagram(ds_obs, 
+                                 time_dim = "time", 
+                                 time_groups = time_groups,
+                                 spatial_dim = "lat", bin_width = 5,
+                                 time_average_before_binning = True)
+    hovmoller_pred = HovmollerDiagram(ds_pred, 
+                                      time_dim = "time", 
+                                      time_groups = time_groups,
+                                      spatial_dim = "lat", bin_width = 5,
+                                      time_average_before_binning = True)
+    
+    hovmoller_diff = hovmoller_pred - hovmoller_obs
+    ##-----------------------------------------------------------------------.
+    ### Create figure   
+    fig, axs = plt.subplots(n_vars, 3, figsize=(17,5*n_vars), 
+                            gridspec_kw={'width_ratios': [0.83, 1, 1]})
+    fig.subplots_adjust(wspace=0.05,hspace=0.05)
+    axs = axs.flatten()
+    for i, var in enumerate(variables):
+        # Define vmin, vmax 
+        vmin, vmax = get_var_clim(var=var, arg=arg)
+        if vmin is None:
+            vmin = hovmoller_obs[var].values.min()
+            vmax = hovmoller_obs[var].values.max()
+        
+        # Plot obs 
+        _ = hovmoller_obs[var].plot(ax=axs[i*3], 
+                                    vmin = vmin, 
+                                    vmax = vmax,
+                                    cmap = get_var_cmap(var=var, arg=arg),
+                                    add_colorbar=False)
+        axs[i*3].set_ylabel("Latitude")
+        
+        # Plot predictions
+        p1 = hovmoller_pred[var].plot(ax=axs[i*3+1], 
+                                      vmin = vmin, 
+                                      vmax = vmax,
+                                      cmap = get_var_cmap(var=var, arg=arg),
+                                      add_colorbar=True,
+                                      cbar_kwargs={"pad": 0.07})
+        p1.colorbar.ax.yaxis.set_label_position("left")
+    
+        # Plot difference
+        p2 = hovmoller_diff[var].plot(ax=axs[i*3+2], 
+                                      add_colorbar=True,
+                                      cbar_kwargs={'label': var + ' error', "pad": 0.07})
+        p2.colorbar.ax.yaxis.set_label_position("left")
+     
+        # Place titles
+        if i == 0:
+            axs[i*3].set_title("Observed")
+            axs[i*3+1].set_title("Predicted")
+            axs[i*3+2].set_title("Difference")
+        else: 
+            axs[i*3].set_title("")
+            axs[i*3+1].set_title("")
+            axs[i*3+2].set_title("")   
+        # Display axis label only at the figure border 
+        # axs[i*3+1].set_ylabel("")
+        # axs[i*3+2].set_ylabel("")
+        # Display axis only at the figure border
+        axs[i*3+1].get_yaxis().set_visible(False)
+        axs[i*3+2].get_yaxis().set_visible(False)
+        
+        if i != n_vars - 1 :
+            axs[i*3].get_xaxis().set_visible(False)
+            axs[i*3+1].get_xaxis().set_visible(False)
+            axs[i*3+2].get_xaxis().set_visible(False)
+    #-------------------------------------------------------------------------.
+    # Return figure 
+    return fig 
+    
+
+
 
 #------------------------------------------------------------------------------.
 def create_gif_forecast_error(gif_fpath,
