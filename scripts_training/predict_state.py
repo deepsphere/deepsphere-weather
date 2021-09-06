@@ -95,37 +95,37 @@ def main(data_dir,
     #### Load Zarr Datasets
     data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
 
-    data_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
-    data_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr")) 
-    data_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
+    ds_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
+    ds_bc = xr.open_zarr(os.path.join(data_sampling_dir, "Data","bc", "time_chunked", "bc.zarr")) 
+    ds_static = xr.open_zarr(os.path.join(data_sampling_dir, "Data", "static.zarr")) 
     
     # - Select dynamic features 
-    # data_dynamic = data_dynamic[['z500','t850']]    
+    ds_dynamic = ds_dynamic[['z500','t850']]    
 
     ##------------------------------------------------------------------------.
     ### Prepare static data 
     # - Keep land-surface mask as it is 
 
     # - Keep sin of latitude and remove longitude information 
-    data_static = data_static.drop(["sin_longitude","cos_longitude"])
+    ds_static = ds_static.drop(["sin_longitude","cos_longitude"])
 
     # - Scale orography between 0 and 1 (is already left 0 bounded)
-    data_static['orog'] = data_static['orog']/data_static['orog'].max()
+    ds_static['orog'] = ds_static['orog']/ds_static['orog'].max()
 
     # - One Hot Encode soil type 
-    # ds_slt_OHE = xscaler.OneHotEnconding(data_static['slt'])
-    # data_static = xr.merge([data_static, ds_slt_OHE])
-    # data_static = data_static.drop('slt')
+    # ds_slt_OHE = xscaler.OneHotEnconding(ds_static['slt'])
+    # ds_static = xr.merge([ds_static, ds_slt_OHE])
+    # ds_static = ds_static.drop('slt')
 
     # - Load static data 
-    data_static = data_static.load()
+    ds_static = ds_static.load()
     
     ##------------------------------------------------------------------------.
     #### Define scaler to apply on the fly within DataLoader 
     # - Load scalers
     dynamic_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_dynamic.nc"))
     bc_scaler = LoadScaler(os.path.join(data_sampling_dir, "Scalers", "GlobalStandardScaler_bc.nc"))
-     # # - Create single scaler 
+    # - Create single scaler 
     scaler = SequentialScaler(dynamic_scaler, bc_scaler)
 
     ##------------------------------------------------------------------------.
@@ -137,9 +137,9 @@ def main(data_dir,
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
     tensor_info = get_ar_model_tensor_info(ar_settings = ar_settings,
-                                           data_dynamic = data_dynamic, 
-                                           data_static = data_static, 
-                                           data_bc = data_bc)
+                                           data_dynamic = ds_dynamic, 
+                                           data_static = ds_static, 
+                                           data_bc = ds_bc)
     print_tensor_info(tensor_info)         
 
     # Check that tensor_info match between model training and now 
@@ -164,9 +164,9 @@ def main(data_dir,
     dask.config.set(scheduler='synchronous')
     ds_forecasts = AutoregressivePredictions( model = model, 
                                               # Data
-                                              data_dynamic = data_dynamic,
-                                              data_static = data_static,              
-                                              data_bc = data_bc, 
+                                              data_dynamic = ds_dynamic,
+                                              data_static = ds_static,              
+                                              data_bc = ds_bc, 
                                               scaler_transform = scaler,
                                               scaler_inverse = scaler,
                                               # Dataloader options

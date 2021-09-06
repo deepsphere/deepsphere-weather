@@ -328,7 +328,7 @@ def AutoregressivePredictions(model,
         ar_blocks = ar_iterations + 1
     if ar_blocks > ar_iterations + 1:
         raise ValueError("'ar_blocks' must be equal or smaller to 'ar_iterations'")
-    PREDICT_ar_BLOCKS = ar_blocks != (ar_iterations + 1)
+    PREDICT_AR_BLOCKS = ar_blocks != (ar_iterations + 1)
 
     ##------------------------------------------------------------------------. 
     ### Define DataLoader subset_timesteps 
@@ -462,7 +462,7 @@ def AutoregressivePredictions(model,
                     # --------------------------------------------------------.
                     # If predicting blocks of ar_iterations 
                     # - Write AR blocks temporary to disk (and append progressively)
-                    if PREDICT_ar_BLOCKS: # (WRITE_TO_ZARR=True implicit)
+                    if PREDICT_AR_BLOCKS: # (WRITE_TO_ZARR=True implicit)
                         tmp_ar_block_zarr_fpath = os.path.join(os.path.dirname(zarr_fpath), "tmp_ar_blocks.zarr")
                         write_zarr(zarr_fpath = tmp_ar_block_zarr_fpath, 
                                    ds = ds,
@@ -483,7 +483,7 @@ def AutoregressivePredictions(model,
             t_post = time.time() 
             # - Retransform data to original dimensions (and write to Zarr optionally)   
             if WRITE_TO_ZARR:
-                if PREDICT_ar_BLOCKS:
+                if PREDICT_AR_BLOCKS:
                     # - Read the temporary ar_blocks saved on disk 
                     ds = xr.open_zarr(tmp_ar_block_zarr_fpath)
                 if scaler_inverse is not None: 
@@ -512,7 +512,7 @@ def AutoregressivePredictions(model,
                                append = True,
                                append_dim = 'forecast_reference_time', 
                                show_progress = False) 
-                if PREDICT_ar_BLOCKS:
+                if PREDICT_AR_BLOCKS:
                     shutil.rmtree(tmp_ar_block_zarr_fpath)
                     
             else: 
