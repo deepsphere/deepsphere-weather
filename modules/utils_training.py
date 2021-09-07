@@ -516,7 +516,7 @@ class AR_TrainingInfo():
             return ax
         ##--------------------------------------------------------------------.
         
-    def plots(self, exp_dir=None, ylim=(0,0.06)):
+    def plots(self, model_dir=None, ylim=(0,0.06)):
         ##--------------------------------------------------------------------.   
         ### - Plot the loss at all AR iterations (in one figure)
         fig, ax = plt.subplots()
@@ -555,8 +555,8 @@ class AR_TrainingInfo():
         # - Add title 
         ax.set_title("Loss evolution at each AR iteration")
         # - Save figure
-        if exp_dir is not None:
-            fig.savefig(os.path.join(exp_dir, "figs/training_info/Loss_at_all_ar_iterations.png")) 
+        if model_dir is not None:
+            fig.savefig(os.path.join(model_dir, "figs/training_info/Loss_at_all_ar_iterations.png")) 
         else:
             plt.show()
         ##--------------------------------------------------------------------.   
@@ -566,30 +566,30 @@ class AR_TrainingInfo():
                                                   linewidth=0.6,
                                                   ylim = ylim,
                                                   title="Loss evolution at AR iteration {}".format(ar_iteration))
-            if exp_dir is not None:
-                fname = os.path.join(exp_dir, "figs/training_info/Loss_at_ar_{}.png".format(ar_iteration)) 
+            if model_dir is not None:
+                fname = os.path.join(model_dir, "figs/training_info/Loss_at_ar_{}.png".format(ar_iteration)) 
                 fig.savefig(fname) 
             else:
                 plt.show()
         ##--------------------------------------------------------------------.
         ### - Plot total loss 
         fig = self.plot_total_loss(ylim = ylim, linewidth=0.6)
-        if exp_dir is not None:
-            fig.savefig(os.path.join(exp_dir, "figs/training_info/Total_Loss.png"))
+        if model_dir is not None:
+            fig.savefig(os.path.join(model_dir, "figs/training_info/Total_Loss.png"))
         else:
             plt.show()
         
         ##--------------------------------------------------------------------.
         ### - Plot AR weights normalized 
         fig = self.plot_ar_weights(normalized=True)
-        if exp_dir is not None:
-            fig.savefig(os.path.join(exp_dir, "figs/training_info/ar_Normalized_Weights.png"))
+        if model_dir is not None:
+            fig.savefig(os.path.join(model_dir, "figs/training_info/ar_Normalized_Weights.png"))
         else:
             plt.show()
         ### - Plot absolute AR weights  
         fig = self.plot_ar_weights(normalized=False)
-        if exp_dir is not None:
-            fig.savefig(os.path.join(exp_dir, "figs/training_info/ar_Absolute_Weights.png")) 
+        if model_dir is not None:
+            fig.savefig(os.path.join(model_dir, "figs/training_info/ar_Absolute_Weights.png")) 
         else:
             plt.show()
         ##--------------------------------------------------------------------.

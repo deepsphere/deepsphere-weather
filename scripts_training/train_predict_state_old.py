@@ -212,9 +212,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ###-----------------------------------------------------------------------.
     ## If requested, load a pre-trained model for fine-tuning
     if model_settings['pretrained_model_name'] is not None:
-        model_dir = os.path.join(exp_dir, model_settings['model_name'])
+        pretrained_model_dir = os.path.join(exp_dir, model_settings['model_name'])
         load_pretrained_model(model = model, 
-                              model_dir = model_dir)
+                              model_dir = pretrained_model_dir)
     ###-----------------------------------------------------------------------.
     ### Transfer model to the device (i.e. GPU)
     model = model.to(device)
@@ -246,18 +246,18 @@ def main(cfg_path, exp_dir, data_dir, force=False):
         cfg['model_settings']["model_name_prefix"] = None
         cfg['model_settings']["model_name_suffix"] = None
     
-    exp_dir = create_experiment_directories(exp_dir = exp_dir,      
-                                            model_name = model_name,
-                                            force=force) # force=True will delete existing directory
+    model_dir = create_experiment_directories(exp_dir = exp_dir,      
+                                              model_name = model_name,
+                                              force=force) # force=True will delete existing directory
     
     ##------------------------------------------------------------------------.
     # Define model weights filepath 
-    model_fpath = os.path.join(exp_dir, "model_weights", "model.h5")
+    model_fpath = os.path.join(model_dir, "model_weights", "model.h5")
     
     ##------------------------------------------------------------------------.
     # Write config file in the experiment directory 
     write_config_file(cfg = cfg,
-                      fpath = os.path.join(exp_dir, 'config.json'))
+                      fpath = os.path.join(model_dir, 'config.json'))
        
     ##------------------------------------------------------------------------.
     ### - Define custom loss function  
@@ -362,7 +362,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ### Create plots related to training evolution  
     print("========================================================================================")
     print("- Creating plots to investigate training evolution")
-    ar_training_info.plots(exp_dir=exp_dir, ylim=(0,0.06)) 
+    ar_training_info.plots(model_dir=model_dir, ylim=(0,0.06)) 
     
     ##-------------------------------------------------------------------------.
     ##########################################
@@ -370,7 +370,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##########################################  
     print("========================================================================================")
     print("- Running predictions")
-    forecast_zarr_fpath = os.path.join(exp_dir, "model_predictions/forecast_chunked/test_forecasts.zarr")
+    forecast_zarr_fpath = os.path.join(model_dir, "model_predictions/forecast_chunked/test_forecasts.zarr")
     dask.config.set(scheduler='synchronous') # This is very important otherwise the dataloader hang
     ds_forecasts = AutoregressivePredictions(model = model, 
                                              # Data
@@ -411,7 +411,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     print("- Rechunk and reshape test set forecasts for verification")
     dask.config.set(scheduler='threads')
     t_i = time.time()
-    verification_zarr_fpath = os.path.join(exp_dir, "model_predictions/space_chunked/test_forecasts.zarr")
+    verification_zarr_fpath = os.path.join(model_dir, "model_predictions/space_chunked/test_forecasts.zarr")
     ds_verification_format = rechunk_forecasts_for_verification(ds=ds_forecasts, 
                                                                 chunks="auto", 
                                                                 target_store=verification_zarr_fpath,
@@ -430,7 +430,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                     forecast_type="continuous",
                                     aggregating_dim='time')
     # - Save sptial skills 
-    ds_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_spatial_skill.nc"))
+    ds_skill.to_netcdf(os.path.join(model_dir, "model_skills/deterministic_spatial_skill.nc"))
     
     ##------------------------------------------------------------------------.
     ####################################################
@@ -447,11 +447,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # ds_longitudinal_skill = xverif.longitudinal_summary(ds_skill, lat_dim='lat', lon_dim='lon', lon_res=5) 
     
     # - Save global skills
-    ds_global_skill.to_netcdf(os.path.join(exp_dir, "model_skills/deterministic_global_skill.nc"))
+    ds_global_skill.to_netcdf(os.path.join(model_dir, "model_skills/deterministic_global_skill.nc"))
 
     # - Create spatial maps 
     plot_skill_maps(ds_skill = ds_skill,  
-                    figs_dir = os.path.join(exp_dir, "figs/skills/SpatialSkill"),
+                    figs_dir = os.path.join(model_dir, "figs/skills/SpatialSkill"),
                     crs_proj = ccrs.Robinson(),
                     skills = ['BIAS','RMSE','rSD', 'pearson_R2', 'error_CoV'],
                     # skills = ['percBIAS','percMAE','rSD', 'pearson_R2', 'KGE'],
@@ -459,9 +459,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                     prefix="")
 
     # - Create skill vs. leadtime plots 
-    plot_global_skill(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/RMSE_skill.png"))
-    plot_global_skills(ds_global_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_global.png"))
-    plot_skills_distribution(ds_skill).savefig(os.path.join(exp_dir, "figs/skills/skills_distribution.png"))
+    plot_global_skill(ds_global_skill).savefig(os.path.join(model_dir, "figs/skills/RMSE_skill.png"))
+    plot_global_skills(ds_global_skill).savefig(os.path.join(model_dir, "figs/skills/skills_global.png"))
+    plot_skills_distribution(ds_skill).savefig(os.path.join(model_dir, "figs/skills/skills_distribution.png"))
         
     ##------------------------------------------------------------------------.
     ############################
@@ -479,7 +479,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     for month in [1,4,7,10]:
         idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
         ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-        create_gif_forecast_error(gif_fpath = os.path.join(exp_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
+        create_gif_forecast_error(gif_fpath = os.path.join(model_dir, "figs/forecast_states", "M" + '{:02}'.format(month) + ".gif"),
                                   ds_forecast = ds_forecast,
                                   ds_obs = ds_obs,
                                   aspect_cbar = 40,
@@ -491,7 +491,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # for month in [1,4,7,10]:
     #     idx_month = np.argmax(ds_forecasts['forecast_reference_time'].dt.month.values == month)
     #     ds_forecast = ds_forecasts.isel(forecast_reference_time = idx_month)
-    #     create_gif_forecast_anom_error(gif_fpath = os.path.join(exp_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
+    #     create_gif_forecast_anom_error(gif_fpath = os.path.join(model_dir, "figs/forecast_anom", "M" + '{:02}'.format(month) + ".gif"),
     #                                    ds_forecast = ds_forecast,
     #                                    ds_obs = ds_obs,
     #                                    scaler = hourly_weekly_anomaly_scaler,
@@ -552,7 +552,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # - Load anomaly scalers
     monthly_std_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc"))
     # - Create directory where to save figures
-    os.makedirs(os.path.join(exp_dir, "figs/hovmoller_plots"))
+    os.makedirs(os.path.join(model_dir, "figs/hovmoller_plots"))
     # - Create figures 
     for i in range(len(forecast_reference_times)):
         # Select 1 forecast 
@@ -563,14 +563,14 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                      scaler = None,
                                      arg = "state",
                                      time_groups = None)
-        fig.savefig(os.path.join(exp_dir, "figs/hovmoller_plots", "state_sim" + '{:01}.png'.format(i)))
+        fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "state_sim" + '{:01}.png'.format(i)))
         # Plot variable 'standard anomalies' Hovmoller 
         fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
                                      ds_pred = ds_forecast, 
                                      scaler = monthly_std_anomaly_scaler,
                                      arg = "anom",
                                      time_groups = None)
-        fig.savefig(os.path.join(exp_dir, "figs/hovmoller_plots", "anom_sim" + '{:01}.png'.format(i)))
+        fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "anom_sim" + '{:01}.png'.format(i)))
                                    
     print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
 
