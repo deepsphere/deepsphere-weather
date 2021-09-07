@@ -7,6 +7,39 @@ def is_dask_DataArray(da):
         return True
     else: 
         return False
+    
+def xr_has_dim(x, dim): 
+    if not isinstance(dim, str): 
+        raise TypeError("'dim' must be a string.")
+    if isinstance(x, xr.Dataset):
+        dims = list(x.dims.keys())
+    elif isinstance(x, xr.DataArray):
+        dims = list(x.dims)
+    if dim not in dims: 
+        return False
+    return True 
+
+def xr_has_coord(x, coord): 
+    if not isinstance(coord, str): 
+        raise TypeError("'coord' must be a string.")
+    coords = list(x.coords.keys())
+    if coord not in coords: 
+        return False
+    return True 
+
+def xr_Dataset_vars(x): 
+    if isinstance(x, xr.Dataset): 
+        return list(x.data_vars.keys())
+    else:
+        raise TypeError("Expecting xr.Dataset")    
+    
+def xr_n_vars(x):
+    if isinstance(x, xr.DataArray): 
+        return 0 
+    elif isinstance(x, xr.Dataset): 
+        return len(list(x.data_vars.keys()))
+    else:
+        raise TypeError("Expecting xr.DataArray or xr.Dataset")
 
 def xr_has_uniform_resolution(x, dim = "time"):
     dt = np.unique(np.diff(x[dim].values))
