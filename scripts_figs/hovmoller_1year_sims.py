@@ -31,7 +31,7 @@ from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.my_plotting import create_hovmoller_plots
 
 ## Project specific functions
-import modules.my_models_graph as my_architectures
+import modules.my_models_graph_old as my_architectures
 
 ## Side-project utils (maybe migrating to separate packages in future)
 import modules.xsphere  # required for xarray 'sphere' accessor 
@@ -53,13 +53,14 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES"
 exp_dir = "/data/weather_prediction/experiments_GG/new_old_archi"
-model_name = "OLD-RNN-AR6-UNetSpherical-Healpix_400km-Graph_knn-k20-MaxAreaPooling"
+model_name = "OLD_fine_tuned-RNN-AR6-UNetSpherical-Healpix_400km-Graph_knn-k20-MaxAreaPooling"
 model_dir = os.path.join(exp_dir, model_name)
 
-batch_size = 5
+batch_size = 4
 n_year_sims = 2
 ar_blocks_days = 366*2   
-forecast_reference_times = ['2013-12-31T18:00:00', '1992-07-22T00:00:00', '2015-01-01T05:00:00']
+forecast_reference_times = ['1992-07-22T00:00:00','2000-01-01T18:00:00','2003-04-01T00:00:00', '2015-01-01T05:00:00']
+long_forecast_zarr_fpath = None
 long_forecast_zarr_fpath = os.path.join(model_dir, "model_predictions", "long_simulation", "2year_sim.zarr")
 
 # Read config path 
@@ -155,12 +156,12 @@ load_pretrained_model(model = model,
 model = model.to(device)
 
 ##------------------------------------------------------------------------.
-# Run predictions 
+# Run predictions  
 dask.config.set(scheduler='synchronous')
 forecast_cycle = ar_settings['forecast_cycle']
 ar_iterations = 24/forecast_cycle*365*n_year_sims
 ar_blocks = None  
-ds_forecasts = AutoregressivePredictions( model = model, 
+ds_long_forecasts = AutoregressivePredictions( model = model, 
                                         # Data
                                         data_dynamic = ds_dynamic,
                                         data_static = ds_static,              
@@ -191,46 +192,59 @@ ds_forecasts = AutoregressivePredictions( model = model,
                                         chunks = "auto")
 
 
-print(ds_forecasts)
+print(ds_long_forecasts)
 
 ##------------------------------------------------------------------------------.
 ##------------------------------------------------------------------------------.
 ################################
 #### Create hovmoller plots ####
 ################################
-# long_forecast_zarr_fpath = "/ltenas3/DeepSphere/tmp/2ysim.zarr"
-# long_forecast_zarr_fpath = "/ltenas3/DeepSphere/tmp/4ysim.zarr"
-data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
-ds_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr")) 
-ds_forecasts = xr.open_zarr(long_forecast_zarr_fpath)
-
-# Add mesh 
-ds_forecasts = ds_forecasts.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
-ds_dynamic = ds_dynamic.sphere.add_SphericalVoronoiMesh(x='lon', y='lat')
+# data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
+# ds_dynamic = xr.open_zarr(os.path.join(data_sampling_dir, "Data","dynamic", "time_chunked", "dynamic.zarr"))  
+# ds_long_forecasts = xr.open_zarr(long_forecast_zarr_fpath)
 
 #-------------------------------------------------------------------------------
-### Load anomaly scalers
-anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc"))
+# - Load anomaly scalers
+monthly_std_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc"))
+# - Create directory where to save figures
+# os.makedirs(os.path.join(model_dir, "figs/hovmoller_plots"), exist_ok=True)
+# - Create figures 
+for i in range(len(forecast_reference_times)):
+    # Select 1 forecast 
+    ds_forecast = ds_long_forecasts.isel(forecast_reference_time=i)
+    # Plot variable 'State' Hovmoller 
+    fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+                                 ds_pred = ds_forecast, 
+                                 scaler = None,
+                                 arg = "state",
+                                 time_groups = None)
+    fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "state_sim" + '{:01}.png'.format(i)))
+    # Plot variable 'standard anomalies' Hovmoller 
+    fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+                                 ds_pred = ds_forecast, 
+                                 scaler = monthly_std_anomaly_scaler,
+                                 arg = "anom",
+                                 time_groups = None)
+    fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "anom_sim" + '{:01}.png'.format(i)))
+    
+#-------------------------------------------------------------------------------
+# # Select 1 forecast 
+# ds_forecast = ds_forecasts.isel(forecast_reference_time=1)
+# # Plot 
+# fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+#                              ds_pred = ds_forecast, 
+#                              scaler=None,
+#                              arg="state",
+#                              time_groups=None)
+# plt.show()
 
-# Select 1 forecast 
-ds_forecast = ds_forecasts.isel(forecast_reference_time=1)
-# Plot 
-fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
-                             ds_pred = ds_forecast, 
-                             scaler=None,
-                             arg="state",
-                             time_groups=None)
-plt.show()
-
-fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
-                             ds_pred = ds_forecast, 
-                             scaler=anomaly_scaler,
-                             arg="anom",
-                             time_groups=None)
-plt.show()
+# fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+#                              ds_pred = ds_forecast, 
+#                              scaler=anomaly_scaler,
+#                              arg="anom",
+#                              time_groups=None)
+# plt.show()
                 
 # Save figure 
 # fig.savefig("/home/Projects/deepsphere-weather/figs/hovmoller_long_sim.png")
 
-##------------------------------------------------------------------------------. 
- 
