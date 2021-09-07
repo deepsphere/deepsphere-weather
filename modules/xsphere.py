@@ -1417,7 +1417,15 @@ class SphereDataArrayAccessor:
     def plot_nodes(self, *args, **kwargs):  
         """Plot the unstructured grid nodes."""
         p = _plot_nodes(self.da, *args, **kwargs)
-        return p 
+        return p
+    
+    def has_mesh(self): 
+        # Check mesh attached 
+        # TODO: check also format of mesh 
+        if 'mesh' not in list(self.da.coords.keys()):
+            return False 
+        else:
+            return True    
     
 @xr.register_dataset_accessor("sphere")
 class SphereDatasetAccessor:
@@ -1496,6 +1504,14 @@ class SphereDatasetAccessor:
             self.add_mesh_area(area=area, node_dim=node_dim) 
         return self.ds
     
+    def has_mesh(self): 
+        # Check mesh attached 
+        # TODO: check also format of mesh 
+        if 'mesh' not in list(self.ds.coords.keys()):
+            return False 
+        else:
+            return True  
+        
     def plot(self, col=None, row=None, *args, **kwargs):
         """Map unstructured grid values."""
         ds = self.ds
