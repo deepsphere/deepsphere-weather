@@ -345,11 +345,11 @@ def get_pytorch_SWAG_model(module, model_settings, swag_settings):
     return swag_model 
 
 ##----------------------------------------------------------------------------.
-def load_pretrained_model(model, model_dir):
+def load_pretrained_model(model, model_dir, strict=True):
     """Load a pre-trained pytorch model using HDF5 saved weights."""
     model_fpath = os.path.join(model_dir, 'model_weights', "model.h5")
     state = torch.load(model_fpath)
-    model.load_state_dict(state, strict=False)
+    model.load_state_dict(state, strict=strict)
 
 def load_pretrained_ar_scheduler(exp_dir, model_name):
     """Load a pre-trained AR scheduler."""
@@ -488,10 +488,9 @@ def create_experiment_directories(exp_dir, model_name, force=False):
     figs_skills_dir = os.path.join(figures_dir, "skills")
     figs_training_info_dir = os.path.join(figures_dir, "training_info")
     model_predictions_dir = os.path.join(exp_dir, "model_predictions")
-    spatial_chunks_dir = os.path.join(model_predictions_dir, "space_chunked")
-    temporal_chunks_dir = os.path.join(model_predictions_dir, "forecast_chunked")
+    space_chunked_forecasts_dir = os.path.join(model_predictions_dir, "space_chunked")
+    forecast_chunked_forecasts_dir = os.path.join(model_predictions_dir, "forecast_chunked")
     model_skills_dir = os.path.join(exp_dir, "model_skills")
-    training_info_dir = os.path.join(exp_dir, "training_info")
     
     ##------------------------------------------------------------------------.
     # Create directories     
@@ -499,9 +498,8 @@ def create_experiment_directories(exp_dir, model_name, force=False):
     os.makedirs(figs_skills_dir, exist_ok=False) 
     os.makedirs(figs_training_info_dir, exist_ok=False) 
     os.makedirs(model_skills_dir, exist_ok=False) 
-    os.makedirs(training_info_dir, exist_ok=False) 
-    os.makedirs(spatial_chunks_dir, exist_ok=False) 
-    os.makedirs(temporal_chunks_dir, exist_ok=False) 
+    os.makedirs(space_chunked_forecasts_dir, exist_ok=False) 
+    os.makedirs(forecast_chunked_forecasts_dir, exist_ok=False) 
    
     ##------------------------------------------------------------------------.
     # Return the experiment directory
