@@ -26,47 +26,32 @@ For a local installation, follow the below instructions.
    ```
 
 2. Install manually the following dependencies:
+   - Install first pytorch and its extensions on GPU:
+      ```sh
+      conda install -c conda-forge pytorch-gpu  
+      ```
+   - If you don't have GPU available install it on CPU:
+      ```sh
+      conda install -c conda-forge pytorch-cpu  
+      ```
+   - Install the other required packages: 
    ```sh
    conda create --name weather python=3.8
-   conda install xarray dask matplotlib-base cdo cartopy notebook jupyterlab pycairo numba xskillscore 
-   zarr yaml tabulate numcodecs netcdf4 healpy h5py h5netcdf deepdiff rechunker
-   seaborn numpy pandas shapely cycler scipy bottleneck igl tqdm
-   
+   conda install xarray dask cdo h5py h5netcdf netcdf4 zarr numcodecs rechunker xskillscore
+   conda install notebook jupyterlab
+   conda install matplotlib-base cartopy pycairo seaborn cycler
+   conda install numpy pandas numba scipy bottleneck
+   conda install yaml tabulate tqdm deepdiff
+   conda install healpy igl shapely      
    pip install git+https://github.com/epfl-lts2/pygsp@sphere-graphs
-   ```
-   
-   Install pytorch and its extensions on GPU:
-   - Limit to cu111 requirements of pytorch_sparse
-   ```sh
-    conda install -c conda-forge cudatoolkit=11.1 pytorch-gpu=1.8.0 
-    conda install gpytorch
-    # conda install pytorch_sparse -c conda-forge
-    # conda install pytorch-sparse -c pyg
-    # pip install torch-scatter torch-sparse -f https://pytorch-geometric.com/whl/torch-1.8.0+cu111.html
-    # pip install sparselinear
-    pip install torchinfo
-   ```
-    
-   If you don't have GPU available install it on CPU:
-   ```sh
-   conda install -c conda-forge pytorch-cpu
-   conda install gpytorch
-   # pip install torch-scatter torch-sparse -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html
-   pip install sparselinear
    pip install torchinfo
    ```
-       
+   
 2. Alternatively install the dependencies using one of the appropriate below 
    environment.yml files:
-   ``sh
-   conda env create -f environment_without_pytorch.yml
-   conda env create -f environment_with_pytorch.yml
-   ```
-   
-   # To customize your enviroment, you can export it using  
-   ``sh
-   conda env export > environment_without_pytorch.yml    
-   conda env export > environment_with_pytorch.yml   
+   ```sh
+   conda env create -f environment_python3.8.5.yml
+   conda env create -f environment_python3.9.yml
    ```
 
 ## Tutorials
