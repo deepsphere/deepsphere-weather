@@ -1,4 +1,4 @@
-name: weather
+name: weather39
 channels:
   - conda-forge
   - defaults

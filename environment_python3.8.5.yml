@@ -1,4 +1,4 @@
-name: weather
+name: weather38
 channels:
   - pytorch
   - conda-forge
