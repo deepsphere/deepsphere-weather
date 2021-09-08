@@ -25,16 +25,48 @@ For a local installation, follow the below instructions.
    cd deepSphere-weather
    ```
 
-2. Install the dependencies.
+2. Install manually the following dependencies:
    ```sh
-   conda env create -f environment.yml
+   conda create --name weather python=3.8
+   conda install xarray dask matplotlib-base cdo cartopy notebook jupyterlab pycairo numba xskillscore 
+   zarr yaml tabulate numcodecs netcdf4 healpy h5py h5netcdf deepdiff rechunker
+   seaborn numpy pandas shapely cycler scipy bottleneck igl tqdm
+   
    pip install git+https://github.com/epfl-lts2/pygsp@sphere-graphs
    ```
-
-3. If you don't have a GPU and you plan to work on CPU, please install the follow:
+   
+   Install pytorch and its extensions on GPU:
+   - Limit to cu111 requirements of pytorch_sparse
    ```sh
-   conda install pytorch torchvision torchaudio cpuonly -c pytorch
-   pip install torch-scatter torch-sparse -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html
+    conda install -c conda-forge cudatoolkit=11.1 pytorch-gpu=1.8.0 
+    conda install gpytorch
+    # conda install pytorch_sparse -c conda-forge
+    # conda install pytorch-sparse -c pyg
+    # pip install torch-scatter torch-sparse -f https://pytorch-geometric.com/whl/torch-1.8.0+cu111.html
+    # pip install sparselinear
+    pip install torchinfo
+   ```
+    
+   If you don't have GPU available install it on CPU:
+   ```sh
+   conda install -c conda-forge pytorch-cpu
+   conda install gpytorch
+   # pip install torch-scatter torch-sparse -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html
+   pip install sparselinear
+   pip install torchinfo
+   ```
+       
+2. Alternatively install the dependencies using one of the appropriate below 
+   environment.yml files:
+   ``sh
+   conda env create -f environment_without_pytorch.yml
+   conda env create -f environment_with_pytorch.yml
+   ```
+   
+   # To customize your enviroment, you can export it using  
+   ``sh
+   conda env export > environment_without_pytorch.yml    
+   conda env export > environment_with_pytorch.yml   
    ```
 
 ## Tutorials
