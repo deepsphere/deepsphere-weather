@@ -91,9 +91,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
-    model_settings["model_name_prefix"] = 'OLD_fine_tuned2'
-    training_settings['seed_model_weights'] = 200 # 20 the previous   
-    training_settings['seed_random_shuffling'] = 1024 # 15 the previous     
+    model_settings["model_name_prefix"] = 'OLD_fine_tuned_4'
+    training_settings['seed_model_weights'] = 20 # 20 the previous   
+    training_settings['seed_random_shuffling'] = 15 # 15 the previous     
  
     model_settings['knn'] = 20
     model_settings['bias'] = True
@@ -588,7 +588,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
 if __name__ == '__main__':
     default_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES" # new data
-    default_exp_dir = "/data/weather_prediction/experiments_GG/new_old_archi"
+    default_exp_dir = "ltenas3/DeepSphere/experiments"
     default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
       
     parser = argparse.ArgumentParser(description='Training a numerical weather prediction model emulator')
