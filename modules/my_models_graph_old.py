@@ -134,7 +134,6 @@ class UNetSpherical(UNet, torch.nn.Module):
                  graph_type: str = 'knn', 
                  knn: int = 20, 
                  # Options for classical image convolution on equiangular sampling 
-                 lonlat_ratio: float = 2,
                  periodic_padding: bool = True, 
                  # ConvBlock Options 
                  bias: bool = True, 
@@ -182,7 +181,8 @@ class UNetSpherical(UNet, torch.nn.Module):
         # Derive lonlat ratio from sampling_kwargs if equiangular 
         if sampling == "equiangular":
             lonlat_ratio = sampling_kwargs['nlon'] / sampling_kwargs['nlat']
-     
+        else:
+            lonlat_ratio = None
         ##--------------------------------------------------------------------.
         ### Define ConvBlock options 
         convblock_kwargs = {"kernel_size": kernel_size_conv, 
@@ -199,7 +199,9 @@ class UNetSpherical(UNet, torch.nn.Module):
         ##--------------------------------------------------------------------.
         ### Define graph and laplacian 
         # - Update knn based on model settings 
-        sampling_kwargs['k'] = knn  
+        if sampling != "equiangular":
+            # (pygsp.graphs.SphereEquiangular do not accept k)
+            sampling_kwargs['k'] = knn  
         # - Define sampling_kwargs for coarsed UNet levels 
         UNet_depth = 3
         coarsening = int(np.sqrt(kernel_size_pooling))
