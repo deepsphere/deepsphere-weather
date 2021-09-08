@@ -1,6 +1,12 @@
+
+
+
+
 # DeepSphere-Weather - Deep Learning on the sphere for weather/climate applications.
 
 ![weather forecast](./figs/Forecast_State_Errors.gif)
+
+https://user-images.githubusercontent.com/19285200/132585484-8202b624-e487-440f-8ed6-7ed182a1f31b.mp4
 
 The code in this repository provides a scalable and flexible framework to apply convolutions on spherical unstructured grids for weather/climate applications.
 
