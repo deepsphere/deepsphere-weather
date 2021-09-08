@@ -14,7 +14,7 @@ from scipy import sparse
 from scipy.spatial import SphericalVoronoi
 from torch.nn import functional as F
 from modules import remap
-from sparselinear import SparseLinear
+
 ##----------------------------------------------------------------------------.
 # ##############################
 #### Laplacian computations ####
@@ -421,7 +421,8 @@ class Conv2dEquiangular(torch.nn.Module):
                                     **kwargs)
         # Re-initialize parameters 
         torch.nn.init.xavier_uniform_(self.conv.weight)
-        torch.nn.init.zeros_(self.conv.bias)
+        if bias:
+            torch.nn.init.zeros_(self.conv.bias)
 
     def periodic_pad(self, x, width, periodic_padding=True):       
         """Periodic padding function.
@@ -1009,32 +1010,33 @@ class GeneralMaxValUnpool(RemapBlock):
         return x_unpooled
     
 ##----------------------------------------------------------------------------.
-class GeneralLearnableUnpool(SparseLinear):
-    """Generalized Learnable Unooling."""
+# from sparselinear import SparseLinear
+# class GeneralLearnableUnpool(SparseLinear):
+#     """Generalized Learnable Unooling."""
+#    
+#     def __init__(self, remap_matrix: "sparse.coo.coo_matrix"):
+#         out_feature, in_feature = remap_matrix.shape
+#         bias = False
+#         indices = np.empty((2, remap_matrix.nnz), dtype=np.int64)
+#         np.stack((remap_matrix.row, remap_matrix.col), axis=0, out=indices)
+#         indices = torch.from_numpy(indices)
+#         dynamic = False
+#         super().__init__(in_feature, out_feature, bias, connectivity=indices, dynamic=dynamic)
     
-    def __init__(self, remap_matrix: "sparse.coo.coo_matrix"):
-        out_feature, in_feature = remap_matrix.shape
-        bias = False
-        indices = np.empty((2, remap_matrix.nnz), dtype=np.int64)
-        np.stack((remap_matrix.row, remap_matrix.col), axis=0, out=indices)
-        indices = torch.from_numpy(indices)
-        dynamic = False
-        super().__init__(in_feature, out_feature, bias, connectivity=indices, dynamic=dynamic)
+#     def forward(self, x, *args, **kwargs):
+#         """Perform unpooling."""
+#         x = x.permute(0, 2, 1)
+#         x = super().forward(x)
+#         x = x.permute(0, 2, 1)
+#         return x
     
-    def forward(self, x, *args, **kwargs):
-        """Perform unpooling."""
-        x = x.permute(0, 2, 1)
-        x = super().forward(x)
-        x = x.permute(0, 2, 1)
-        return x
+# class GeneralLearnablePool(GeneralLearnableUnpool):  
+#     """Generalized Learnable Pooling."""
     
-class GeneralLearnablePool(GeneralLearnableUnpool):  
-    """Generalized Learnable Pooling."""
-    
-    def forward(self, x):
-        """Perform pooling."""
-        output = super().forward(x)
-        return output, None
+#     def forward(self, x):
+#         """Perform pooling."""
+#         output = super().forward(x)
+#         return output, None
 
 #----------------------------------------------------------------------------.
 # #################################### 
@@ -1079,9 +1081,10 @@ class PoolUnpoolBlock(torch.nn.Module):
             unpool = GeneralMaxAreaUnpool(pool_mat.T)
             return pool, unpool
         elif pool_method == 'learn':
-            pool = GeneralLearnablePool(pool_mat)
-            unpool = GeneralLearnableUnpool(unpool_mat)
-            return pool, unpool
+            raise NotImplementedError()
+            # pool = GeneralLearnablePool(pool_mat)
+            # unpool = GeneralLearnableUnpool(unpool_mat)
+            # return pool, unpool
         elif pool_method == 'maxval':
             pool = GeneralMaxValPool(pool_mat)
             unpool = GeneralMaxValUnpool(unpool_mat)
@@ -1123,6 +1126,7 @@ class GeneralConvBlock(ABC, torch.nn.Module):
             conv = get_conv_fun(conv_type)(in_channels, out_channels, kernel_size, **kwargs)
         elif conv_type == 'image':
             assert 'lonlat_ratio' in kwargs
+            _ = kwargs.pop('laplacian')
             conv = get_conv_fun(conv_type)(in_channels, out_channels, kernel_size, **kwargs)
         else:
             raise ValueError("{} conv_type is not supported. Choose either 'graph' or 'image'".format(conv_type))
