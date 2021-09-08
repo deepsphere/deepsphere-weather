@@ -383,7 +383,8 @@ def AutoregressivePredictions(model,
     ### Start forecasting
     # - Initialize 
     t_i = time.time()
-    model.to(device)  
+    model.to(device) 
+    # - Set dropout and batch normalization layers to evaluation mode 
     model.eval()
     list_ds = []
     FIRST_PREDICTION = True

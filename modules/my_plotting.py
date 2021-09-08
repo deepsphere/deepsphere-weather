@@ -9,11 +9,13 @@ import os
 import subprocess
 import tempfile
 import shutil
+import dask
 import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt 
 import matplotlib.gridspec as gridspec
+from dask.diagnostics import ProgressBar
 from modules.utils_xr import xr_common_vars
 from modules.utils_xr import xr_has_coord
 from modules.utils_xr import xr_has_dim
@@ -1094,7 +1096,7 @@ def create_gif_forecast_anom_error(gif_fpath,
     # Remove temporary images 
     shutil.rmtree(tmp_dir)
     ##-------------------------------------------------------------------------.    
-    
+
 def create_gif_forecast_evolution(gif_fpath,
                                   dict_data, 
                                   # Plot options 
@@ -1102,7 +1104,7 @@ def create_gif_forecast_evolution(gif_fpath,
                                   antialiased = False,
                                   edgecolors = None,
                                   # GIF options 
-                                  fps = 10,
+                                  fps = 30,
                                   create_gif=True):
     ##------------------------------------------------------------------------.
     # Check dict_data 
@@ -1181,7 +1183,6 @@ def create_gif_forecast_evolution(gif_fpath,
     ##-----------------------------------------------------------------------.
     ### Create GIF image frames for each timestep     
     for i in range(n_timesteps):
-        print(i)
         tmp_timestep = timesteps[i]
         tmp_timestep_str = str(tmp_timestep.astype('datetime64[m]'))
     
@@ -1272,10 +1273,3 @@ def create_gif_forecast_evolution(gif_fpath,
     ##-------------------------------------------------------------------------.
     # Remove temporary images 
     shutil.rmtree(tmp_dir)
-    
- 
-    
- 
- 
-    
- 
