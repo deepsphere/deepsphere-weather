@@ -26,7 +26,6 @@ planar_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular"
 cylinder_kills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular", "RNN-UNetSpherical-equiangular-[36, 72]-k20-maxPooling-float32-AR6-cylinder", "model_skills/deterministic_global_skill.nc"))
 graph_skills = xr.open_dataset(os.path.join(base_dir, "experiments_equiangular" , "RNN-UNetSpherical-equiangular-[36, 72]-k20-MaxPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
 
-
 ##-----------------------------------------------------------------------------.
 # Load different modelling approaches
 RNN_cubed_skills = xr.open_dataset(os.path.join(base_dir, "experiments_samplings" , "RNN-UNetSpherical-cubed-24-k20-MaxAreaPooling-float32-AR6-LinearStep", "model_skills/deterministic_global_skill.nc"))
