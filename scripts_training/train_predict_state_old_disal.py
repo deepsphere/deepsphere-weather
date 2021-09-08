@@ -106,9 +106,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     training_settings['scoring_interval'] = 10
     training_settings['training_batch_size'] = 16
     training_settings['validation_batch_size'] = 16
-    dataloader_settings['num_workers'] = 15
+    dataloader_settings['num_workers'] = 0
     dataloader_settings['random_shuffling'] = True
-    dataloader_settings['autotune_num_workers'] = True
+    dataloader_settings['autotune_num_workers'] = False
 
     # Eventualy try to mimick past example
     # "deterministic_training": false
@@ -588,7 +588,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
 if __name__ == '__main__':
     default_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES" # new data
-    default_exp_dir = "ltenas3/DeepSphere/experiments"
+    default_exp_dir = "/ltenas3/DeepSphere/experiments"
     default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
       
     parser = argparse.ArgumentParser(description='Training a numerical weather prediction model emulator')

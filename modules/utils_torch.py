@@ -196,7 +196,7 @@ def set_pytorch_numeric_precision(numeric_precision, device):
     """Set pytorch numeric precision."""
     tensor_type =  get_torch_tensor_type(numeric_precision, device)
     dtype = get_torch_dtype(numeric_precision)
-    torch.set_default_tensor_type(tensor_type) 
+    # torch.set_default_tensor_type(tensor_type) --> This cause bug since pytorch >1.8 with dataloader data shuffling with torch.randperm  
     torch.set_default_dtype(dtype)
     
 
