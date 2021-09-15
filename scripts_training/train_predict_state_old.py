@@ -91,12 +91,12 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
-    model_settings["model_name_prefix"] = 'OLD_fine_tuned2'
-    training_settings['seed_model_weights'] = 200 # 20 the previous   
-    training_settings['seed_random_shuffling'] = 1024 # 15 the previous     
+    model_settings["model_name_prefix"] = 'OLD_fine_tuned3_'
+    training_settings['seed_model_weights'] = 1500 
+    training_settings['seed_random_shuffling'] = 20000    
  
     model_settings['knn'] = 20
-    model_settings['bias'] = True
+    model_settings['bias'] = False
     model_settings['batch_norm'] = True
     model_settings['batch_norm_before_activation'] = True
     model_settings['activation'] = True
@@ -403,47 +403,47 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##########################################
     ### - Run multi-year simulations       ###
     ########################################## 
-    print("========================================================================================")
-    print("- Running some multi-year simulations")
-    # - Define multi-years simulations settings
-    n_year_sims = 2
-    forecast_cycle = ar_settings['forecast_cycle']
-    ar_iterations = 24/forecast_cycle*365*n_year_sims
-    ar_blocks = None # Do all predictions in one-run
-    forecast_reference_times = ['1992-07-22T00:00:00','2015-12-31T18:00:00','2016-04-01T10:00:00']
-    batch_size = len(forecast_reference_times)
-    long_forecast_zarr_fpath = os.path.join(model_dir, "model_predictions", "long_simulation", "2year_sim.zarr")
-    # - Run long-term simulations
-    dask.config.set(scheduler='synchronous')
-    ds_long_forecasts = AutoregressivePredictions(model = model, 
-                                                  # Data
-                                                  data_dynamic = ds_dynamic,
-                                                  data_static = ds_static,              
-                                                  data_bc = ds_bc, 
-                                                  scaler_transform = scaler,
-                                                  scaler_inverse = scaler,
-                                                  # Dataloader options
-                                                  device = device,
-                                                  batch_size = batch_size,  # number of forecasts per batch
-                                                  num_workers = dataloader_settings['num_workers'], 
-                                                  prefetch_factor = dataloader_settings['prefetch_factor'], 
-                                                  prefetch_in_gpu = dataloader_settings['prefetch_in_gpu'],  
-                                                  pin_memory = dataloader_settings['pin_memory'],
-                                                  asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'],
-                                                  # Autoregressive settings
-                                                  input_k = ar_settings['input_k'], 
-                                                  output_k = ar_settings['output_k'], 
-                                                  forecast_cycle = ar_settings['forecast_cycle'],                         
-                                                  stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
-                                                  # Prediction options 
-                                                  forecast_reference_times = forecast_reference_times, 
-                                                  ar_blocks = ar_blocks,
-                                                  ar_iterations = ar_iterations,  # How many time to autoregressive iterate
-                                                  # Save options 
-                                                  zarr_fpath = long_forecast_zarr_fpath, # None --> do not write to disk
-                                                  rounding = 2,             # Default None. Accept also a dictionary 
-                                                  compressor = "auto",      # Accept also a dictionary per variable
-                                                  chunks = "auto")
+    # print("========================================================================================")
+    # print("- Running some multi-year simulations")
+    # # - Define multi-years simulations settings
+    # n_year_sims = 2
+    # forecast_cycle = ar_settings['forecast_cycle']
+    # ar_iterations = int(24/forecast_cycle*365*n_year_sims)
+    # ar_blocks = None # Do all predictions in one-run
+    # forecast_reference_times = ['1992-07-22T00:00:00','2015-12-31T18:00:00','2016-04-01T10:00:00']
+    # batch_size = len(forecast_reference_times)
+    # long_forecast_zarr_fpath = os.path.join(model_dir, "model_predictions", "long_simulation", "2year_sim.zarr")
+    # # - Run long-term simulations
+    # dask.config.set(scheduler='synchronous')
+    # ds_long_forecasts = AutoregressivePredictions(model = model, 
+    #                                               # Data
+    #                                               data_dynamic = ds_dynamic,
+    #                                               data_static = ds_static,              
+    #                                               data_bc = ds_bc, 
+    #                                               scaler_transform = scaler,
+    #                                               scaler_inverse = scaler,
+    #                                               # Dataloader options
+    #                                               device = device,
+    #                                               batch_size = batch_size,  # number of forecasts per batch
+    #                                               num_workers = dataloader_settings['num_workers'], 
+    #                                               prefetch_factor = dataloader_settings['prefetch_factor'], 
+    #                                               prefetch_in_gpu = dataloader_settings['prefetch_in_gpu'],  
+    #                                               pin_memory = dataloader_settings['pin_memory'],
+    #                                               asyncronous_gpu_transfer = dataloader_settings['asyncronous_gpu_transfer'],
+    #                                               # Autoregressive settings
+    #                                               input_k = ar_settings['input_k'], 
+    #                                               output_k = ar_settings['output_k'], 
+    #                                               forecast_cycle = ar_settings['forecast_cycle'],                         
+    #                                               stack_most_recent_prediction = ar_settings['stack_most_recent_prediction'], 
+    #                                               # Prediction options 
+    #                                               forecast_reference_times = forecast_reference_times, 
+    #                                               ar_blocks = ar_blocks,
+    #                                               ar_iterations = ar_iterations,  # How many time to autoregressive iterate
+    #                                               # Save options 
+    #                                               zarr_fpath = long_forecast_zarr_fpath, # None --> do not write to disk
+    #                                               rounding = 2,             # Default None. Accept also a dictionary 
+    #                                               compressor = "auto",      # Accept also a dictionary per variable
+    #                                               chunks = "auto")
 
     ##------------------------------------------------------------------------.
     #########################################
@@ -552,33 +552,33 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ###########################################################
     ### - Create Hovmoller plot of multi-years simulations ####
     ###########################################################
-    print("========================================================================================")
-    print("- Create Hovmoller plots of multi-years simulations")
-    t_i = time.time()
-    # - Load anomaly scalers
-    monthly_std_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc"))
-    # - Create directory where to save figures
-    os.makedirs(os.path.join(model_dir, "figs/hovmoller_plots"))
-    # - Create figures 
-    for i in range(len(forecast_reference_times)):
-        # Select 1 forecast 
-        ds_forecast = ds_long_forecasts.isel(forecast_reference_time=i)
-        # Plot variable 'State' Hovmoller 
-        fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
-                                     ds_pred = ds_forecast, 
-                                     scaler = None,
-                                     arg = "state",
-                                     time_groups = None)
-        fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "state_sim" + '{:01}.png'.format(i)))
-        # Plot variable 'standard anomalies' Hovmoller 
-        fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
-                                     ds_pred = ds_forecast, 
-                                     scaler = monthly_std_anomaly_scaler,
-                                     arg = "anom",
-                                     time_groups = None)
-        fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "anom_sim" + '{:01}.png'.format(i)))
+    # print("========================================================================================")
+    # print("- Create Hovmoller plots of multi-years simulations")
+    # t_i = time.time()
+    # # - Load anomaly scalers
+    # monthly_std_anomaly_scaler = LoadAnomaly(os.path.join(data_sampling_dir, "Scalers", "MonthlyStdAnomalyScaler_dynamic.nc"))
+    # # - Create directory where to save figures
+    # os.makedirs(os.path.join(model_dir, "figs/hovmoller_plots"))
+    # # - Create figures 
+    # for i in range(len(forecast_reference_times)):
+    #     # Select 1 forecast 
+    #     ds_forecast = ds_long_forecasts.isel(forecast_reference_time=i)
+    #     # Plot variable 'State' Hovmoller 
+    #     fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+    #                                  ds_pred = ds_forecast, 
+    #                                  scaler = None,
+    #                                  arg = "state",
+    #                                  time_groups = None)
+    #     fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "state_sim" + '{:01}.png'.format(i)))
+    #     # Plot variable 'standard anomalies' Hovmoller 
+    #     fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
+    #                                  ds_pred = ds_forecast, 
+    #                                  scaler = monthly_std_anomaly_scaler,
+    #                                  arg = "anom",
+    #                                  time_groups = None)
+    #     fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "anom_sim" + '{:01}.png'.format(i)))
                                    
-    print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
+    # print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
 
     ##-------------------------------------------------------------------------.                            
     print("========================================================================================")

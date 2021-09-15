@@ -71,6 +71,12 @@ matplotlib.rcParams["figure.facecolor"] = "white"
 matplotlib.rcParams["savefig.facecolor"] = "white" # (1,1,1,0)
 matplotlib.rcParams["savefig.edgecolor"] = 'none'
 
+## Temporary ix for open shared memory object 
+# - also in worker_init_fn'?
+# - deepcopy in AR_predictions?
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 # Disable warnings
 warnings.filterwarnings("ignore")
     
@@ -91,7 +97,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
-    model_settings["model_name_prefix"] = 'OLD_fine_tuned_4'
+    model_settings["model_name_prefix"] = 'OLD_fine_tuned_disal'
     training_settings['seed_model_weights'] = 20 # 20 the previous   
     training_settings['seed_random_shuffling'] = 15 # 15 the previous     
  
@@ -587,8 +593,8 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
-    default_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES" # new data
-    default_exp_dir = "/ltenas3/DeepSphere/experiments"
+    default_data_dir = "/data/deepsphere-weather/data/preprocessed/ERA5_HRES" 
+    default_exp_dir = "/data/deepsphere-weather/experiments"
     default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
       
     parser = argparse.ArgumentParser(description='Training a numerical weather prediction model emulator')
