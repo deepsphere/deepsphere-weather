@@ -352,6 +352,10 @@ def timing_AR_Training(dataset,
     ##------------------------------------------------------------------------.    
     ### Reset model to training mode
     model.train() 
+    ##------------------------------------------------------------------------. 
+    ### Delete Dataloader to avoid deadlocks
+    del trainingDataLoader_iter
+    del trainingDataLoader
     ##------------------------------------------------------------------------.               
     return timing_info, memory_info
 
@@ -786,7 +790,7 @@ def AutoregressiveTraining(model,
     else: 
         validationDataset = None
         validationDataLoader_iter = None
-     
+    
     ##------------------------------------------------------------------------.
     # Initialize AR_TrainingInfo instance if not provided 
     # - Initialization occurs when a new model training starts
@@ -1095,11 +1099,11 @@ def AutoregressiveTraining(model,
                         ##----------------------------------------------------.           
                         # Update Datasets (to prefetch the correct amount of data)
                         # - Training
-                        del trainingDataLoader, trainingDataLoader_iter
+                        del trainingDataLoader, trainingDataLoader_iter         # to avoid deadlocks
                         trainingDataset.update_ar_iterations(ar_scheduler.current_ar_iterations)
                         # - Validation
                         if validationDataset is not None: 
-                            del validationDataLoader, validationDataLoader_iter
+                            del validationDataLoader, validationDataLoader_iter # to avoid deadlocks
                             validationDataset.update_ar_iterations(ar_scheduler.current_ar_iterations)
                         ##----------------------------------------------------.                              
                         ## Time execution         
@@ -1220,6 +1224,14 @@ def AutoregressiveTraining(model,
     with open(os.path.join(os.path.dirname(model_fpath), "AR_TrainingInfo.pickle"), 'wb') as handle:
         pickle.dump(ar_training_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
+    ##-------------------------------------------------------------------------.
+    ## Remove Dataset and DataLoaders to avoid deadlocks 
+    del validationDataset
+    del validationDataLoader_iter
+    del validationDataLoader
+    del trainingDataset
+    del trainingDataLoader
+    del trainingDataLoader_iter
     ##------------------------------------------------------------------------.
     # Return training info object 
     return ar_training_info

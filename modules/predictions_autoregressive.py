@@ -347,6 +347,8 @@ def AutoregressivePredictions(model,
         # Redefine batch_size if larger than the number of forecast to generate
         if batch_size > len(forecast_reference_times):
             batch_size = len(forecast_reference_times)
+            # Reduce num_workers to 0 ... data must be loaded only once 
+            num_workers = 0
     ##------------------------------------------------------------------------.                                 
     ### Create training Autoregressive Dataset and DataLoader    
     dataset = AutoregressiveDataset(data_dynamic = data_dynamic,  
@@ -530,13 +532,16 @@ def AutoregressivePredictions(model,
                                                              tmp_time_gen, tmp_time_post,
                                                              tmp_time_per_forecast))
             #-------------------------------------------------------------------.         
-    ##------------------------------------------------------------------------.
+    ##--------------------------------------------------------------------------.
     # Re-read the forecast dataset
     if WRITE_TO_ZARR:
         ds_forecasts = xr.open_zarr(zarr_fpath, chunks="auto")
     else: 
         ds_forecasts = xr.merge(list_ds)
-        
+    ##--------------------------------------------------------------------------.
+    # Remove the dataloader and dataset to avoid deadlocks
+    del dataset
+    del dataloader
     ##------------------------------------------------------------------------.    
     print("- Elapsed time for forecast generation: {:.2f} minutes".format((time.time()-t_i)/60))
     ##------------------------------------------------------------------------.    
