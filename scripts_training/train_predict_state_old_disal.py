@@ -98,11 +98,11 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
     model_settings["model_name_prefix"] = 'OLD_fine_tuned_disal'
-    training_settings['seed_model_weights'] = 20 # 20 the previous   
+    training_settings['seed_model_weights'] = 30 # 20 the previous   
     training_settings['seed_random_shuffling'] = 15 # 15 the previous     
  
     model_settings['knn'] = 20
-    model_settings['bias'] = True
+    model_settings['bias'] = False
     model_settings['batch_norm'] = True
     model_settings['batch_norm_before_activation'] = True
     model_settings['activation'] = True
@@ -112,7 +112,8 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     training_settings['scoring_interval'] = 10
     training_settings['training_batch_size'] = 16
     training_settings['validation_batch_size'] = 16
-    dataloader_settings['num_workers'] = 0
+    dataloader_settings['prefetch_factor'] = 4
+    dataloader_settings['num_workers'] = 8
     dataloader_settings['random_shuffling'] = True
     dataloader_settings['autotune_num_workers'] = False
 
