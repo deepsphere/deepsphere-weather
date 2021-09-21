@@ -559,7 +559,7 @@ def reshape_forecasts_for_verification(ds):
     ds = xr.concat(l_reshaped_ds, dim='leadtime', join='outer')
     return ds
 
-def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem = '1GB'):
+def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem = '1GB', force=False):
     """
     Rechunk forecast Dataset in the format required for verification.
     
@@ -586,10 +586,25 @@ def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem 
         Dataset for verification (with 'time' and 'leadtime' dimensions.
 
     """
+    ##------------------------------------------------------------------------.
+    # Check target_store do not exist already
+    if os.path.exists(target_store):
+        if force: 
+            shutil.rmtree(target_store)
+        else:
+            raise ValueError("A zarr store already exists at {}. If you want to overwrite, specify force=True".format(target_store))
+    ##------------------------------------------------------------------------.
     # Define temp store for rechunking
     temp_store = os.path.join(os.path.dirname(target_store), "tmp_store.zarr")
     # Define intermediate store for rechunked data
     intermediate_store = os.path.join(os.path.dirname(target_store), "rechunked_store.zarr")
+
+    ##------------------------------------------------------------------------.
+    # Remove temp_store and intermediate_store is exists 
+    if os.path.exists(temp_store):
+        shutil.rmtree(temp_store)
+    if os.path.exists(intermediate_store):
+        shutil.rmtree(intermediate_store) 
     ##------------------------------------------------------------------------.
     # Default chunking
     # - Do not chunk along forecast_reference_time, chunk 1 to all other dimensions
@@ -604,7 +619,8 @@ def rechunk_forecasts_for_verification(ds, target_store, chunks="auto", max_mem 
     # Rechunk Dataset (on disk)
     rechunk_Dataset(ds=ds, chunks=chunks, 
                     target_store=intermediate_store, temp_store=temp_store, 
-                    max_mem = max_mem)
+                    max_mem = max_mem,
+                    force=force)
     ##------------------------------------------------------------------------.
     # Load rechunked dataset (contiguous over forecast referece time, chunked over space)
     ds = xr.open_zarr(intermediate_store, chunks="auto")

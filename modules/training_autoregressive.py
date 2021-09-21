@@ -828,6 +828,7 @@ def AutoregressiveTraining(model,
     print("")
     print("========================================================================================")
     flag_stop_training = False
+    t_i_scoring = time.time()
     for epoch in range(epochs):
         ar_training_info.new_epoch()
         ##--------------------------------------------------------------------.
@@ -1043,13 +1044,15 @@ def AutoregressiveTraining(model,
                     
                     ##--------------------------------------------------------.
                     ### Print scoring 
+                    t_f_scoring = round(time.time() - t_i_scoring)
                     print("Epoch: {} | Batch: {}/{} | AR: {} | Loss: {} | "
-                          "ES: {}/{}".format(epoch, batch_count, num_batches, 
-                                             ar_iteration,
-                                             round(dict_validation_loss_per_ar_iteration[ar_iteration].item(),5),
-                                             early_stopping.counter, early_stopping.patience)
+                          "ES: {}/{} | Elapsed time: {}s".format(epoch, batch_count, num_batches, 
+                                                                 ar_iteration,
+                                                                 round(dict_validation_loss_per_ar_iteration[ar_iteration].item(),5),
+                                                                 early_stopping.counter, early_stopping.patience, 
+                                                                 t_f_scoring)
                           )
-                    
+                    t_i_scoring = time.time()
                     ##---------------------------------------------------------.
                     # The following code can be used to debug training if loss diverge to nan 
                     if dict_validation_loss_per_ar_iteration[0].item() > 10000:

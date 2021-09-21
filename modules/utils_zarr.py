@@ -364,7 +364,7 @@ def write_zarr(zarr_fpath, ds,
 #########################
 #### Rechunker wrapper ##
 #########################
-def rechunk_Dataset(ds, chunks, target_store, temp_store, max_mem = '1GB'):
+def rechunk_Dataset(ds, chunks, target_store, temp_store, max_mem = '1GB', force=False):
     """
     Rechunk on disk a xarray Dataset read lazily from a zarr store.
 
@@ -394,6 +394,19 @@ def rechunk_Dataset(ds, chunks, target_store, temp_store, max_mem = '1GB'):
     # compressor = Blosc(cname='zstd', clevel=1, shuffle=Blosc.BITSHUFFLE)
     # options = dict(compressor=compressor)
     # rechunk(..., target_options=options)
+    ##------------------------------------------------------------------------.
+    # Check target_store do not exist already
+    if os.path.exists(target_store):
+        if force: 
+            shutil.rmtree(target_store)
+        else:
+            raise ValueError("A zarr store already exists at {}. If you want to overwrite, specify force=True".format(target_store))
+    
+    ##------------------------------------------------------------------------.
+    # Remove temp_store if still exists 
+    if os.path.exists(temp_store):
+        shutil.rmtree(temp_store)
+
     ##------------------------------------------------------------------------.
     # Check chunks 
     target_chunks = check_chunks(ds=ds, chunks=chunks, default_chunks=None) 
