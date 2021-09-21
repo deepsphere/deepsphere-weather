@@ -773,7 +773,8 @@ def create_gif_forecast_error(gif_fpath,
                               fps = 4, 
                               aspect_cbar = 40,
                               antialiased = False,
-                              edgecolors = None):                      
+                              edgecolors = None,
+                              verbose = False):                      
     ##-------------------------------------------------------------------------.                              
     # Check Datasets have mesh attached 
     if 'mesh' not in list(ds_forecast.coords.keys()):
@@ -918,10 +919,11 @@ def create_gif_forecast_error(gif_fpath,
     # -codec:v lix264
     # Create MP4
     cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, gif_fpath)
-    subprocess.run(cmd, shell=True)
+    capture_output = not verbose
+    _ = subprocess.run(cmd, shell=True, capture_output=capture_output)
     # Create GIF
     cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(gif_fpath, fps, gif_fpath)
-    subprocess.run(cmd, shell=True)
+    _ = subprocess.run(cmd, shell=True, capture_output=capture_output)
 
     ##-------------------------------------------------------------------------.
     # Remove temporary images 
@@ -939,7 +941,8 @@ def create_gif_forecast_anom_error(gif_fpath,
                                    fps = 4, 
                                    aspect_cbar = 40,
                                    antialiased = False,
-                                   edgecolors = None):
+                                   edgecolors = None,
+                                   verbose = False):
     ##-------------------------------------------------------------------------.                              
     # Check Datasets have mesh attached 
     if 'mesh' not in list(ds_forecast.coords.keys()):
@@ -1087,10 +1090,12 @@ def create_gif_forecast_anom_error(gif_fpath,
     # -codec:v lix264
     # Create MP4
     cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, gif_fpath)
-    subprocess.run(cmd, shell=True)
+    capture_output = not verbose
+    _ = subprocess.run(cmd, shell=True, capture_output=capture_output)
     # Create GIF
     cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(gif_fpath, fps, gif_fpath)
-    subprocess.run(cmd, shell=True)
+    capture_output = not verbose
+    _ = subprocess.run(cmd, shell=True, capture_output=capture_output)
 
     ##-------------------------------------------------------------------------.
     # Remove temporary images 
@@ -1105,7 +1110,8 @@ def create_gif_forecast_evolution(gif_fpath,
                                   edgecolors = None,
                                   # GIF options 
                                   fps = 30,
-                                  create_gif=True):
+                                  create_gif = True,
+                                  verbose = False):
     ##------------------------------------------------------------------------.
     # Check dict_data 
     if not isinstance(dict_data, dict):
@@ -1263,12 +1269,14 @@ def create_gif_forecast_evolution(gif_fpath,
     
     # Create MP4
     cmd = 'ffmpeg -r:v {} -i "{}/%04d.png" -codec:v libx264 -preset placebo -an -y "{}.mp4"'.format(fps, tmp_dir, gif_fpath)
-    subprocess.run(cmd, shell=True)
+    capture_output = not verbose
+    _ = subprocess.run(cmd, shell=True, capture_output=capture_output)
     
     # Create GIF
     if create_gif:
         cmd = 'ffmpeg -i {}.mp4 -vf "fps={},scale=2560:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 -y {}.gif'.format(gif_fpath, fps, gif_fpath)
-        subprocess.run(cmd, shell=True)
+        capture_output = not verbose
+        _ = subprocess.run(cmd, shell=True, capture_output=capture_output)
     
     ##-------------------------------------------------------------------------.
     # Remove temporary images 
