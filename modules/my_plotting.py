@@ -42,9 +42,9 @@ def get_var_cmap(var, arg):
         if arg in list(cmap_dict[var].keys()):
             cmap = cmap_dict[var][arg]
         else: 
-            cmap = plt.get_cmap('RdYlBu')
+            cmap = plt.get_cmap('RdYlBu_r')
     else: 
-        cmap = plt.get_cmap('RdYlBu')
+        cmap = plt.get_cmap('RdYlBu_r')
     return cmap
 
 def get_var_clim(var, arg): 
@@ -659,10 +659,10 @@ def create_hovmoller_plots(ds_obs, ds_pred, scaler=None, arg="state", time_group
     if xr_has_dim(ds_pred, dim="leadtime"):
         if not xr_has_coord(ds_pred, coord="forecast_reference_time"): 
             raise ValueError("If 'leadtime' is a dimension, 'forecast_reference_time' must be a coordinate.")
-        if ds_pred["forecast_reference_time"].values.size != 1: 
+        if ds_pred["forecast_reference_time"].size != 1: 
             raise ValueError("Provide data with a single 'forecast_reference_time'")
-        # Drop forecast_reference_time dimension
-        if not xr_has_dim(ds_pred, dim="forecast_reference_time"):
+        # Drop forecast_reference_time dimension of size 1
+        if xr_has_dim(ds_pred, dim="forecast_reference_time"):
             ds_pred = ds_pred.isel(forecast_reference_time=0)
         # Compute prediction time
         ds_pred['time'] = ds_pred['forecast_reference_time'].values + ds_pred['leadtime']
@@ -1020,7 +1020,7 @@ def create_gif_forecast_anom_error(gif_fpath,
                           antialiased = antialiased,
                           vmin = -4,
                           vmax = 4,
-                          cmap = plt.get_cmap('Spectral')
+                          cmap = plt.get_cmap('Spectral_r'),
                           )
             axs[ax_count].set_title(None)
             axs[ax_count].coastlines(alpha=0.2)
@@ -1032,7 +1032,7 @@ def create_gif_forecast_anom_error(gif_fpath,
                                 antialiased = antialiased,
                                 vmin = -4,
                                 vmax = 4,
-                                cmap = plt.get_cmap('Spectral')
+                                cmap = plt.get_cmap('Spectral_r'),
                                 )
             axs[ax_count+1].set_title(None)    
             axs[ax_count+1].coastlines(alpha=0.2)
