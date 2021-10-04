@@ -108,9 +108,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     training_settings['scoring_interval'] = 10
     training_settings['training_batch_size'] = 16
     training_settings['validation_batch_size'] = 16
-    dataloader_settings['prefetch_factor'] = 4
+    dataloader_settings['prefetch_factor'] = 6
     dataloader_settings['pin_memory'] = False
-    dataloader_settings['num_workers'] = 8
+    dataloader_settings['num_workers'] = 12
     dataloader_settings['random_shuffling'] = True
     dataloader_settings['autotune_num_workers'] = False
 
