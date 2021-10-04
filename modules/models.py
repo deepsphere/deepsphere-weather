@@ -12,32 +12,15 @@ from modules.layers import compute_cotan_laplacian
 from modules.layers import prepare_torch_laplacian
 from modules.utils_models import get_pygsp_graph_fun
 
-
-# TODO 
-# - Add RemappingNet (just pooling)
-# - Add DownscalingNet
-# - Add ResNet (without pooling)
-
 ##----------------------------------------------------------------------------.
-class UNet(ABC):
-    """Define general UNet class."""
+class DeepSphere(ABC):
+    """Define general DeepSphere model class."""
     
     @abstractmethod
-    def encode(self, *args, **kwargs):
-        """Encode an input into a lower dimensional space."""
-        pass
-
-    @abstractmethod
-    def decode(self, *args, **kwargs):
-        """Decode low dimensional data into a high dimensional space."""
-        pass
-
     def forward(self, x):
         """Implement a forward pass."""
-        x_encoded = self.encode(x)
-        output = self.decode(*x_encoded)
-        return output
-  
+        pass    
+    
     @staticmethod
     def build_pygsp_graphs(sampling_list: List[str],
                            sampling_kwargs_list: List[Dict]) -> List["pygsp.graphs"]:
@@ -85,13 +68,56 @@ class UNet(ABC):
         ##--------------------------------------------------------------------.
         # Initialize graph and laplacians 
         if conv_type == 'graph':
-            self.graphs = UNet.build_pygsp_graphs(sampling_list = sampling_list,
-                                                  sampling_kwargs_list = sampling_kwargs_list)
+            self.graphs = DeepSphere.build_pygsp_graphs(sampling_list = sampling_list,
+                                                        sampling_kwargs_list = sampling_kwargs_list)
                                                    
-            self.laplacians = UNet.get_laplacian_kernels(graphs = self.graphs, 
-                                                         graph_type = graph_type)
+            self.laplacians = DeepSphere.get_laplacian_kernels(graphs = self.graphs, 
+                                                               graph_type = graph_type)
         # Option for equiangular sampling  
         elif conv_type == 'image':
-            self.graphs = UNet.build_pygsp_graphs(sampling_list = sampling_list,
-                                                  sampling_kwargs_list = sampling_kwargs_list)
+            self.graphs = DeepSphere.build_pygsp_graphs(sampling_list = sampling_list,
+                                                        sampling_kwargs_list = sampling_kwargs_list)
             self.laplacians = [None] * len(sampling_list)
+
+##----------------------------------------------------------------------------.  
+class UNet(DeepSphere):
+    """Define general UNet class."""
+    
+    @abstractmethod
+    def encode(self, *args, **kwargs):
+        """Encode an input into a lower dimensional space."""
+        pass
+
+    @abstractmethod
+    def decode(self, *args, **kwargs):
+        """Decode low dimensional data into a high dimensional space."""
+        pass
+
+    def forward(self, x):
+        """Implement a forward pass."""
+        x_encoded = self.encode(x)
+        output = self.decode(*x_encoded)
+        return output
+  
+##----------------------------------------------------------------------------.
+class ConvNet(DeepSphere):
+    """Define general ResNet class."""
+    
+    @abstractmethod
+    def forward(self, x):
+        """Implement a forward pass."""
+        pass    
+    
+##----------------------------------------------------------------------------.  
+class DownscalingNet(DeepSphere):
+    """Define general DownscalingNet class."""
+    
+    @abstractmethod
+    def decode(self, *args, **kwargs):
+        """Decode low dimensional data into a high dimensional space."""
+        pass
+
+    def forward(self, x):
+        """Implement a forward pass."""
+        output = self.decode(x)
+        return output   
