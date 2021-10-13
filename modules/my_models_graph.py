@@ -129,10 +129,7 @@ class ResBlock(torch.nn.Module):
         DESCRIPTION.
     convblock_kwargs : TYPE
         Arguments for the ConvBlock layer.
-    """
-    # No activation function on last conv layer because if act_fun like Relu, 
-    #  the ResBlock can only output positive increments
-    
+    """    
     def __init__(self,
                  in_channels, 
                  out_channels, 
@@ -157,15 +154,24 @@ class ResBlock(torch.nn.Module):
         tmp_in = in_channels
         n_layers = len(out_channels)
         for i, tmp_out in enumerate(out_channels):
+            tmp_convblock_kwargs = convblock_kwargs.copy()
+            #--------------------------------------------------------.
+            # - If last conv layer, do not add the activation function 
+            # --> If act_fun like Relu, the ResBlock can only output positive increments
+            if i == n_layers -1: 
+                tmp_convblock_kwargs["activation"] = False
+            #--------------------------------------------------------.    
+            # - If last conv layer, do not add the batch_norm (or only add on the last?)
+            # TODO:
+
+            #--------------------------------------------------------.
             # - Define conv layer name 
             tmp_conv_name = 'convblock' + str(i+1)
-            # - If last conv layer, do not add the activation function and BN 
-            if i == n_layers -1: 
-                convblock_kwargs["activation"] = False
+            #--------------------------------------------------------.
             # - Create the conv layer
             tmp_conv = ConvBlock(tmp_in, tmp_out,  
                                 laplacian = laplacian, 
-                                **convblock_kwargs)
+                                **tmp_convblock_kwargs)
             setattr(self, tmp_conv_name, tmp_conv)
             conv_names_list.append(tmp_conv_name)
             tmp_in = tmp_out   

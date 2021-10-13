@@ -16,6 +16,7 @@ from modules.dataloader_autoregressive import get_aligned_ar_batch
 from modules.dataloader_autoregressive import AutoregressiveDataset
 from modules.dataloader_autoregressive import AutoregressiveDataLoader
 
+## https://pytorch.org/docs/master/optim.html#stochastic-weight-averaging 
 # TOCHECK: 
 # check_bn : can found also BN enclosed in ResBlock --> ConvBlock (nestdness?)
 

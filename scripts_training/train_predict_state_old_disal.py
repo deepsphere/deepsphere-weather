@@ -92,7 +92,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
     model_settings["model_name_prefix"] = ''
-    model_settings["architecture_name"] = "ResNetSpherical"
+    model_settings["architecture_name"] = "EPDNetSpherical"
     
     training_settings['seed_model_weights'] = 30 # 20 the previous   
     training_settings['seed_random_shuffling'] = 15 # 15 the previous     

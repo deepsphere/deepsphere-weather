@@ -91,7 +91,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
-    model_settings["model_name_prefix"] = 'OLD_fine_tuned4_EncoderAllReZero1'
+    model_settings["model_name_prefix"] = 'OLD_fine_tuned4_EncoderAllReZero2_FixedARWeight'
     training_settings['seed_model_weights'] = 500
     training_settings['seed_random_shuffling'] = 40   
  
@@ -111,6 +111,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     dataloader_settings['random_shuffling'] = True
     dataloader_settings['autotune_num_workers'] = False
 
+    # ar_settings['ar_iterations'] = 6 # set to 3 
  
     training_settings['deterministic_training'] = False
     training_settings['benchmark_cuDNN'] = True
@@ -279,7 +280,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     if training_settings["ar_training_strategy"] == "RNN":
         ar_scheduler = AR_Scheduler(method = "LinearStep",
                                     factor = 0.0005,
-                                    fixed_ar_weights = [0],
+                                    fixed_ar_weights = np.arange(0, ar_settings['ar_iterations']),  # [0], TODO CHANGE
                                     initial_ar_absolute_weights = [1,1]) 
     # - FOR AR : Do not decay weights once they growthed
     elif training_settings["ar_training_strategy"] == "AR":                                
