@@ -1172,21 +1172,21 @@ class EPDNetSpherical(ConvNet, torch.nn.Module):
         self.enc_conv1 = ConvBlock(self.input_channels, n_conv_features, 
                                laplacian = self.laplacians[0],
                                **convblock_kwargs)
-        self.enc_conv2 = ConvBlock(self.input_channels, n_conv_features, 
+        self.enc_conv2 = ConvBlock(n_conv_features, n_conv_features, 
                                    laplacian = self.laplacians[0],
                                    **convblock_kwargs)
         # Define "Process" ResBlocks
         self.resblock1 = ResBlock(n_conv_features, resblock_shapes,
                                   laplacian = self.laplacians[0],
                                   convblock_kwargs = convblock_kwargs)
-        self.resblock2 = ResBlock(self.input_channels, resblock_shapes,
+        self.resblock2 = ResBlock(n_conv_features, resblock_shapes,
                                   laplacian = self.laplacians[0],
                                   convblock_kwargs = convblock_kwargs)
         
-        self.resblock3 = ResBlock(self.input_channels, resblock_shapes,
+        self.resblock3 = ResBlock(n_conv_features, resblock_shapes,
                                   laplacian = self.laplacians[0],
                                   convblock_kwargs = convblock_kwargs)
-        self.resblock4 = ResBlock(self.input_channels, resblock_shapes,
+        self.resblock4 = ResBlock(n_conv_features, resblock_shapes,
                                   laplacian = self.laplacians[0],
                                   convblock_kwargs = convblock_kwargs) 
     
