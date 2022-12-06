@@ -11,6 +11,7 @@ import numpy as np
 
 # from utils_swag import flatten, unflatten_like
 
+
 def flatten(lst):
     tmp = [i.contiguous().view(-1, 1) for i in lst]
     return torch.cat(tmp).view(-1)
@@ -27,6 +28,7 @@ def unflatten_like(vector, likeTensorList):
         outList.append(vector[:, i : i + n].view(tensor.shape))
         i += n
     return outList
+
 
 def swag_parameters(module, params, no_cov_mat=True):
     for name in list(module._parameters.keys()):
@@ -85,7 +87,7 @@ class SWAG(torch.nn.Module):
             sq_mean = module.__getattr__("%s_sq_mean" % name)
             eps = torch.randn_like(mean)
 
-            var = torch.clamp(sq_mean - mean ** 2, self.var_clamp)
+            var = torch.clamp(sq_mean - mean**2, self.var_clamp)
 
             scaled_diag_sample = scale * torch.sqrt(var) * eps
 
@@ -107,7 +109,7 @@ class SWAG(torch.nn.Module):
             module.__setattr__(name, w)
 
     def sample_fullrank(self, scale, cov, fullrank):
-        scale_sqrt = scale ** 0.5
+        scale_sqrt = scale**0.5
 
         mean_list = []
         sq_mean_list = []
@@ -130,7 +132,7 @@ class SWAG(torch.nn.Module):
         sq_mean = flatten(sq_mean_list)
 
         # draw diagonal variance sample
-        var = torch.clamp(sq_mean - mean ** 2, self.var_clamp)
+        var = torch.clamp(sq_mean - mean**2, self.var_clamp)
         var_sample = var.sqrt() * torch.randn_like(var, requires_grad=False)
 
         # if covariance draw low rank sample
@@ -171,7 +173,7 @@ class SWAG(torch.nn.Module):
             # second moment
             sq_mean = sq_mean * self.n_models.item() / (
                 self.n_models.item() + 1.0
-            ) + base_param.data ** 2 / (self.n_models.item() + 1.0)
+            ) + base_param.data**2 / (self.n_models.item() + 1.0)
 
             # square root of covariance matrix
             if self.no_cov_mat is False:
@@ -243,8 +245,6 @@ class SWAG(torch.nn.Module):
             cov_mat_sqrt = module.__getattr__("%s_cov_mat_sqrt" % name)
 
             mean_list.append(mean)
-            var_list.append(sq_mean - mean ** 2.0)
+            var_list.append(sq_mean - mean**2.0)
             cov_mat_root_list.append(cov_mat_sqrt)
         return mean_list, var_list, cov_mat_root_list
-    
-    
