@@ -390,19 +390,11 @@ class UNetSpherical(UNet, torch.nn.Module):
             self.pool1, self.unpool1 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(src_graph=self.graphs[0], 
                                                                                  dst_graph=self.graphs[1], 
                                                                                  pool_method=pool_method)
-            self.pool2, self.unpool2 = PoolUnpoolBlock.getGeneralPoolUnpoolLayer(src_graph=self.graphs[1],
-                                                                                 dst_graph=self.graphs[2], 
-                                                                                 pool_method=pool_method)
         elif pool_method in ('max', 'avg'):
             assert sampling in ['healpix','equiangular']
             self.pool1, self.unpool1 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling=sampling, 
                                                                           pool_method=pool_method, 
                                                                           kernel_size=kernel_size_pooling,
-                                                                          lonlat_ratio=lonlat_ratio)
-            
-            self.pool2, self.unpool2 = PoolUnpoolBlock.getPoolUnpoolLayer(sampling=sampling, 
-                                                                          pool_method=pool_method, 
-                                                                          kernel_size=kernel_size_pooling, 
                                                                           lonlat_ratio=lonlat_ratio)
         else:
             if pool_method is not None:
@@ -410,44 +402,62 @@ class UNetSpherical(UNet, torch.nn.Module):
                 
         ##--------------------------------------------------------------------.
         ### Define Encoding blocks
-        # Initial ResBlock (?)
-        
+
+        # Preprocess ResBlock  
+        # self.resblock_preprocess = ResBlock(self.input_channels, (self.input_channels, self.input_channels),
+        #                                     laplacian = self.laplacians[0],
+        #                                     convblock_kwargs = convblock_kwargs)  # TODO batchnorm false , activation linear
         ##------------------------------------.
-        # Encoding block 1
-        self.conv1 = ResBlock(self.input_channels, (32 * 2, 64 * 2),
-                              laplacian = self.laplacians[0],
-                              convblock_kwargs = convblock_kwargs)
-               
-        # Encoding block 2
-        self.conv2 = ResBlock(64 * 2, (96 * 2, 128 * 2),
-                              laplacian = self.laplacians[1],
-                              convblock_kwargs = convblock_kwargs)
-    
-        # Encoding block 3
-        self.conv3 = ResBlock(128 * 2, (256 * 2, 128 * 2),
-                              laplacian = self.laplacians[2],
-                              convblock_kwargs = convblock_kwargs)
-        
-        ##--------------------------------------------------------------------.
-        ### Decoding blocks 
-        # Decoding level 2
-        self.uconv2 = ResBlock(256 * 2, (128 * 2, 64 * 2),
-                      laplacian = self.laplacians[1],
-                      convblock_kwargs = convblock_kwargs)
-                
-        # Decoding block 1
-        self.uconv1 = ResBlock(128 * 2, (64 * 2, 32 * 2),
-                      laplacian = self.laplacians[0],
-                      convblock_kwargs = convblock_kwargs)
+        # Dynamic Temporal Difference Encoding Block                                                                    
+        self.resblock_diff11 = ResBlock(self.input_channels, self.input_channels,
+                                       laplacian = self.laplacians[0],
+                                       convblock_kwargs = convblock_kwargs)                        
+        self.resblock_diff12 = ResBlock(self.input_channels, (self.input_channels*4, self.input_channels),
+                                       laplacian = self.laplacians[0],
+                                       convblock_kwargs = convblock_kwargs) 
+        self.resblock_diff13 = ResBlock(self.input_channels, (self.input_channels*4, self.input_channels),
+                                        laplacian = self.laplacians[0],
+                                        convblock_kwargs = convblock_kwargs) 
         ##------------------------------------.
-        # Final ResBlock 
-        self.uconv1_final = ResBlock(32 * 2, self.output_channels, 
-                                     laplacian = self.laplacians[0], 
-                                     convblock_kwargs = convblock_kwargs)
+        # State ResBlocks 1
+        self.resblock_state_11 = ResBlock(self.input_channels, (self.input_channels*2, self.input_channels),
+                                         laplacian = self.laplacians[0],
+                                         convblock_kwargs = convblock_kwargs)
+        self.resblock_state_12 = ResBlock(self.input_channels, (self.input_channels*2, self.input_channels),
+                                          laplacian = self.laplacians[0],
+                                          convblock_kwargs = convblock_kwargs)  
+        
+        ##------------------------------------.                                  
+        # Encoding State block 1
+        special_kwargs = convblock_kwargs.copy()
+        special_kwargs["batch_norm"] = False 
+        special_kwargs["activation"] = False    
+        self.state_encoder11 = ConvBlock(self.input_channels, self.output_channels, 
+                                         laplacian = self.laplacians[0],     
+                                         **special_kwargs) 
+        self.state_encoder12 = ConvBlock(self.output_channels, self.output_channels, 
+                                         laplacian = self.laplacians[0],    
+                                         **special_kwargs) 
+        ##------------------------------------.
+        # ResBlock after concat 
+        self.resblock_after_concat11 = ResBlock(self.output_channels, self.output_channels, 
+                                                laplacian = self.laplacians[0], 
+                                                convblock_kwargs = convblock_kwargs)
+        self.resblock_after_concat12 = ResBlock(self.output_channels, self.output_channels, 
+                                                laplacian = self.laplacians[0], 
+                                                convblock_kwargs = convblock_kwargs)
         ##--------------------------------------------------------------------.
         # Rezero trick for the full architecture if increment learning ... 
         if self.increment_learning:
             self.res_increment = torch.nn.Parameter(torch.zeros(1), requires_grad=True)
+        
+        ##------------------------------------.
+        # Postprocess ResBlock 
+        # self.resblock_postprocess = ResBlock(self.output_channels, self.output_channels, 
+        #                                      laplacian = self.laplacians[0], 
+        #                                      convblock_kwargs = convblock_kwargs)
+        ##--------------------------------------------------------------------.
+
         
     ##------------------------------------------------------------------------.
     def encode(self, x):
@@ -458,7 +468,11 @@ class UNetSpherical(UNet, torch.nn.Module):
         batch_size = x.shape[0]
         ##--------------------------------------------------------------------.
         ## Extract last timestep (to add after decoding) to make the network learn the increment
-        x_last_timestep = x[:,-1,:,-2:].unsqueeze(dim=1)
+        x_dynamic = x[:,-1,:,-2:].unsqueeze(dim=1)   # TODO: generalize to feature order 
+        x_last_timestep = x[:,-1,:,-2:].unsqueeze(dim=1)   # TODO: generalize to feature order 
+        
+        x_dynamic_diff = diffblock(x_dynamic, x_last_timestep, diff_axis = )
+
         
         ##--------------------------------------------------------------------.
         # Reorder and reshape data to ['sample', 'node', 'time-feature'] --> [B, V, Fin] for ConvCheb
@@ -509,5 +523,8 @@ class UNetSpherical(UNet, torch.nn.Module):
             # print(x.shape)
             # print(x_last_timestep.shape)
             x += x_last_timestep
+        ##--------------------------------------------------------------------.
+        # Postprocess output with ResBlock 
+        # x = self.resblock_postprocess(x)
         ##--------------------------------------------------------------------.
         return x
