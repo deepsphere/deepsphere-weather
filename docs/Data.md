@@ -14,7 +14,7 @@ preprocessed
 |         └─── Data
 |         └─── Scalers
 |         └─── Benchmarks 
-|     |   └─── Climatology 
+|         └─── Climatology 
 | 
 └───IF5_HRES
 |    └─── <sampling>

@@ -83,6 +83,14 @@ da_single = ds['t850'].isel(time=0)
 # da.sphere.plot.add_mesh_from_shp(fpath)
 # da.sphere.plot.add_nodes_from_shp(fpath) 
 
+        
+a = da_dynamic.isel(time=slice(0,2)).sel(feature=['q850','q1000'])
+a.sphere.add_SphericalVoronoiMesh(x='lon', y='lat').sphere.plot(col="feature", row='time',
+                                                                edgecolors = None, 
+                                                                linewidths = 0.001,
+                                                                subplot_kws={'projection': cartopy.crs.Robinson()})
+plt.show()
+
 #----------------------------------------------------------------------------.
 #### Define reference coordinate reference system 
 # - Plate Carrée uses the straight-line path on a longitude/latitude basis

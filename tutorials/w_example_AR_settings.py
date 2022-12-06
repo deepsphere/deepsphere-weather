@@ -31,6 +31,31 @@ print(get_first_valid_idx(input_k))
 print(get_last_valid_idx(output_k=output_k,
                          forecast_cycle=forecast_cycle, 
                          ar_iterations=ar_iterations))
+### Example DIRECT OUTPUT  
+forecast_cycle = 1
+ar_iterations = 0
+input_k = np.array([-3,-2,-1])
+output_k = np.array([0, 1, 2, 3, 4, 5, 6, 7])
+
+check_ar_settings(input_k=input_k, output_k=output_k, forecast_cycle=forecast_cycle, 
+                  ar_iterations=ar_iterations, stack_most_recent_prediction=True)
+plot_ar_settings(input_k=input_k, output_k=output_k, forecast_cycle=forecast_cycle, ar_iterations = ar_iterations)
+
+print(get_first_valid_idx(input_k))
+print(get_last_valid_idx(output_k=output_k,
+                         forecast_cycle=forecast_cycle, 
+                         ar_iterations=ar_iterations))
+
+### Example AR OUTPUT  
+forecast_cycle = 1
+ar_iterations = 7
+input_k = np.array([-3,-2,-1])
+output_k = np.array([0])
+
+check_ar_settings(input_k=input_k, output_k=output_k, forecast_cycle=forecast_cycle, 
+                  ar_iterations=ar_iterations, stack_most_recent_prediction=True)
+plot_ar_settings(input_k=input_k, output_k=output_k, forecast_cycle=forecast_cycle, ar_iterations = ar_iterations)
+
 
 ##----------------------------------------------------------------------------.
 ### Example - Fixed DELTA T   
