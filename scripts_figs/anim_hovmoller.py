@@ -9,21 +9,12 @@ import os
 # os.chdir("/home/ghiggi/Projects/deepsphere-weather")
 import sys
 sys.path.append('../')
-import numpy as np
-import cartopy.crs as ccrs
+
 import xarray as xr
-import matplotlib as mpl 
-import matplotlib.pyplot as plt
-
-from modules.utils_xr import xr_common_vars
-
-## Side-project utils (maybe migrating to separate packages in future)
 import modules.xsphere  # required for xarray 'sphere' accessor 
-from modules.xscaler import LoadScaler
-from modules.xscaler import SequentialScaler
-from modules.xscaler import LoadAnomaly
-from modules.xscaler import HovmollerDiagram
-
+from xscaler import LoadScaler, SequentialScaler, LoadAnomaly, HovmollerDiagram
+from xforecasting.utils.xr import xr_common_vars
+ 
 from modules.my_plotting import get_var_clim
 from modules.my_plotting import get_var_cmap
 from modules.my_plotting import create_gif_forecast_evolution

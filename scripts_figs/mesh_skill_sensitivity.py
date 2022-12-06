@@ -2,7 +2,6 @@
 import os
 import sys
 sys.path.append('../')
-import matplotlib.pyplot as plt
 import xarray as xr
 from modules.my_plotting import benchmark_global_skill
 from modules.my_plotting import benchmark_global_skills

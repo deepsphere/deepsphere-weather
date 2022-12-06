@@ -20,22 +20,7 @@ import cartopy.crs as ccrs
 from torch import optim
 from torchinfo import summary
 
-import xverif 
-import xsphere  # required for xarray 'sphere' accessor 
-from xscaler import LoadScaler, SequentialScaler, LoadAnomaly
-from xforecasting import (
-    AutoregressiveTraining,
-    AutoregressivePredictions,
-    rechunk_forecasts_for_verification,
-    EarlyStopping, 
-    AR_Scheduler,
-)
-from xforecasting.utils.io import get_ar_model_tensor_info
-from xforecasting.utils.torch import summarize_model
-
 ## DeepSphere-Weather modules
-import modules.my_models_graph_old as my_architectures
-from modules.loss import WeightedMSELoss, AreaWeights
 from modules.utils_config import read_config_file
 from modules.utils_config import write_config_file
 from modules.utils_config import get_model_settings
@@ -49,6 +34,26 @@ from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_tensor_info
+
+from modules.utils_io import get_ar_model_tensor_info
+from modules.training_autoregressive import AutoregressiveTraining
+from modules.predictions_autoregressive import AutoregressivePredictions
+from modules.predictions_autoregressive import rechunk_forecasts_for_verification
+from modules.utils_torch import summarize_model
+from modules.AR_Scheduler import AR_Scheduler
+from modules.early_stopping import EarlyStopping
+from modules.loss import WeightedMSELoss, AreaWeights
+
+## Project specific functions
+# import modules.my_models_graph as my_architectures
+import modules.my_models_graph_old as my_architectures
+
+## Side-project utils (maybe migrating to separate packages in future)
+import modules.xsphere  # required for xarray 'sphere' accessor 
+import modules.xverif as xverif
+from modules.xscaler import LoadScaler
+from modules.xscaler import SequentialScaler
+from modules.xscaler import LoadAnomaly
 
 # - Plotting functions
 from modules.my_plotting import plot_skill_maps
@@ -86,14 +91,14 @@ def main(cfg_path, exp_dir, data_dir, force=False):
 
     ##------------------------------------------------------------------------.
     # TODO REMOVE 
-    model_settings["model_name_prefix"] = ''
-    model_settings["architecture_name"] = "EPDNetSpherical"
-    
-    training_settings['seed_model_weights'] = 30 # 20 the previous   
-    training_settings['seed_random_shuffling'] = 15 # 15 the previous     
+    model_settings["model_name_prefix"] = 'OLD_equi'
+    training_settings['seed_model_weights'] = 200 # 20 the previous   
+    training_settings['seed_random_shuffling'] = 1024 # 15 the previous     
  
+    model_settings['conv_type'] = "image"
+    model_settings['pool_method'] = "max"
     model_settings['knn'] = 20
-    model_settings['bias'] = False
+    model_settings['bias'] = True
     model_settings['batch_norm'] = True
     model_settings['batch_norm_before_activation'] = True
     model_settings['activation'] = True
@@ -103,22 +108,23 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     training_settings['scoring_interval'] = 10
     training_settings['training_batch_size'] = 16
     training_settings['validation_batch_size'] = 16
-    dataloader_settings['prefetch_factor'] = 6
-    dataloader_settings['pin_memory'] = False
-    dataloader_settings['num_workers'] = 12
+    dataloader_settings['num_workers'] = 15
     dataloader_settings['random_shuffling'] = True
-    dataloader_settings['autotune_num_workers'] = False
+    dataloader_settings['autotune_num_workers'] = True
 
-    training_settings['deterministic_training'] = False
-    training_settings['benchmark_cuDNN'] = True
-    
-    ##------------------------------------------------------------------------.
-    ### Update experiment-specific configuration settings   
-    cfg["model_settings"] = model_settings  
-    cfg["ar_settings"] = ar_settings
-    cfg["training_settings"] = training_settings
-    cfg["dataloader_settings"] = dataloader_settings
-    
+    # Eventualy try to mimick past example
+    # "deterministic_training": false
+    # "deterministic_training_seed": 100
+    # "benchmark_cuDNN": true
+
+    # Load old static and old static scalers 
+    # data_dir_old = "/data/weather_prediction/data"
+    # data_sampling_dir_old = os.path.join(data_dir_old, cfg['model_settings']["sampling_name"])
+    # data_static =  xr.open_dataset(os.path.join(data_sampling_dir_old,"/data/constants/constants_5.625deg.nc")    
+    # static_scaler = LoadScaler(os.path.join(data_sampling_dir_old, "Scalers", "GlobalStandardScaler_static.nc"))
+    # - Create single scaler 
+    # scaler = SequentialScaler(dynamic_scaler, bc_scaler, static_scaler)
+
     ##------------------------------------------------------------------------.
     #### Load Zarr Datasets
     data_sampling_dir = os.path.join(data_dir, cfg['model_settings']["sampling_name"])
@@ -290,7 +296,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##------------------------------------------------------------------------.
     ### - Define Early Stopping 
     # - Used also to update ar_scheduler (aka increase AR iterations) if 'ar_iterations' not reached.
-    patience = 3000 # when 'scoring_interval' = 10  --> minimum 4000 batches    
+    patience = 500 # when 'scoring_interval' = 10  --> minimum 4000 batches    
     minimum_iterations = 5000      # 1000
     minimum_improvement = 0.0001   # could try to use 0.0001
     stopping_metric = 'validation_total_loss' # training_total_loss                                                     
@@ -395,7 +401,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                              compressor = "auto",      # Accept also a dictionary per variable
                                              chunks = "auto")
 
-    ##-------------------------------------------------------------------------.                                                                                
+    ##-------------------------------------------------------------------------.                                         
     ##########################################
     ### - Run multi-year simulations       ###
     ########################################## 
@@ -404,7 +410,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     # - Define multi-years simulations settings
     n_year_sims = 2
     forecast_cycle = ar_settings['forecast_cycle']
-    ar_iterations = int(24/forecast_cycle*365*n_year_sims)
+    ar_iterations = 24/forecast_cycle*365*n_year_sims
     ar_blocks = None # Do all predictions in one-run
     forecast_reference_times = ['1992-07-22T00:00:00','2015-12-31T18:00:00','2016-04-01T10:00:00']
     batch_size = len(forecast_reference_times)
@@ -561,17 +567,17 @@ def main(cfg_path, exp_dir, data_dir, force=False):
         ds_forecast = ds_long_forecasts.isel(forecast_reference_time=i)
         # Plot variable 'State' Hovmoller 
         fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
-                                      ds_pred = ds_forecast, 
-                                      scaler = None,
-                                      arg = "state",
-                                      time_groups = None)
+                                     ds_pred = ds_forecast, 
+                                     scaler = None,
+                                     arg = "state",
+                                     time_groups = None)
         fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "state_sim" + '{:01}.png'.format(i)))
         # Plot variable 'standard anomalies' Hovmoller 
         fig = create_hovmoller_plots(ds_obs = ds_dynamic, 
-                                      ds_pred = ds_forecast, 
-                                      scaler = monthly_std_anomaly_scaler,
-                                      arg = "anom",
-                                      time_groups = None)
+                                     ds_pred = ds_forecast, 
+                                     scaler = monthly_std_anomaly_scaler,
+                                     arg = "anom",
+                                     time_groups = None)
         fig.savefig(os.path.join(model_dir, "figs/hovmoller_plots", "anom_sim" + '{:01}.png'.format(i)))
                                    
     print("   ---> Elapsed time: {:.1f} minutes ".format((time.time() - t_i)/60))
@@ -583,9 +589,9 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
-    default_data_dir = "/data/deepsphere-weather/data/preprocessed/ERA5_HRES" 
-    default_exp_dir = "/data/deepsphere-weather/experiments"
-    default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
+    default_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES" # new data
+    default_exp_dir = "/data/weather_prediction/experiments_GG/new_old_archi"
+    default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Equiangular_400km/MaxPool-Graph_knn.json'
       
     parser = argparse.ArgumentParser(description='Training a numerical weather prediction model emulator')
     parser.add_argument('--config_file', type=str, default=default_config)

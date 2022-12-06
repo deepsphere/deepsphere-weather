@@ -9,12 +9,15 @@ import os
 os.chdir("/home/ghiggi/Projects/deepsphere-weather")
 import dask
 import matplotlib
-import numpy as np
-import cartopy.crs as ccrs
 import xarray as xr
-import matplotlib.pyplot as plt
+
+import xsphere  # required for xarray 'sphere' accessor 
+from xscaler import LoadScaler, SequentialScaler, LoadAnomaly
+from xforecasting.utils.io import get_ar_model_tensor_info
+from xforecasting import AutoregressivePredictions
 
 ## DeepSphere-Weather
+import modules.my_models_graph_old as my_architectures
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
@@ -25,20 +28,7 @@ from modules.utils_config import get_pytorch_model
 from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import print_tensor_info
-from modules.utils_io import get_ar_model_tensor_info
-from modules.utils_xr import xr_common_vars
-from modules.predictions_autoregressive import AutoregressivePredictions
 from modules.my_plotting import create_hovmoller_plots
-
-## Project specific functions
-import modules.my_models_graph_old as my_architectures
-
-## Side-project utils (maybe migrating to separate packages in future)
-import modules.xsphere  # required for xarray 'sphere' accessor 
-from modules.xscaler import LoadScaler
-from modules.xscaler import SequentialScaler
-from modules.xscaler import LoadAnomaly
-from modules.xscaler import HovmollerDiagram
 
 # For plotting 
 # matplotlib.use('cairo') # Cairo

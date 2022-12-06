@@ -10,10 +10,14 @@ sys.path.append('../')
 import shutil
 import argparse
 import dask
-import numpy as np
 import xarray as xr
  
+from xscaler import LoadScaler, SequentialScaler
+from xforecasting.utils.io import get_ar_model_tensor_info
+from xforecasting import AutoregressivePredictions
+
 ## DeepSphere-Weather
+import modules.my_models_graph as my_architectures
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
 from modules.utils_config import get_training_settings
@@ -24,17 +28,9 @@ from modules.utils_config import get_pytorch_model
 from modules.utils_config import set_pytorch_settings
 from modules.utils_config import load_pretrained_model
 from modules.utils_config import print_tensor_info
-from modules.utils_io import get_ar_model_tensor_info
-from modules.predictions_autoregressive import AutoregressivePredictions
-
-## Project specific functions
-import modules.my_models_graph as my_architectures
-
-## Side-project utils (maybe migrating to separate packages in future)
-from modules.xscaler import LoadScaler
-from modules.xscaler import SequentialScaler
  
-# 
+ 
+ 
 # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -196,7 +192,7 @@ def main(data_dir,
     print("- Job done ;) ")
 
 if __name__ == '__main__':
-    default_data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
+    default_data_dir = "/ltenas3/data/DeepSphere/data/preprocessed/ERA5_HRES"
     parser = argparse.ArgumentParser(description='Launch weather predictions.')
     parser.add_argument('--model_dir', type=str)
     parser.add_argument('--forecast_reference_times',

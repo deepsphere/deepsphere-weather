@@ -11,11 +11,14 @@ import time
 import gc
 import dask
 import warnings
-from modules.xscaler import GlobalStandardScaler   
-from modules.xscaler import GlobalMinMaxScaler
-from modules.xscaler import AnomalyScaler
-from modules.xscaler import Climatology
 import xarray as xr
+from xscaler import (
+    GlobalStandardScaler,
+    GlobalMinMaxScaler,
+    AnomalyScaler, 
+    Climatology
+)
+
 # warnings.filterwarnings("ignore")
 
 # with process. no memory leak 
@@ -332,7 +335,7 @@ if __name__ == '__main__':
     # - Define data directory
     DataArrayFormat = False
     # DataArrayFormat = True
-    base_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES/"
+    base_data_dir = "/ltenas3/data/DeepSphere/data/preprocessed/ERA5_HRES/"
     # base_data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES/"
         
     # - Define samplings

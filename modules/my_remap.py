@@ -9,10 +9,9 @@ import os
 import glob 
 import re 
 import numpy as np 
-
-from modules.remap import check_normalization
-from modules.remap import cdo_remapping
-
+from xsphere.remapping import check_normalization
+from xsphere.cdo import cdo_remapping
+ 
 ########################################
 ### Ad-hoc funtion for WeatherBench #### 
 ########################################

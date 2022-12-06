@@ -1,16 +1,13 @@
 """
     implementation of SWAG
 """
-
 import torch
 import numpy as np
-import itertools
-from torch.distributions.normal import Normal
-import copy
 
-import gpytorch
-from gpytorch.lazy import RootLazyTensor, DiagLazyTensor, AddedDiagLazyTensor
-from gpytorch.distributions import MultivariateNormal
+# from torch.distributions.normal import Normal
+# import gpytorch
+# from gpytorch.lazy import RootLazyTensor, DiagLazyTensor, AddedDiagLazyTensor
+# from gpytorch.distributions import MultivariateNormal
 
 # from utils_swag import flatten, unflatten_like
 
@@ -249,3 +246,5 @@ class SWAG(torch.nn.Module):
             var_list.append(sq_mean - mean ** 2.0)
             cov_mat_root_list.append(cov_mat_sqrt)
         return mean_list, var_list, cov_mat_root_list
+    
+    

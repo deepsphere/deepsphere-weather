@@ -20,7 +20,22 @@ import cartopy.crs as ccrs
 from torch import optim
 from torchinfo import summary
 
+import xverif 
+import xsphere  # required for xarray 'sphere' accessor 
+from xscaler import LoadScaler, SequentialScaler, LoadAnomaly
+from xforecasting import (
+    AutoregressiveTraining,
+    AutoregressivePredictions,
+    rechunk_forecasts_for_verification,
+    EarlyStopping, 
+    AR_Scheduler,
+)
+from xforecasting.utils.io import get_ar_model_tensor_info
+from xforecasting.utils.torch import summarize_model
+
 ## DeepSphere-Weather modules
+import modules.my_models_graph_old as my_architectures
+from modules.loss import WeightedMSELoss, AreaWeights, reshape_tensors_4_loss
 from modules.utils_config import read_config_file
 from modules.utils_config import write_config_file
 from modules.utils_config import get_model_settings
@@ -34,26 +49,6 @@ from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_tensor_info
-
-from modules.utils_io import get_ar_model_tensor_info
-from modules.training_autoregressive import AutoregressiveTraining
-from modules.predictions_autoregressive import AutoregressivePredictions
-from modules.predictions_autoregressive import rechunk_forecasts_for_verification
-from modules.utils_torch import summarize_model
-from modules.AR_Scheduler import AR_Scheduler
-from modules.early_stopping import EarlyStopping
-from modules.loss import WeightedMSELoss, AreaWeights
-
-## Project specific functions
-# import modules.my_models_graph as my_architectures
-import modules.my_models_graph_old as my_architectures
-
-## Side-project utils (maybe migrating to separate packages in future)
-import modules.xsphere  # required for xarray 'sphere' accessor 
-import modules.xverif as xverif
-from modules.xscaler import LoadScaler
-from modules.xscaler import SequentialScaler
-from modules.xscaler import LoadAnomaly
 
 # - Plotting functions
 from modules.my_plotting import plot_skill_maps
@@ -320,6 +315,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
                                                lr_scheduler = lr_scheduler, 
                                                ar_scheduler = ar_scheduler,                                
                                                early_stopping = early_stopping,
+                                               reshape_tensors_4_loss = reshape_tensors_4_loss, 
                                                # Data
                                                data_static = ds_static,   
                                                training_data_dynamic = training_ds_dynamic,
@@ -587,7 +583,7 @@ def main(cfg_path, exp_dir, data_dir, force=False):
     ##-------------------------------------------------------------------------.
 
 if __name__ == '__main__':
-    default_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES" # new data
+    default_data_dir = "/ltenas3/data/DeepSphere/data/preprocessed/ERA5_HRES" # new data
     default_exp_dir = "/data/weather_prediction/experiments_GG/new_old_archi"
     default_config = '/home/ghiggi/Projects/deepsphere-weather/configs/UNetSpherical/Healpix_400km/MaxAreaPool-Graph_knn.json'
       

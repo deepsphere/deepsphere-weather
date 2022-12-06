@@ -7,25 +7,26 @@ Created on Thu Aug 19 06:33:57 2021
 """
 import os   
 import glob
-os.chdir('/home/ghiggi/Projects/deepsphere-weather')
+import shutil
 import numcodecs
-import time
 import numpy as np
 import xarray as xr 
 import pandas as pd 
 import seaborn as sns
 import matplotlib.pyplot as plt
-from modules.utils_zarr import get_reading_time
-from modules.utils_zarr import get_reading_throughput
-from modules.utils_zarr import get_storage_ratio_zarr
-from modules.utils_zarr import get_memory_size_chunk
-from modules.utils_zarr import get_memory_size_zarr
-from modules.utils_zarr import get_memory_size_dataset
-from modules.utils_zarr import _getlossless_compressors
-from modules.utils_zarr import profile_zarr_io
-from modules.utils_zarr import write_zarr
+from xforecasting.utils.zarr import (
+    # get_reading_time,
+    # get_reading_throughput,
+    # get_storage_ratio_zarr,
+    get_memory_size_chunk, 
+    get_memory_size_zarr, 
+    get_memory_size_dataset,
+    _getlossless_compressors,
+    profile_zarr_io,
+    write_zarr
+)
 from modules.my_io import reformat_pl  
-import shutil
+
 ##----------------------------------------------------------------------------.
 # Thoughts: 
 # - Here the compressor is choosed based on optimization of a specific feature
@@ -45,8 +46,8 @@ import shutil
 
 ##----------------------------------------------------------------------------.
 # Define paths and settings 
-data_dir = "/ltenas3/DeepSphere/data" 
-zarr_benchmark_dir = "/ltenas3/DeepSphere/data/zarr_benchmark"
+data_dir = "/ltenas3/data/DeepSphere/data" 
+zarr_benchmark_dir = "/ltenas3/data/DeepSphere/data/zarr_benchmark"
 sampling = "Healpix_400km"
 NOVERTICAL_DIMENSION = True # --> Each pressure level treated as a feature 
 STACK_VARIABLES = True      # --> Create a DataArray with all features along the "feature" dimension

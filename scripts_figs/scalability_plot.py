@@ -3,10 +3,13 @@ import sys
 sys.path.append('../')
 
 import torch
-import json
 import numpy as np
-import pygsp as pg
 import matplotlib.pyplot as plt 
+
+from xsphere.remapping import SphericalVoronoiMeshArea_from_pygsp
+
+## DeepSphere-Weather
+import modules.my_models_graph as my_architectures
 from modules.utils_torch import get_time_function
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
@@ -15,10 +18,7 @@ from modules.utils_config import get_ar_settings
 from modules.utils_config import get_dataloader_settings
 from modules.utils_config import set_pytorch_settings
 from modules.utils_models import get_pygsp_graph
-from modules.remap import SphericalVoronoiMeshArea_from_pygsp
 
-import modules.my_models_graph as my_architectures
-from tqdm import trange
 
 # Plotting options
 import matplotlib

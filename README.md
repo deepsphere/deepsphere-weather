@@ -40,7 +40,7 @@ For a local installation, follow the below instructions.
       ```sh
       conda install -c conda-forge pytorch-cpu  
       ```
-   - Install the other required packages: 
+   - Install the required packages: 
    ```sh
    conda create --name weather python=3.8
    conda install xarray dask cdo h5py h5netcdf netcdf4 zarr numcodecs rechunker xskillscore
@@ -52,12 +52,35 @@ For a local installation, follow the below instructions.
    pip install git+https://github.com/epfl-lts2/pygsp@sphere-graphs
    pip install torchinfo
    ```
+   - Clone the required repository: 
+   ```sh
+   git clone git@github.com:ghiggi/xverif.git
+   git clone git@github.com:ghiggi/xscaler.git
+   git clone git@github.com:ghiggi/xsphere.git
+   git clone git@github.com:ghiggi/xforecasting.git
+   ```
    
 2. Alternatively install the dependencies using one of the appropriate below 
    environment.yml files:
    ```sh
    conda env create -f environment_python3.8.5.yml
    conda env create -f environment_python3.9.yml
+   ```
+   and clone the required repository: 
+   ```sh
+   git clone git@github.com:ghiggi/xverif.git
+   git clone git@github.com:ghiggi/xscaler.git
+   git clone git@github.com:ghiggi/xsphere.git
+   git clone git@github.com:ghiggi/xforecasting.git
+   ```
+   
+3. Add the PYTHONPATH (i.e. in the .bashrc) for the following packages. Here is an example: 
+   ```sh
+    export PYTHONPATH="${PYTHONPATH}:/home/ghiggi/Python_Packages/xscaler"
+    export PYTHONPATH="${PYTHONPATH}:/home/ghiggi/Python_Packages/xverif"
+    export PYTHONPATH="${PYTHONPATH}:/home/ghiggi/Python_Packages/xsphere"
+    export PYTHONPATH="${PYTHONPATH}:/home/ghiggi/Python_Packages/xforecasting"  
+    export PYTHONPATH="${PYTHONPATH}:/home/ghiggi/Projects/deepsphere-weather"
    ```
 
 ## Tutorials
@@ -68,11 +91,40 @@ For a local installation, follow the below instructions.
 [`spherical_grids.ipynb`]: https://nbviewer.jupyter.org/github/deepsphere/deepsphere-weather/blob/outputs/tutorials/spherical_grids.ipynb
 [`interpolation_pooling.ipynb`]: https://nbviewer.jupyter.org/github/deepsphere/deepsphere-weather/blob/outputs/tutorials/interpolation_pooling.ipynb
 
+# Data structure
+
+Here we are going to document the data structure 
+
+The data required for model training and evaluation are stored with the following folder hierarchy.
+
+```
+preprocessed
+└───ERA5_HRES
+|   └─── <sampling>
+|         └─── Data
+|         └─── Scalers
+|         └─── Benchmarks 
+|         └─── Climatology 
+| 
+└───IF5_HRES
+|    └─── <sampling>
+|         └─── Data
+|    
+└───IF5_ENS
+|   └─── <sampling>
+         └─── Data
+```
+
+On the LTE servers, data are available in the directory `/ltenas3/data/DeepSphere`
+
+The data are available upon request to the authors.
+
 ## Reproducing our results
+
 
 ## Contributors
 
-* [Gionata Ghiggi](https://people.epfl.ch/gionata.ghiggi)
+* [Gionata Ghiggi](https://people.epfl.ch/gionata.ghiggi) [slides](https://presentations.copernicus.org/EGU21/EGU21-2681_presentation.pdf) [video](https://www.youtube.com/watch?v=7D5OjzAdfz8&t=172s&ab_channel=IS-ENES3H2020)
 * [Michaël Defferrard](https://deff.ch)
 * [Wentao Feng](https://www.linkedin.com/in/wentaofeng) [[code](https://github.com/ownzonefeng/weather_prediction/), [slides](https://infoscience.epfl.ch/record/282285)]
 * [Yann Yasser Haddad](https://www.linkedin.com/in/yann-yasser-haddad) [[code](https://github.com/ownzonefeng/weather_prediction), [slides](https://infoscience.epfl.ch/record/282437)]

@@ -6,7 +6,6 @@ Created on Fri Jan 22 13:23:20 2021
 @author: ghiggi
 """
 import os
-import sys
 import json
 import torch
 import pickle
@@ -16,8 +15,10 @@ import types
 import numpy as np
 import deepdiff
 
-from modules.utils_torch import set_pytorch_deterministic
-from modules.utils_torch import set_pytorch_numeric_precision
+from xforecasting.utils.torch import (
+    set_pytorch_deterministic,
+    set_pytorch_numeric_precision,
+)
 #-----------------------------------------------------------------------------.
 ########################
 ### Default settings ###

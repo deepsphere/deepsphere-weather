@@ -10,10 +10,10 @@ import torch
 import numpy as np
 from collections import Counter
 from abc import ABC, abstractmethod
+from torch.nn import functional as F
 from scipy import sparse
 from scipy.spatial import SphericalVoronoi
-from torch.nn import functional as F
-from modules import remap
+from xsphere.remapping import compute_interpolation_weights
 
 ##----------------------------------------------------------------------------.
 # ##############################
@@ -469,10 +469,10 @@ class Conv2dEquiangular(torch.nn.Module):
 # #####################
 def _build_interpolation_matrix(src_graph, dst_graph):
     """Return the sparse matrix that interpolates between two spherical samplings."""
-    ds = remap.compute_interpolation_weights(src_graph=src_graph,
-                                             dst_graph=dst_graph, 
-                                             method='conservative',
-                                             normalization='fracarea') 
+    ds = compute_interpolation_weights(src_graph=src_graph,
+                                       dst_graph=dst_graph, 
+                                       method='conservative',
+                                       normalization='fracarea') 
 
     # Sanity checks
     np.testing.assert_allclose(ds.src_grid_center_lat, src_graph.signals['lat'])

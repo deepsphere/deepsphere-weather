@@ -8,13 +8,11 @@ Created on Fri Jul 30 17:12:06 2021
 import os
 import sys
 sys.path.append('../')
+import glob
 import numpy as np
 import xarray as xr
-import dask
-import glob
-from copy import copy
 
-dataset_path = "/ltenas3/DeepSphere/data/raw/ERA5_HRES"
+dataset_path = "/ltenas3/data/DeepSphere/data/raw/ERA5_HRES"
 
 spherical_samplings = [ 
     # 400 km 

@@ -6,8 +6,6 @@ Created on Thu Feb 18 22:05:51 2021
 @author: ghiggi
 """
 import pygsp
-import numpy as np
-from collections.abc import Iterable
 
 def get_pygsp_graph_dict():
     """Return a dictionary matching sampling name with pygsp graph function."""

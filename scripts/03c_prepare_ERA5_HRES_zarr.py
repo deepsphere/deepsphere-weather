@@ -11,14 +11,11 @@ sys.path.append('../')
 import time 
 import zarr
 import glob
-import dask
 import shutil
 import numpy as np
 import xarray as xr
-from dask.distributed import Client, LocalCluster
-from modules.utils_io import check_no_missing_timesteps 
-from modules.utils_zarr import rechunk_Dataset
-from modules.utils_zarr import write_zarr
+from xforecasting.utils.io import check_no_missing_timesteps 
+from xforecasting.utils.zarr import rechunk_Dataset, write_zarr
 from modules.my_io import reformat_pl  
 from modules.my_io import reformat_toa
 
@@ -232,8 +229,8 @@ def rechunk_zarr_stores(zarr_dataset_dirpath, sampling, chunks, src_subdirname, 
 #-----------------------------------------------------------------------------.
 
 ## Define data directory
-raw_dataset_dirpath = "/ltenas3/DeepSphere/data/raw/ERA5_HRES"
-zarr_dataset_dirpath = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
+raw_dataset_dirpath = "/ltenas3/data/DeepSphere/data/raw/ERA5_HRES"
+zarr_dataset_dirpath = "/ltenas3/data/DeepSphere/data/preprocessed/ERA5_HRES"
 
 # Define spherical samplings
 spherical_samplings = [ 

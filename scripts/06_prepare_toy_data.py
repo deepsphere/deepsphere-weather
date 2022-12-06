@@ -7,8 +7,8 @@ import xarray as xr
 
 ##-----------------------------------------------------------------------------.
 # Define directories
-base_data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES"
-base_toy_data_dir = "/ltenas3/DeepSphere/data/toy_data/ERA5_HRES"
+base_data_dir = "/ltenas3/data/DeepSphere/data/preprocessed/ERA5_HRES"
+base_toy_data_dir = "/ltenas3/data/DeepSphere/data/toy_data/ERA5_HRES"
 
 # Define spherical samplings
 spherical_samplings = [ 

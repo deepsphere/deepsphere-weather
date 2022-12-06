@@ -11,8 +11,8 @@ sys.path.append('../')
 from modules.my_remap import remap_grib_files
 
 ### Define folder paths
-proj_dir = "/ltenas3/DeepSphere/"
-data_dir = "/ltenas3/DeepSphere/data/raw"
+proj_dir = "/ltenas3/data/DeepSphere/"
+data_dir = "/ltenas3/data/DeepSphere/data/raw"
 
 CDO_grids_dir = os.path.join(proj_dir, "grids","CDO_grids")
 CDO_grids_weights_dir = os.path.join(proj_dir, "grids", "CDO_grids_weights")

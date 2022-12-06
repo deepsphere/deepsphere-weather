@@ -2,15 +2,14 @@ import os
 # os.chdir('/home/ghiggi/Projects/deepsphere-weather')
 import sys
 sys.path.append('../')    
-import numpy as np
+
 import xarray as xr
+import xsphere   # required for xarray 'sphere' accessor
+from xscaler import LoadAnomaly 
 
 from modules.utils_config import read_config_file
 from modules.my_plotting import create_gif_forecast_error
-
 from modules.my_plotting import create_gif_forecast_anom_error
-from modules.xscaler import LoadAnomaly
-import modules.xsphere  
 
 # Plotting options
 import matplotlib

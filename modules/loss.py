@@ -1,11 +1,10 @@
 import torch
-from torch import nn
 import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt 
-
-from modules.remap import compute_interpolation_weights
+from torch import nn
+from xsphere.remapping import compute_interpolation_weights
 
 # https://pytorch.org/tutorials/recipes/recipes/tensorboard_with_pytorch.html
 # https://torchmetrics.readthedocs.io/en/latest/pages/quickstart.html

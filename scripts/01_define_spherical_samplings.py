@@ -7,14 +7,12 @@ Created on Sat Nov 28 13:57:14 2020
 """
 import os
 import sys
-import numpy as np 
 import pygsp as pg
-import healpy as hp
 sys.path.append('../')
-from modules.remap import pygsp_to_CDO_grid
+from xsphere.remapping import pygsp_to_CDO_grid
 
 ### Define folder paths
-proj_dir = "/ltenas3/DeepSphere/"
+proj_dir = "/ltenas3/data/DeepSphere/"
 # proj_dir = "/home/ghiggi/Projects/DeepSphere"
 CDO_grids_dir = os.path.join(proj_dir, "grids", "CDO_grids")
 #-----------------------------------------------------------------------------.

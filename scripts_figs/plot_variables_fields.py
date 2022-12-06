@@ -1,16 +1,11 @@
 import os
 import sys
 sys.path.append('../')
-import numpy as np
-import xarray as xr
+
 import matplotlib.pyplot as plt
-import cartopy
 import cartopy.crs as ccrs
-import pygsp as pg
+import xsphere  # required for xarray 'sphere' accessor 
  
-from modules.my_io import readDatasets   
-from modules import xsphere
-from modules.my_plotting import get_var_clim
 
 # Plotting options
 import matplotlib

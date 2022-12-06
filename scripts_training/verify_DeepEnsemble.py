@@ -7,12 +7,12 @@ Created on Sun Aug 22 17:50:11 2021
 """
 import os
 import glob
-import sys
+import time
 import shutil
 import argparse
 import xarray as xr 
-import modules.xverif as xverif
-
+import xverif
+import cartopy.crs as ccrs
 from modules.utils_config import read_config_file
 from modules.utils_config import get_model_settings
 from modules.my_plotting import plot_skill_maps

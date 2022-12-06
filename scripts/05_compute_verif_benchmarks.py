@@ -12,10 +12,9 @@ import time
 import numpy as np
 import dask
 import xarray as xr
-
-from modules.xscaler import LoadClimatology
-import modules.xsphere as xsphere #  it load the xarray sphere accessor ! 
-import modules.xverif as xverif
+import xverif 
+import xsphere #  it load the xarray sphere accessor ! 
+from xscaler import LoadClimatology
 
 ##----------------------------------------------------------------------------.
 #### Compute climatology and persistence skills  
@@ -118,7 +117,7 @@ if __name__ == '__main__':
     ##------------------------------------------------------------------------.
     ### Define settings
     # - Define data directory
-    base_data_dir = "/ltenas3/DeepSphere/data/preprocessed_ds/ERA5_HRES/"
+    base_data_dir = "/ltenas3/data/DeepSphere/data/preprocessed/ERA5_HRES/"
     # base_data_dir = "/ltenas3/DeepSphere/data/preprocessed/ERA5_HRES/"
         
     # - Define samplings

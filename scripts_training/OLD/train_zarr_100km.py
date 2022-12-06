@@ -21,7 +21,22 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from torch import nn, optim
 
+import xverif 
+import xsphere  # required for xarray 'sphere' accessor 
+from xscaler import LoadScaler, SequentialScaler, LoadAnomaly
+from xforecasting import (
+    AutoregressiveTraining,
+    AutoregressivePredictions,
+    rechunk_forecasts_for_verification,
+    EarlyStopping, 
+    AR_Scheduler,
+)
+from xforecasting.utils.io import get_ar_model_tensor_info 
+from xforecasting.utils.torch import summarize_model
+
 ## DeepSphere-Weather modules
+import modules.my_models_graph as my_architectures
+from modules.loss import WeightedMSELoss, compute_error_weight
 from modules.utils_config import get_default_settings
 from modules.utils_config import read_config_file
 from modules.utils_config import write_config_file
@@ -37,28 +52,8 @@ from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_dim_info
 from modules.utils_models import get_pygsp_graph
-from modules.utils_io import get_AR_model_diminfo
-from modules.utils_io import check_AR_DataArrays 
-from modules.training_autoregressive import AutoregressiveTraining
-from modules.predictions_autoregressive import AutoregressivePredictions
-from modules.predictions_autoregressive import rechunk_forecasts_for_verification
-# from modules.predictions_autoregressive import reshape_forecasts_for_verification
-from modules.utils_torch import summarize_model
-from modules.AR_Scheduler import AR_Scheduler
-from modules.early_stopping import EarlyStopping
-from modules.loss import WeightedMSELoss, compute_error_weight
-
-## Side-project utils (maybe migrating to separate packages in future)
-from modules.xscaler import LoadScaler
-from modules.xscaler import SequentialScaler
-from modules.xscaler import LoadAnomaly
-import modules.xsphere  # required for xarray 'sphere' accessor 
-import modules.xverif as xverif
-
-## Project specific functions
-from modules.my_io import readDatasets   
-from modules.my_io import reformat_Datasets
-import modules.my_models_graph as my_architectures
+from modules.utils_io import get_AR_model_diminfo, check_AR_DataArrays
+ 
 # - Plotting functions
 from modules.my_plotting import plot_skill_maps
 from modules.my_plotting import plot_global_skill

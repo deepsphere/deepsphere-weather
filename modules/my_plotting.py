@@ -9,20 +9,20 @@ import os
 import subprocess
 import tempfile
 import shutil
-import dask
 import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt 
 import matplotlib.gridspec as gridspec
-from dask.diagnostics import ProgressBar
-from modules.utils_xr import xr_common_vars
-from modules.utils_xr import xr_has_coord
-from modules.utils_xr import xr_has_dim
-from modules.utils_xr import xr_n_vars
-from modules.utils_xr import xr_Dataset_vars
-from modules.xscaler import HovmollerDiagram
-import modules.xsphere as xsphere
+from xforecasting.utils.xr import (
+    xr_common_vars,
+    xr_has_coord, 
+    xr_has_dim, 
+    xr_n_vars, 
+    xr_Dataset_vars,
+)
+from xscaler import HovmollerDiagram
+import xsphere 
 
 # TODO: ylabels add unit
 # 'RMSE [$m^2 s^{−2}$]'
@@ -336,7 +336,7 @@ def plot_skill_maps(ds_skill,
                 #                   add_colorbar=True,
                 #                   add_labels=False,
                 #                   cbar_kwargs=cbar_kwargs)
-                xsphere._plot(ds[var].sel(skill=skill),
+                xsphere.plot.plot(ds[var].sel(skill=skill),
                               ax=axs[ax_count],
                               transform=ccrs.Geodetic(), 
                               edgecolors=None,
@@ -843,7 +843,7 @@ def create_gif_forecast_error(gif_fpath,
         for var in variables:
             # Plot obs 
             tmp_obs = ds_dict['obs'][var].isel(time=i)
-            xsphere._plot(tmp_obs,
+            xsphere.plot.plot(tmp_obs,
                             ax=axs[ax_count],
                             edgecolors = edgecolors,
                             antialiased = antialiased,
@@ -855,7 +855,7 @@ def create_gif_forecast_error(gif_fpath,
             axs[ax_count].coastlines(alpha=0.2)
             # Plot pred 
             tmp_pred = ds_dict['pred'][var].isel(time=i)
-            s_p = xsphere._plot(tmp_pred,
+            s_p = xsphere.plot.plot(tmp_pred,
                                 ax=axs[ax_count+1],
                                 edgecolors = edgecolors, 
                                 antialiased = antialiased,
@@ -874,7 +874,7 @@ def create_gif_forecast_error(gif_fpath,
             cbar.ax.xaxis.set_label_position('top')
             # Plot error 
             tmp_error = ds_dict['error'][var].isel(time=i)
-            e_p = xsphere._plot(tmp_error,
+            e_p = xsphere.plot.plot(tmp_error,
                                 ax=axs[ax_count+2],
                                 edgecolors = edgecolors, 
                                 antialiased = antialiased,
@@ -1014,7 +1014,7 @@ def create_gif_forecast_anom_error(gif_fpath,
         for var in variables:
             # Plot obs 
             tmp_obs = ds_dict['obs'][var].isel(time=i)
-            xsphere._plot(tmp_obs,
+            xsphere.plot.plot(tmp_obs,
                           ax=axs[ax_count],
                           edgecolors = edgecolors,
                           antialiased = antialiased,
@@ -1026,7 +1026,7 @@ def create_gif_forecast_anom_error(gif_fpath,
             axs[ax_count].coastlines(alpha=0.2)
             # Plot pred 
             tmp_pred = ds_dict['pred'][var].isel(time=i)
-            s_p = xsphere._plot(tmp_pred,
+            s_p = xsphere.plot.plot(tmp_pred,
                                 ax=axs[ax_count+1],
                                 edgecolors = edgecolors, 
                                 antialiased = antialiased,
@@ -1045,7 +1045,7 @@ def create_gif_forecast_anom_error(gif_fpath,
             cbar.ax.xaxis.set_label_position('top')
             # Plot error 
             tmp_error = ds_dict['error'][var].isel(time=i)
-            e_p = xsphere._plot(tmp_error,
+            e_p = xsphere.plot.plot(tmp_error,
                                 ax=axs[ax_count+2],
                                 edgecolors = edgecolors, 
                                 antialiased = antialiased,

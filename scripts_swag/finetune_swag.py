@@ -13,18 +13,28 @@ import warnings
 import time
 import dask
 import argparse
-import torch
-import pickle
 import numpy as np
-import pygsp as pg
 import cartopy.crs as ccrs
 import xarray as xr
-import matplotlib.pyplot as plt
-from torch import nn, optim
+from torch import optim
 from torchinfo import summary
 
+import xverif 
+import xsphere  # required for xarray 'sphere' accessor 
+from xscaler import LoadScaler, SequentialScaler, LoadAnomaly
+from xforecasting import (
+    AutoregressiveTraining,
+    # AutoregressivePredictions,
+    rechunk_forecasts_for_verification,
+    EarlyStopping, 
+    AR_Scheduler,
+)
+from xforecasting.utils.io import get_ar_model_tensor_info
+from xforecasting.utils.torch import summarize_model
+
 ## DeepSphere-Weather modules
-from modules.utils_config import get_default_settings
+import modules.my_models_graph as my_architectures
+from modules.loss import WeightedMSELoss, AreaWeights
 from modules.utils_config import read_config_file
 from modules.utils_config import write_config_file
 from modules.utils_config import get_model_settings
@@ -38,28 +48,7 @@ from modules.utils_config import load_pretrained_model
 from modules.utils_config import create_experiment_directories
 from modules.utils_config import print_model_description
 from modules.utils_config import print_dim_info
-
 from modules.utils_models import get_pygsp_graph
-from modules.utils_io import get_ar_model_diminfo
-from modules.utils_io import check_ar_DataArrays 
-from modules.training_autoregressive import AutoregressiveTraining
-from modules.predictions_autoregressive import AutoregressivePredictions
-from modules.predictions_autoregressive import rechunk_forecasts_for_verification
-from modules.utils_torch import summarize_model
-from modules.AR_Scheduler import AR_Scheduler
-from modules.early_stopping import EarlyStopping
-from modules.loss import WeightedMSELoss, AreaWeights
-
-## Project specific functions
-import modules.my_models_graph as my_architectures
-
-## Side-project utils (maybe migrating to separate packages in future)
-import modules.xsphere  # required for xarray 'sphere' accessor 
-import modules.xverif as xverif
-import modules.xscaler as xscaler  
-from modules.xscaler import LoadScaler
-from modules.xscaler import SequentialScaler
-from modules.xscaler import LoadAnomaly
 
 ## SWAG utils
 from modules.utils_config import get_SWAG_settings
@@ -175,27 +164,14 @@ def main(cfg_path, exp_dir, data_dir, train=True, pred=True):
     da_test_bc = da_bc.sel(time=slice(test_years[0], test_years[-1]))
     
     print('- Splitting data into train, validation and test sets: {:.2f}s'.format(time.time() - t_i))
-    
-    ##-----------------------------------------------------------------------------.
-    ### Check DataArrays      
-    check_ar_DataArrays(da_training_dynamic = da_training_dynamic,
-                        da_training_bc = da_training_bc,  
-                        da_static = da_static,
-                        da_validation_dynamic = da_validation_dynamic,
-                        da_validation_bc = da_validation_bc,
-                        verbose=True)    
-    check_ar_DataArrays(da_training_dynamic = da_test_dynamic,
-                        da_training_bc = da_test_bc,  
-                        da_static = da_static,
-                        verbose=True)   
-    
+        
     ##------------------------------------------------------------------------.
     ### Define pyTorch settings 
     device = set_pytorch_settings(training_settings)
     
     ##------------------------------------------------------------------------.
     ## Retrieve dimension info of input-output Torch Tensors
-    dim_info = get_ar_model_diminfo(ar_settings=ar_settings,
+    dim_info = get_ar_model_tensor_info(ar_settings=ar_settings,
                                     da_dynamic=da_training_dynamic, 
                                     da_static=da_static, 
                                     da_bc=da_training_bc)
