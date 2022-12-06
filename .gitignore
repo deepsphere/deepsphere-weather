@@ -4,6 +4,7 @@
 .DS_Store
 .vscode
 test*
+.Rhistory
 
 # Folders
 /data/equiangular/
